@@ -131,6 +131,25 @@ describe("native zero CLI", () => {
     assert.equal(targets.targets.find((target: { name: string }) => target.name === "win32-x64.exe")?.exeSuffix, ".exe");
   });
 
+  it("lists and retrieves bundled skills", async () => {
+    const list = JSON.parse((await runZero(["skills", "list", "--json"])).stdout);
+    assert.equal(list.success, true);
+    assert.equal(list.data.some((skill: { name: string }) => skill.name === "zero"), true);
+
+    const zeroSkill = JSON.parse((await runZero(["skills", "get", "zero", "--full", "--json"])).stdout);
+    assert.equal(zeroSkill.success, true);
+    assert.match(zeroSkill.data[0].content, /# Zero Skill/);
+    assert.equal(zeroSkill.data[0].files.some((file: { path: string }) => file.path === "references/commands.md"), true);
+
+    const zeroPath = JSON.parse((await runZero(["skills", "path", "zero", "--json"])).stdout);
+    assert.equal(zeroPath.success, true);
+    assert.match(zeroPath.data.path, /skills\/zero$/);
+
+    const missing = await runZero(["skills", "get", "missing", "--json"]).catch((error) => error);
+    assert.notEqual(missing.code, 0);
+    assert.equal(JSON.parse(missing.stdout).success, false);
+  });
+
   it("handles target-specific executable names", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "zero-target-"));
     const out = join(cwd, "hello-windows");

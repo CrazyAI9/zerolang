@@ -2,6 +2,7 @@
 set -euo pipefail
 
 if [[ "${CI:-}" == "true" || "${ZERO_NATIVE_TEST_TRACE:-}" == "1" ]]; then
+  PS4='+ ${BASH_SOURCE[0]}:${LINENO}: '
   set -x
 fi
 

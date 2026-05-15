@@ -223,6 +223,7 @@ for (const [command, expected] of [
   [["test", "--help"], /Usage: zero test/],
   [["fmt", "--help"], /Usage: zero fmt/],
   [["new", "--help"], /Usage: zero new/],
+  [["skills", "--help"], /Usage: zero skills/],
   [["ship", "--help"], /Usage: zero ship/],
   [["targets", "--help"], /Usage: zero targets/],
   [["tokens", "--help"], /Usage: zero tokens/],
@@ -234,6 +235,23 @@ for (const [command, expected] of [
 ]) {
   assert.match(zero(command).stdout, expected);
 }
+
+const skillsList = json(["skills", "list", "--json"]).body;
+assert.equal(skillsList.success, true);
+assert(skillsList.data.some((skill) => skill.name === "zero" && /Zero/.test(skill.description)));
+
+const zeroSkill = json(["skills", "get", "zero", "--full", "--json"]).body;
+assert.equal(zeroSkill.success, true);
+assert.match(zeroSkill.data[0].content, /# Zero Skill/);
+assert(zeroSkill.data[0].files.some((file) => file.path === "references/commands.md"));
+
+const skillsPath = json(["skills", "path", "zero", "--json"]).body;
+assert.equal(skillsPath.success, true);
+assert.match(skillsPath.data.path, /skills\/zero$/);
+
+const missingSkill = zero(["skills", "get", "missing", "--json"], { allowFailure: true });
+assert.notEqual(missingSkill.code, 0);
+assert.equal(JSON.parse(missingSkill.stdout).success, false);
 
 const lexerTokens = json(["tokens", "--json", "conformance/lexer/compiler-smoke.0"]).body;
 assert.equal(lexerTokens.schemaVersion, 1);

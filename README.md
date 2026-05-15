@@ -54,6 +54,7 @@ bin/zero build --emit exe --target linux-musl-x64 examples/add.0 --out .zero/out
 bin/zero graph --json examples/systems-package
 bin/zero size --json examples/point.0
 bin/zero routes --json examples/web/hello
+bin/zero skills get zero --full
 bin/zero doctor --json
 ```
 

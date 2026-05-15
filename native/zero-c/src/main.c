@@ -1,3 +1,7 @@
+#ifndef _POSIX_C_SOURCE
+#define _POSIX_C_SOURCE 200809L
+#endif
+
 #include "zero.h"
 
 #include <ctype.h>
@@ -2854,6 +2858,7 @@ static void print_help(void) {
   printf("zero %s native bootstrap\n\n", ZERO_VERSION);
   printf("Usage:\n");
   printf("  zero --version [--json]\n");
+  printf("  zero skills [list|get|path] [--json]\n");
   printf("  zero new cli|lib|package <name>\n");
   printf("  zero check <file.0|project|zero.json>\n");
   printf("  zero test <file.0|project|zero.json>\n");
@@ -2891,6 +2896,16 @@ static void print_command_help(const char *command) {
     printf("  zero new cli hello\n");
     printf("  zero new lib math-kit\n");
     printf("  zero new package demo\n");
+  } else if (strcmp(command, "skills") == 0) {
+    printf("Usage: zero skills [list|get|path] [--json]\n\n");
+    printf("List and retrieve bundled skill content for agents.\n\n");
+    printf("Subcommands:\n");
+    printf("  list                 list available skills (default)\n");
+    printf("  get <name> [--full]  print a skill and optional references/templates\n");
+    printf("  get --all            print every visible skill\n");
+    printf("  path [name]          print skill directory paths\n\n");
+    printf("Environment:\n");
+    printf("  ZERO_SKILLS_DIR      override the bundled skills directory\n");
   } else if (strcmp(command, "doctor") == 0) {
     printf("Usage: zero doctor [--json]\n\n");
     printf("Check host, compiler, target toolchain, and docs/example readiness.\n");
@@ -2978,6 +2993,23 @@ static bool parse_command(int argc, char **argv, Command *command) {
     }
     return true;
   }
+  if (strcmp(command->command, "skills") == 0) {
+    for (int i = 2; i < argc; i++) {
+      if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) command->kind = "help";
+      else if (strcmp(argv[i], "--json") == 0) command->json = true;
+      else if (strcmp(argv[i], "--all") == 0) command->all = true;
+      else if (strcmp(argv[i], "--full") == 0) {
+        continue;
+      } else if (strncmp(argv[i], "--", 2) == 0) {
+        command->unknown_flag = argv[i];
+      } else if (!command->kind) {
+        command->kind = argv[i];
+      } else if (!command->input) {
+        command->input = argv[i];
+      }
+    }
+    return true;
+  }
   int arg_start = 2;
   if (strcmp(command->command, "abi") == 0 && argc >= 3 && strncmp(argv[2], "--", 2) != 0) {
     command->kind = argv[2];
@@ -3028,6 +3060,7 @@ static bool parse_command(int argc, char **argv, Command *command) {
   }
   return strcmp(command->command, "--version") == 0 ||
          strcmp(command->command, "version") == 0 ||
+         strcmp(command->command, "skills") == 0 ||
          strcmp(command->command, "check") == 0 ||
          strcmp(command->command, "test") == 0 ||
          strcmp(command->command, "fmt") == 0 ||
@@ -8019,6 +8052,14 @@ int main(int argc, char **argv) {
   }
   if (strcmp(command.command, "clean") == 0) {
     return clean_command(&command);
+  }
+  if (strcmp(command.command, "skills") == 0) {
+    if (command.json) {
+      printf("{\"success\":false,\"error\":\"zero skills is served by the bin/zero wrapper; run bin/zero skills from the checkout\"}\n");
+    } else {
+      fprintf(stderr, "zero skills is served by the bin/zero wrapper; run `bin/zero skills` from the checkout.\n");
+    }
+    return 1;
   }
   if (!command.input) {
     print_command_help(command.command);

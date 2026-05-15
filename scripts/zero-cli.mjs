@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -28,6 +28,10 @@ const selfHostFilesystemInputs = new Set([
 const selfHostTargetDeniedInputs = new Set([
   "conformance/native/fail/std-fs-target-unsupported.0",
 ]);
+
+if (trySkillsCommand(args)) {
+  process.exit(0);
+}
 
 rejectRemovedCBackend(args);
 
@@ -60,7 +64,303 @@ function runNative() {
     console.error(result.error.message);
     process.exit(1);
   }
-  process.exit(result.status ?? 0);
+  if (result.signal) {
+    console.error(`zero: native compiler terminated by ${result.signal}`);
+    process.exit(signalExitCode(result.signal));
+  }
+  process.exit(result.status ?? 1);
+}
+
+function signalExitCode(signal) {
+  const signalNumbers = {
+    SIGHUP: 1,
+    SIGINT: 2,
+    SIGQUIT: 3,
+    SIGILL: 4,
+    SIGTRAP: 5,
+    SIGABRT: 6,
+    SIGBUS: 7,
+    SIGFPE: 8,
+    SIGKILL: 9,
+    SIGSEGV: 11,
+    SIGPIPE: 13,
+    SIGALRM: 14,
+    SIGTERM: 15,
+  };
+  return 128 + (signalNumbers[signal] ?? 1);
+}
+
+function trySkillsCommand(argv) {
+  const clean = normalizedSkillsArgs(argv);
+  if (!clean) return false;
+  runSkillsCommand(clean, argv.includes("--json"));
+  return true;
+}
+
+function normalizedSkillsArgs(argv) {
+  if (argv[0] === "skills") return argv.filter((arg) => arg !== "--json");
+  if (argv[0] === "--json" && argv[1] === "skills") return ["skills", ...argv.slice(2).filter((arg) => arg !== "--json")];
+  return null;
+}
+
+function runSkillsCommand(argv, jsonMode) {
+  if (argv.some((arg) => arg === "--help" || arg === "-h") || argv[1] === "help") {
+    printSkillsHelp();
+    return;
+  }
+
+  const skillsDirs = findSkillsDirs();
+  if (skillsDirs.length === 0) {
+    skillsError("Skills directory not found. Set ZERO_SKILLS_DIR or reinstall Zero.", jsonMode);
+  }
+
+  const subcommand = argv[1] ?? "list";
+  if (subcommand === "list") {
+    runSkillsList(skillsDirs, jsonMode);
+  } else if (subcommand === "get") {
+    const args = argv.slice(2);
+    const names = args.filter((arg) => arg !== "--full" && arg !== "--all");
+    runSkillsGet(skillsDirs, names, args.includes("--all"), args.includes("--full"), jsonMode);
+  } else if (subcommand === "path") {
+    runSkillsPath(skillsDirs, argv[2], jsonMode);
+  } else {
+    skillsError(`Unknown skills subcommand: ${subcommand}`, jsonMode);
+  }
+}
+
+function printSkillsHelp() {
+  console.log(`zero skills - List and retrieve bundled skill content
+
+Usage: zero skills [subcommand] [options]
+
+Subcommands:
+  list                       List all available skills (default)
+  get <name> [name...]       Output a skill's full content
+  get <name> --full          Include references and templates
+  get --all                  Output every skill
+  path [name]                Print filesystem path to skill directory
+
+Options:
+  --json                     Output as JSON
+
+The skills command serves bundled skill content that matches this checkout.
+Agents should use it to load current Zero workflows before editing compiler,
+docs, examples, or conformance fixtures.
+
+Examples:
+  zero skills
+  zero skills list
+  zero skills get zero
+  zero skills get zero --full
+  zero skills get --all
+  zero skills path zero
+  zero skills list --json
+
+Environment:
+  ZERO_SKILLS_DIR            Override the skills directory path`);
+}
+
+function findSkillsDirs() {
+  const override = process.env.ZERO_SKILLS_DIR;
+  if (override && isDirectory(override)) return [resolve(override)];
+  return ["skills", "skill-data"]
+    .map((name) => join(root, name))
+    .filter(isDirectory);
+}
+
+function isDirectory(path) {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function discoverSkills(skillsDirs) {
+  const skills = [];
+  for (const skillsDir of skillsDirs) {
+    let entries;
+    try {
+      entries = readdirSync(skillsDir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const dir = join(skillsDir, entry.name);
+      const skillMd = join(dir, "SKILL.md");
+      if (!existsSync(skillMd)) continue;
+      let content;
+      try {
+        content = readFileSync(skillMd, "utf8");
+      } catch {
+        continue;
+      }
+      const frontmatter = parseSkillFrontmatter(content);
+      if (!frontmatter) continue;
+      skills.push({ ...frontmatter, dir });
+    }
+  }
+  skills.sort((a, b) => a.name.localeCompare(b.name));
+  return skills;
+}
+
+function parseSkillFrontmatter(content) {
+  const trimmed = content.trimStart();
+  if (!trimmed.startsWith("---")) return null;
+  const afterOpening = trimmed.slice(3);
+  const end = afterOpening.indexOf("\n---");
+  if (end < 0) return null;
+  const lines = afterOpening.slice(0, end).split(/\r?\n/);
+  let name = null;
+  let description = "";
+  let hidden = false;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.startsWith("name:")) {
+      name = line.slice("name:".length).trim();
+    } else if (line.startsWith("description:")) {
+      const parts = [line.slice("description:".length).trim()];
+      while (i + 1 < lines.length && (/^(  |\t)/).test(lines[i + 1])) {
+        parts.push(lines[++i].trim());
+      }
+      description = parts.join(" ");
+    } else if (line.startsWith("hidden:")) {
+      hidden = ["true", "yes"].includes(line.slice("hidden:".length).trim());
+    }
+  }
+  return name ? { name, description, hidden } : null;
+}
+
+function runSkillsList(skillsDirs, jsonMode) {
+  const skills = discoverSkills(skillsDirs).filter((skill) => !skill.hidden);
+  if (jsonMode) {
+    const data = skills.map((skill) => ({ name: skill.name, description: skill.description }));
+    console.log(JSON.stringify({ success: true, data }));
+    return;
+  }
+  if (skills.length === 0) {
+    console.log("No skills found");
+    return;
+  }
+  const maxName = Math.max(...skills.map((skill) => skill.name.length));
+  for (const skill of skills) {
+    console.log(`  ${skill.name.padEnd(maxName)}  ${truncateDescription(skill.description, 70)}`);
+  }
+}
+
+function runSkillsGet(skillsDirs, names, getAll, full, jsonMode) {
+  const allSkills = discoverSkills(skillsDirs);
+  const targets = [];
+  if (getAll) {
+    targets.push(...allSkills.filter((skill) => !skill.hidden));
+  } else {
+    for (const name of names) {
+      if (name.startsWith("-")) {
+        if (!jsonMode) console.error(`warning: unknown flag ignored: ${name}`);
+        continue;
+      }
+      const skill = allSkills.find((item) => item.name === name);
+      if (!skill) skillsError(`Skill not found: ${name}`, jsonMode);
+      targets.push(skill);
+    }
+  }
+
+  if (targets.length === 0) {
+    skillsError("No skill name provided. Usage: zero skills get <name>", jsonMode);
+  }
+
+  if (jsonMode) {
+    const data = targets.map((skill) => {
+      const item = {
+        name: skill.name,
+        content: readTextIfExists(join(skill.dir, "SKILL.md")) ?? "",
+      };
+      if (full) {
+        const files = collectSupplementaryFiles(skill.dir);
+        if (files.length > 0) item.files = files;
+      }
+      return item;
+    });
+    console.log(JSON.stringify({ success: true, data }));
+    return;
+  }
+
+  targets.forEach((skill, index) => {
+    if (index > 0) console.log("\n---\n");
+    const content = readTextIfExists(join(skill.dir, "SKILL.md"));
+    if (content) process.stdout.write(content.endsWith("\n") ? content : `${content}\n`);
+    if (full) {
+      for (const file of collectSupplementaryFiles(skill.dir)) {
+        console.log(`\n--- ${file.path} ---\n`);
+        process.stdout.write(file.content.endsWith("\n") ? file.content : `${file.content}\n`);
+      }
+    }
+  });
+}
+
+function runSkillsPath(skillsDirs, name, jsonMode) {
+  if (!name) {
+    if (jsonMode) {
+      console.log(JSON.stringify({ success: true, data: { paths: skillsDirs } }));
+    } else {
+      for (const path of skillsDirs) console.log(path);
+    }
+    return;
+  }
+
+  const skill = discoverSkills(skillsDirs).find((item) => item.name === name);
+  if (!skill) skillsError(`Skill not found: ${name}`, jsonMode);
+  if (jsonMode) {
+    console.log(JSON.stringify({ success: true, data: { name: skill.name, path: skill.dir } }));
+  } else {
+    console.log(skill.dir);
+  }
+}
+
+function collectSupplementaryFiles(skillDir) {
+  const files = [];
+  for (const subdirName of ["references", "templates"]) {
+    const subdir = join(skillDir, subdirName);
+    if (!isDirectory(subdir)) continue;
+    let entries;
+    try {
+      entries = readdirSync(subdir, { withFileTypes: true }).filter((entry) => entry.isFile()).sort((a, b) => a.name.localeCompare(b.name));
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const path = join(subdir, entry.name);
+      const content = readTextIfExists(path);
+      if (content !== null) files.push({ path: `${subdirName}/${entry.name}`, content });
+    }
+  }
+  return files;
+}
+
+function readTextIfExists(path) {
+  try {
+    return readFileSync(path, "utf8");
+  } catch {
+    return null;
+  }
+}
+
+function truncateDescription(description, maxLength) {
+  const chars = Array.from(description);
+  if (chars.length <= maxLength) return description;
+  const prefix = chars.slice(0, maxLength).join("");
+  const boundary = prefix.lastIndexOf(" ");
+  return `${prefix.slice(0, boundary > 0 ? boundary : prefix.length)}...`;
+}
+
+function skillsError(message, jsonMode) {
+  if (jsonMode) {
+    console.log(JSON.stringify({ success: false, error: message }));
+  } else {
+    console.error(`error: ${message}`);
+  }
+  process.exit(1);
 }
 
 function trySelfHostedBuild(argv) {
