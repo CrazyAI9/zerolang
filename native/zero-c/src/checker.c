@@ -35,8 +35,6 @@ struct Scope {
   bool *moved;
   bool *is_param;
   BorrowOrigins *borrow_origins;
-  size_t *shared_borrows;
-  size_t *mut_borrows;
   size_t len;
   size_t cap;
   Scope *parent;
@@ -249,8 +247,6 @@ static void scope_add_ex(Scope *scope, const char *name, const char *type, bool 
     scope->moved = realloc(scope->moved, scope->cap * sizeof(bool));
     scope->is_param = realloc(scope->is_param, scope->cap * sizeof(bool));
     scope->borrow_origins = realloc(scope->borrow_origins, scope->cap * sizeof(BorrowOrigins));
-    scope->shared_borrows = realloc(scope->shared_borrows, scope->cap * sizeof(size_t));
-    scope->mut_borrows = realloc(scope->mut_borrows, scope->cap * sizeof(size_t));
   }
   scope->names[scope->len++] = z_strdup(name);
   scope->types[scope->len - 1] = z_strdup(type ? type : "Unknown");
@@ -258,8 +254,6 @@ static void scope_add_ex(Scope *scope, const char *name, const char *type, bool 
   scope->moved[scope->len - 1] = false;
   scope->is_param[scope->len - 1] = is_param;
   scope->borrow_origins[scope->len - 1] = (BorrowOrigins){0};
-  scope->shared_borrows[scope->len - 1] = 0;
-  scope->mut_borrows[scope->len - 1] = 0;
 }
 
 static void scope_add(Scope *scope, const char *name, const char *type, bool mutable) {
@@ -343,19 +337,6 @@ static bool scope_is_param(Scope *scope, const char *name) {
   return false;
 }
 
-static bool scope_borrow_counts(Scope *scope, const char *name, size_t *shared, size_t *mut) {
-  for (Scope *cursor = scope; cursor; cursor = cursor->parent) {
-    for (size_t i = 0; i < cursor->len; i++) {
-      if (strcmp(cursor->names[i], name) == 0) {
-        if (shared) *shared = cursor->shared_borrows[i];
-        if (mut) *mut = cursor->mut_borrows[i];
-        return true;
-      }
-    }
-  }
-  return false;
-}
-
 static bool scope_borrow_counts_for_place(Scope *scope, const char *root, const char *path, size_t *shared, size_t *mut) {
   if (shared) *shared = 0;
   if (mut) *mut = 0;
@@ -381,51 +362,18 @@ static bool scope_borrow_counts_for_place(Scope *scope, const char *root, const 
   return found;
 }
 
-static bool scope_adjust_borrow_count_in_scope(Scope *binding_scope, const char *name, bool mut_borrow, int delta) {
-  if (!binding_scope || !name) return false;
-  for (size_t i = 0; i < binding_scope->len; i++) {
-    if (strcmp(binding_scope->names[i], name) == 0) {
-      size_t *count = mut_borrow ? &binding_scope->mut_borrows[i] : &binding_scope->shared_borrows[i];
-      if (delta < 0) {
-        size_t amount = (size_t)(-delta);
-        *count = amount > *count ? 0 : *count - amount;
-      } else {
-        *count += (size_t)delta;
-      }
-      return true;
-    }
-  }
-  return false;
-}
-
-static bool scope_adjust_borrow_count(Scope *scope, const char *name, bool mut_borrow, int delta) {
-  for (Scope *cursor = scope; cursor; cursor = cursor->parent) {
-    if (scope_adjust_borrow_count_in_scope(cursor, name, mut_borrow, delta)) return true;
-  }
-  return false;
-}
-
-static bool scope_adjust_origin_borrow_count(Scope *lookup_scope, const char *name, Scope *root_scope, bool mut_borrow, int delta) {
-  if (root_scope && scope_adjust_borrow_count_in_scope(root_scope, name, mut_borrow, delta)) return true;
-  return scope_adjust_borrow_count(lookup_scope, name, mut_borrow, delta);
-}
-
-static void scope_clear_borrow_origins_at(Scope *lookup_scope, BorrowOrigins *origins) {
-  if (!lookup_scope || !origins) return;
-  for (size_t i = 0; i < origins->len; i++) {
-    scope_adjust_origin_borrow_count(lookup_scope, origins->roots[i], origins->root_scopes[i], origins->mutable_borrow[i], -1);
-  }
+static void scope_clear_borrow_origins_at(BorrowOrigins *origins) {
+  if (!origins) return;
   borrow_origins_free(origins);
 }
 
 static void scope_replace_borrow_origins_at(Scope *lookup_scope, Scope *binding_scope, size_t index, const BorrowOrigins *origins) {
   if (!binding_scope || index >= binding_scope->len) return;
-  Scope *count_lookup = lookup_scope ? lookup_scope : binding_scope;
-  scope_clear_borrow_origins_at(count_lookup, &binding_scope->borrow_origins[index]);
+  (void)lookup_scope;
+  scope_clear_borrow_origins_at(&binding_scope->borrow_origins[index]);
   if (!origins) return;
   for (size_t origin_index = 0; origin_index < origins->len; origin_index++) {
     borrow_origins_add_full(&binding_scope->borrow_origins[index], origins->roots[origin_index], origins->root_scopes[origin_index], origins->mutable_borrow[origin_index], origins->local_storage[origin_index], origins->paths[origin_index], origins->origin_paths[origin_index]);
-    scope_adjust_origin_borrow_count(count_lookup, origins->roots[origin_index], origins->root_scopes[origin_index], origins->mutable_borrow[origin_index], 1);
   }
 }
 
@@ -471,7 +419,7 @@ static void scope_clear_borrow_origin(Scope *scope, const char *name) {
   for (Scope *cursor = scope; cursor; cursor = cursor->parent) {
     for (size_t i = 0; i < cursor->len; i++) {
       if (strcmp(cursor->names[i], name) == 0) {
-        scope_clear_borrow_origins_at(scope, &cursor->borrow_origins[i]);
+        scope_clear_borrow_origins_at(&cursor->borrow_origins[i]);
         return;
       }
     }
@@ -577,12 +525,6 @@ static void borrow_scope_snapshot_free(BorrowScopeSnapshot *snapshot) {
 
 static void scope_free(Scope *scope) {
   for (size_t i = 0; i < scope->len; i++) {
-    Scope *lookup_scope = scope->parent ? scope->parent : scope;
-    for (size_t origin_index = 0; origin_index < scope->borrow_origins[i].len; origin_index++) {
-      scope_adjust_origin_borrow_count(lookup_scope, scope->borrow_origins[i].roots[origin_index], scope->borrow_origins[i].root_scopes[origin_index], scope->borrow_origins[i].mutable_borrow[origin_index], -1);
-    }
-  }
-  for (size_t i = 0; i < scope->len; i++) {
     free(scope->names[i]);
     free(scope->types[i]);
     borrow_origins_free(&scope->borrow_origins[i]);
@@ -593,8 +535,6 @@ static void scope_free(Scope *scope) {
   free(scope->moved);
   free(scope->is_param);
   free(scope->borrow_origins);
-  free(scope->shared_borrows);
-  free(scope->mut_borrows);
 }
 
 static bool set_diag(ZDiag *diag, int code, const char *message, int line, int column) {
@@ -3655,7 +3595,7 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
         }
         size_t shared = 0;
         size_t mut = 0;
-        scope_borrow_counts(scope, expr->text, &shared, &mut);
+        scope_borrow_counts_for_place(scope, expr->text, NULL, &shared, &mut);
         if (mut > 0) {
           char actual_detail[160];
           snprintf(actual_detail, sizeof(actual_detail), "%s has an active mutable borrow", expr->text);
