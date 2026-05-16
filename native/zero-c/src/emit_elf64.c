@@ -1683,7 +1683,7 @@ static bool elf_emit_args_get_to_local(ZBuf *text, const IrFunction *fun, const 
   size_t end = elf_emit_jmp32_placeholder(text, 0xe9);
   elf_patch_rel32(text, in_range, text->len);
 
-  elf_append_u8(text, 0x48);
+  elf_append_u8(text, 0x49);
   elf_append_u8(text, 0x8b);
   elf_append_u8(text, 0x44);
   elf_append_u8(text, 0xc7);
