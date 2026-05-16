@@ -20,11 +20,10 @@ Check a program:
 zero check examples/hello.0
 ```
 
-Build and run a small executable:
+Run a small executable:
 
 ```bash
-zero build --emit exe --target linux-musl-x64 examples/add.0 --out .zero/out/add
-./.zero/out/add
+zero run examples/add.0
 ```
 
 Expected output:
@@ -50,6 +49,7 @@ npm run docs:dev
 
 ```bash
 zero check examples/hello.0
+zero run examples/add.0
 zero build --emit exe --target linux-musl-x64 examples/add.0 --out .zero/out/add
 zero graph --json examples/systems-package
 zero size --json examples/point.0

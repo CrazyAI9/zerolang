@@ -60,11 +60,10 @@ pub fun main(world: World) -> Void raises {
 }
 ```
 
-Build and run it:
+Run it:
 
 ```sh
-zero build --emit exe --target linux-musl-x64 add.0 --out .zero/out/add
-./.zero/out/add
+zero run add.0
 ```
 
 Expected output:
@@ -82,9 +81,10 @@ The project workflow starts with `zero new`:
 ```sh
 zero new cli hello
 cd hello
-zero check
-zero test
-zero build --target linux-musl-x64 --out .zero/out/hello
+zero check .
+zero test .
+zero run .
+zero build --target linux-musl-x64 --out .zero/out/hello .
 ```
 
 Single files are useful for learning, but real Zero projects use a `zero.json`
