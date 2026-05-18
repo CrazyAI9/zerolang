@@ -67,6 +67,34 @@ typedef struct {
   ZeroByteView body;
 } ZeroParsedHttpRequest;
 
+static CURLcode zero_curl_global_status = CURLE_FAILED_INIT;
+static int zero_curl_global_initialized = 0;
+
+static void zero_runtime_curl_global_cleanup(void) {
+  curl_global_cleanup();
+}
+
+static void zero_runtime_curl_global_init(void) {
+  if (zero_curl_global_initialized) return;
+  zero_curl_global_status = curl_global_init(CURL_GLOBAL_DEFAULT);
+  zero_curl_global_initialized = 1;
+  if (zero_curl_global_status == CURLE_OK) {
+    (void)atexit(zero_runtime_curl_global_cleanup);
+  }
+}
+
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((constructor))
+static void zero_runtime_curl_global_constructor(void) {
+  zero_runtime_curl_global_init();
+}
+#endif
+
+static int zero_runtime_curl_global_ok(void) {
+  zero_runtime_curl_global_init();
+  return zero_curl_global_status == CURLE_OK;
+}
+
 static size_t zero_curl_response_append(ZeroCurlResponseBuf *out, const char *ptr, size_t n, int is_header) {
   if (!out || !ptr) return 0;
   if (is_header && out->body_len > 0) return n;
@@ -336,8 +364,7 @@ static int zero_http_perform_fetch(
     return -1;
   }
 
-  CURLcode global = curl_global_init(CURL_GLOBAL_DEFAULT);
-  if (global != CURLE_OK) {
+  if (!zero_runtime_curl_global_ok()) {
     curl_slist_free_all(header_list);
     free(method_c);
     free(url_c);

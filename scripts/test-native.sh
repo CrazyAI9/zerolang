@@ -43,6 +43,12 @@ if [[ -n "$host_runtime_target" ]] && command -v cc >/dev/null 2>&1; then
   test ! -f "$runtime_cwd_out.zero-runtime.o.zero_runtime.c"
   test ! -e "$runtime_cwd_out.zero-runtime.o.include"
   node -e 'const fs=require("fs"); const report=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if (report.generatedCBytes!==0 || report.objectBackend.linking.targetLibraries!=="zero-runtime" || report.objectBackend.linking.externalToolchain!=="cc" || !report.objectBackend.linkerPlan.staticLibraries.includes("zero_runtime.o") || report.objectBackend.directFacts.runtimeHelperCount!==1) process.exit(1);' "$runtime_cwd_out.json"
+  set +e
+  ZERO_CC=/usr/bin/false "$root/.zero/bin/zero" build --json --emit exe --target "$host_runtime_target" "$root/conformance/native/pass/std-json-bytes.0" --out "$runtime_cwd_out-bad" > "$runtime_cwd_out-bad.json" 2>/dev/null
+  runtime_zero_cc_status=$?
+  set -e
+  test "$runtime_zero_cc_status" != "0"
+  grep -q "host runtime object build failed" "$runtime_cwd_out-bad.json"
   rm -rf "$runtime_cwd_dir"
 fi
 

@@ -735,6 +735,8 @@ bool z_parse_manifest_json(const char *manifest, ZManifest *out, ZDiag *diag);
 void z_free_manifest(ZManifest *manifest);
 char *z_default_out_path(const char *source_file);
 ZToolchainPlan z_plan_toolchain(const char *cc, const char *profile, const ZTargetInfo *target);
+bool z_toolchain_compile_c_object(const ZToolchainPlan *plan, const char *profile, const ZTargetInfo *target, const char *c_file, const char *object_file, const char *include_dir, const char *extra_c_flags);
+bool z_toolchain_link_objects(const ZToolchainPlan *plan, const ZTargetInfo *target, const char *const *object_files, size_t object_count, const char *exe_file, const char *pre_link_flags, const char *post_object_flags);
 bool z_run_cc(const char *c_file, const char *exe_file, const char *cc, const char *profile, const ZTargetInfo *target);
 
 TokenVec z_tokenize(const char *source, ZDiag *diag);

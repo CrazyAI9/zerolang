@@ -1449,30 +1449,59 @@ static bool profile_should_strip_artifact(const char *profile) {
   return !profile || strcmp(profile, "release") == 0 || strcmp(profile, "release-small") == 0 || strcmp(profile, "small") == 0 || strcmp(profile, "tiny") == 0;
 }
 
+static void append_toolchain_driver_command(ZBuf *cmd, const ZToolchainPlan *plan) {
+  if (strcmp(plan->driver_kind, "override-cc") == 0) {
+    zbuf_appendf(cmd, "'%s'", plan->compiler);
+  } else if (strcmp(plan->driver_kind, "host-cc") == 0) {
+    zbuf_append(cmd, "cc");
+  } else if (strcmp(plan->driver_kind, "emcc") == 0) {
+    zbuf_append(cmd, "emcc");
+  } else {
+    zbuf_append(cmd, "mkdir -p .zero/zig-global-cache .zero/zig-local-cache && ZIG_GLOBAL_CACHE_DIR=.zero/zig-global-cache ZIG_LOCAL_CACHE_DIR=.zero/zig-local-cache zig cc");
+    zbuf_appendf(cmd, " -target '%s'", plan->target_triple);
+  }
+}
+
+bool z_toolchain_compile_c_object(const ZToolchainPlan *plan, const char *profile, const ZTargetInfo *target, const char *c_file, const char *object_file, const char *include_dir, const char *extra_c_flags) {
+  if (!validate_toolchain_plan(plan, target)) return false;
+
+  ZBuf cmd;
+  zbuf_init(&cmd);
+  append_toolchain_driver_command(&cmd, plan);
+  zbuf_appendf(&cmd, " %s", profile_c_flags(profile));
+  if (extra_c_flags && extra_c_flags[0]) zbuf_appendf(&cmd, " %s", extra_c_flags);
+  if (include_dir && include_dir[0]) zbuf_appendf(&cmd, " -I '%s'", include_dir);
+  zbuf_appendf(&cmd, " -c '%s' -o '%s'", c_file, object_file);
+  bool ok = system(cmd.data) == 0;
+  zbuf_free(&cmd);
+  return ok;
+}
+
+bool z_toolchain_link_objects(const ZToolchainPlan *plan, const ZTargetInfo *target, const char *const *object_files, size_t object_count, const char *exe_file, const char *pre_link_flags, const char *post_object_flags) {
+  if (!validate_toolchain_plan(plan, target)) return false;
+
+  ZBuf cmd;
+  zbuf_init(&cmd);
+  append_toolchain_driver_command(&cmd, plan);
+  if (pre_link_flags && pre_link_flags[0]) zbuf_appendf(&cmd, " %s", pre_link_flags);
+  for (size_t i = 0; i < object_count; i++) {
+    if (object_files[i] && object_files[i][0]) zbuf_appendf(&cmd, " '%s'", object_files[i]);
+  }
+  zbuf_appendf(&cmd, " -o '%s'", exe_file);
+  if (post_object_flags && post_object_flags[0]) zbuf_appendf(&cmd, " %s", post_object_flags);
+  bool ok = system(cmd.data) == 0;
+  zbuf_free(&cmd);
+  return ok;
+}
+
 bool z_run_cc(const char *c_file, const char *exe_file, const char *cc, const char *profile, const ZTargetInfo *target) {
   ZToolchainPlan plan = z_plan_toolchain(cc, profile, target);
-  const char *opt = profile_c_flags(profile);
-
   if (!validate_toolchain_plan(&plan, target)) return false;
 
   ZBuf cmd;
   zbuf_init(&cmd);
-  if (strcmp(plan.driver_kind, "override-cc") == 0) {
-    zbuf_appendf(&cmd, "'%s' %s '%s' -o '%s'", plan.compiler, opt, c_file, exe_file);
-  } else if (strcmp(plan.driver_kind, "host-cc") == 0) {
-    zbuf_appendf(&cmd, "cc %s '%s' -o '%s'", opt, c_file, exe_file);
-  } else if (strcmp(plan.driver_kind, "emcc") == 0) {
-    zbuf_appendf(&cmd, "emcc %s '%s' -o '%s'", opt, c_file, exe_file);
-  } else {
-    zbuf_appendf(
-      &cmd,
-      "mkdir -p .zero/zig-global-cache .zero/zig-local-cache && ZIG_GLOBAL_CACHE_DIR=.zero/zig-global-cache ZIG_LOCAL_CACHE_DIR=.zero/zig-local-cache zig cc -target '%s' %s '%s' -o '%s'",
-      plan.target_triple,
-      opt,
-      c_file,
-      exe_file
-    );
-  }
+  append_toolchain_driver_command(&cmd, &plan);
+  zbuf_appendf(&cmd, " %s '%s' -o '%s'", profile_c_flags(profile), c_file, exe_file);
   bool ok = system(cmd.data) == 0;
   zbuf_free(&cmd);
   if (!ok) {

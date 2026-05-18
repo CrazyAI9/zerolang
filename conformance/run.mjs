@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
 
 if (process.env.ZERO_NATIVE_TEST_SANDBOX !== "1" && process.env.ZERO_NATIVE_TEST_ALLOW_LOCAL !== "1") {
@@ -742,6 +742,7 @@ assert.equal(directAarch64ExeBody.objectBackend.targetFacts.status, "native-exe"
 await assertElfAarch64Executable(directAarch64ExeOut);
 
 const directMachOExeOut = `${outDir}/direct-macho-exe-return`;
+await rm(directMachOExeOut, { force: true });
 const directMachOExeJson = await execFileAsync(zero, ["build", "--json", "--emit", "exe", "--backend", "zero-macho64", "--target", "darwin-arm64", "examples/direct-exe-return.0", "--out", directMachOExeOut]);
 const directMachOExeBody = JSON.parse(directMachOExeJson.stdout);
 assert.equal(directMachOExeBody.emit, "exe");
@@ -2117,6 +2118,7 @@ pub fun main() -> Void {
 
 const helloRunArgs = runnableExeArgs("conformance/run/pass/hello.0", `${outDir}/hello`);
 if (helloRunArgs) {
+  await rm(`${outDir}/hello`, { force: true });
   await execFileAsync(zero, helloRunArgs);
   const run = await execFileAsync(`${outDir}/hello`, []);
   assert.match(run.stdout, /hello conformance/);
