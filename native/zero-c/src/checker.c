@@ -7398,8 +7398,10 @@ static bool type_param_name_known(const ParamVec *primary, const ParamVec *secon
   return false;
 }
 
-static const char *program_concrete_type_name_kind(const Program *program, const char *name) {
-  if (!program || !name || !name[0]) return NULL;
+static const char *visible_concrete_type_name_kind(const Program *program, const char *name) {
+  if (!name || !name[0]) return NULL;
+  if (is_builtin_type_name(name)) return "built-in type";
+  if (!program) return NULL;
   if (find_shape(program, name)) return "shape";
   if (find_enum(program, name)) return "enum";
   if (find_choice(program, name)) return "choice";
@@ -7426,7 +7428,7 @@ static bool validate_type_param_names_do_not_shadow(const Program *program, cons
         }
       }
     }
-    const char *kind = program_concrete_type_name_kind(program, param->name);
+    const char *kind = visible_concrete_type_name_kind(program, param->name);
     if (kind) {
       char actual[160];
       snprintf(actual, sizeof(actual), "'%s' already names a %s", param->name, kind);

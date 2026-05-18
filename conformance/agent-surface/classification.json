@@ -11,6 +11,14 @@
       "runner": "assert-diagnostic-code"
     },
     {
+      "id": "builtin-generic-type-shadowing",
+      "path": "conformance/agent-surface/fixtures/builtin-generic-type-shadowing.0",
+      "classification": "semantic-rule",
+      "currentBehavior": "check-fail-NAM004",
+      "followUp": "Reject generic parameters that reuse built-in concrete type names.",
+      "runner": "assert-diagnostic-code"
+    },
+    {
       "id": "shape-generic-type-shadowing",
       "path": "conformance/agent-surface/fixtures/shape-generic-type-shadowing.0",
       "classification": "semantic-rule",

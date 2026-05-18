@@ -434,6 +434,7 @@ const agentSurfaceClassification = JSON.parse(await readFile("conformance/agent-
 assert.equal(agentSurfaceClassification.schema, 1);
 assert.deepEqual(agentSurfaceClassification.fixtures.map((item) => item.id), [
   "generic-type-shadowing",
+  "builtin-generic-type-shadowing",
   "shape-generic-type-shadowing",
   "method-generic-type-shadowing",
   "method-generic-outer-shadowing",
@@ -454,6 +455,7 @@ async function assertAgentSurfaceGenericShadowing(path, actualPattern) {
 }
 
 await assertAgentSurfaceGenericShadowing("conformance/agent-surface/fixtures/generic-type-shadowing.0", /already names a shape/);
+await assertAgentSurfaceGenericShadowing("conformance/agent-surface/fixtures/builtin-generic-type-shadowing.0", /already names a built-in type/);
 await assertAgentSurfaceGenericShadowing("conformance/agent-surface/fixtures/shape-generic-type-shadowing.0", /already names a shape/);
 await assertAgentSurfaceGenericShadowing("conformance/agent-surface/fixtures/method-generic-type-shadowing.0", /already names a shape/);
 await assertAgentSurfaceGenericShadowing("conformance/agent-surface/fixtures/method-generic-outer-shadowing.0", /outer generic scope/);
