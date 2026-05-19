@@ -30,7 +30,7 @@ bin/zero check --json conformance/native/fail/bad-c-export.0
 Header imports are available as typed metadata:
 
 ```sh
-bin/zero graph --json --target wasm32-web conformance/check/pass/c-header-import.0
+bin/zero graph --json --target linux-musl-x64 conformance/check/pass/c-header-import.0
 ```
 
 The graph JSON exposes `cImports[].typedModel` with imported functions,

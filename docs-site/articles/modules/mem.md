@@ -10,8 +10,6 @@ Runnable today:
 | `std.mem.span(value)` | `Span<u8>` | Builds a native `Span<u8>` view over a string literal. |
 | `std.mem.len(bytes)` | `usize` | Returns the length of a fixed array, `Span<T>`, or `MutSpan<T>`. |
 | `std.mem.eqlBytes(a, b)` | `Bool` | Compares two `Span<T>`/`MutSpan<T>` values with the same element type. |
-| `std.mem.peekByte(ptr)` | `u8` | Direct Wasm-only primitive for explicit byte reads from exported linear memory. |
-| `std.mem.pokeByte(ptr, value)` | `Bool` | Direct Wasm-only primitive for explicit byte writes into exported linear memory. |
 | `std.mem.nullAlloc()` | `NullAlloc` | Creates an allocator that always returns `null`, useful for proving code does not allocate. |
 | `std.mem.fixedBufAlloc(buffer)` | `FixedBufAlloc` | Creates a mutable fixed-buffer allocator from caller-owned `MutSpan<u8>` bytes. |
 | `std.mem.arena(buffer)` | `FixedBufAlloc` | Arena-style alias over the fixed-buffer allocator model; `reset` rewinds the caller-owned storage. |

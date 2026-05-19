@@ -42,7 +42,6 @@ function repeatBuildHash(args, firstPath, repeatOut, repeatPath = repeatOut) {
   assert(outIndex >= 0, "repeat build args should include --out");
   repeatArgs[outIndex + 1] = repeatOut;
   rmSync(repeatPath, { force: true, recursive: true });
-  rmSync(`${repeatOut}.wasm`, { force: true });
   rmSync(`${repeatOut}.exe`, { force: true });
   const repeatReport = json(repeatArgs).body;
   assert.equal(repeatReport.generatedCBytes, 0);
@@ -65,20 +64,6 @@ function assertMachOLoadCommand(bytes, expectedCommand, expectedSize) {
     offset += cmdsize;
   }
   assert.fail(`missing Mach-O load command 0x${expectedCommand.toString(16)}`);
-}
-
-function wasmI64ConstBytes(value) {
-  let n = BigInt(value);
-  const bytes = [0x42];
-  while (true) {
-    let byte = Number(n & 0x7fn);
-    n >>= 7n;
-    const signSet = (byte & 0x40) !== 0;
-    const done = (n === 0n && !signSet) || (n === -1n && signSet);
-    if (!done) byte |= 0x80;
-    bytes.push(byte);
-    if (done) return Buffer.from(bytes);
-  }
 }
 
 function elfPackedErrorBytes(code) {
@@ -230,10 +215,7 @@ assert(doctor.checks.some((check) => check.name === "cross-executable-builds" &&
 assert(doctor.checks.some((check) => check.name === "path" && /PATH/.test(check.message)));
 assert(doctor.checks.some((check) => check.name === "host-target" && /host target/.test(check.message)));
 assert(doctor.checks.some((check) => check.name === "target-sdk-sysroot" && /sysroot|target-capable C compiler/.test(check.message)));
-assert(doctor.checks.some((check) => check.name === "wasi-runner" && /WASI|wasmtime|wasmer|wasmedge/.test(check.message)));
 assert(doctor.checks.some((check) => check.name === "docs-examples"));
-assert(Array.isArray(doctor.wasiRunners));
-assert(doctor.wasiRunners.some((runner) => runner.name === "wasmtime"));
 
 for (const [command, expected] of [
   [["--help"], /zero new cli hello/],
@@ -656,34 +638,6 @@ assert.equal(directAarch64ExeBytes.readUInt16LE(16), 2);
 assert.equal(directAarch64ExeBytes.readUInt16LE(18), 183);
 assert(directAarch64ExeBytes.includes(Buffer.from([0x40, 0x05, 0x80, 0x52, 0xc0, 0x03, 0x5f, 0xd6])));
 assert(directAarch64ExeBytes.includes(Buffer.from([0xa8, 0x0b, 0x80, 0xd2, 0x01, 0x00, 0x00, 0xd4])));
-const directIfWasmPath = join(outDir, "direct-if-return.wasm");
-rmSync(directIfWasmPath, { force: true });
-const directIfWasmReport = json(["build", "--json", "--emit", "wasm", "--target", "wasm32-wasi", "examples/direct-if-return.0", "--out", directIfWasmPath]).body;
-assert.equal(directIfWasmReport.emit, "wasm");
-assert.equal(directIfWasmReport.generatedCBytes, 0);
-assert.equal(directIfWasmReport.objectBackend.objectEmission.path, "direct-wasm");
-assertReleaseTargetContract(directIfWasmReport, {
-  target: "wasm32-wasi",
-  emit: "wasm",
-  objectFormat: "wasm",
-  artifactKind: "wasm-module",
-  linkerFlavor: "wasm",
-  targetLibcMode: "bundled-libc",
-});
-repeatBuildHash(["build", "--json", "--emit", "wasm", "--target", "wasm32-wasi", "examples/direct-if-return.0", "--out", directIfWasmPath], directIfWasmPath, join(outDir, "direct-if-return.repeat.wasm"));
-const directCallWasmPath = join(outDir, "direct-call-branch.wasm");
-rmSync(directCallWasmPath, { force: true });
-const directCallWasmReport = json(["build", "--json", "--emit", "wasm", "--target", "wasm32-wasi", "examples/direct-call-branch.0", "--out", directCallWasmPath]).body;
-assert.equal(directCallWasmReport.emit, "wasm");
-assert.equal(directCallWasmReport.generatedCBytes, 0);
-assert.equal(directCallWasmReport.objectBackend.objectEmission.path, "direct-wasm");
-const directArrayWasmPath = join(outDir, "direct-array-sum.wasm");
-rmSync(directArrayWasmPath, { force: true });
-const directArrayWasmReport = json(["build", "--json", "--emit", "wasm", "--target", "wasm32-wasi", "examples/direct-array-sum.0", "--out", directArrayWasmPath]).body;
-assert.equal(directArrayWasmReport.emit, "wasm");
-assert.equal(directArrayWasmReport.generatedCBytes, 0);
-assert(directArrayWasmReport.objectBackend.directFacts.stackBytes > 0);
-assert.equal(directArrayWasmReport.objectBackend.objectEmission.path, "direct-wasm");
 const directCallObjPath = join(outDir, "direct-call-add.o");
 rmSync(directCallObjPath, { force: true });
 const directCallObjReport = json(["build", "--json", "--emit", "obj", "--target", "linux-musl-x64", "examples/direct-call-add.0", "--out", directCallObjPath]).body;
@@ -746,227 +700,6 @@ assert.equal(directPackageReport.objectBackend.directFacts.moduleCount, 2);
 assert.equal(directPackageReport.objectBackend.objectEmission.path, "direct-elf64-exe");
 assert.equal(directPackageBytes.readUInt16LE(16), 2);
 assert.equal(directPackageBytes.readUInt16LE(18), 62);
-const directWebWasmPath = join(outDir, "direct-web-wasm");
-rmSync(`${directWebWasmPath}.wasm`, { force: true });
-const directWebWasmReport = json(["build", "--json", "--emit", "wasm", "--target", "wasm32-web", "examples/direct-wasm-add.0", "--out", directWebWasmPath]).body;
-const directWebWasmBytes = readFileSync(`${directWebWasmPath}.wasm`);
-assert.equal(directWebWasmReport.target, "wasm32-web");
-assert.equal(directWebWasmReport.compiler, "zero-wasm");
-assert.equal(directWebWasmReport.generatedCBytes, 0);
-assert.equal(directWebWasmReport.objectBackend.targetFacts.selectedEmitter, "zero-wasm");
-assert.equal(directWebWasmBytes[0], 0);
-assert.equal(directWebWasmBytes[1], 0x61);
-assert.equal(directWebWasmBytes[2], 0x73);
-assert.equal(directWebWasmBytes[3], 0x6d);
-const directU8HelperPath = join(outDir, "direct-u8-helper-call");
-rmSync(`${directU8HelperPath}.wasm`, { force: true });
-const directU8HelperReport = json(["build", "--json", "--emit", "wasm", "--target", "wasm32-web", "examples/direct-u8-helper-call.0", "--out", directU8HelperPath]).body;
-const directU8HelperBytes = readFileSync(`${directU8HelperPath}.wasm`);
-assert.equal(directU8HelperReport.generatedCBytes, 0);
-assert.equal(new WebAssembly.Instance(new WebAssembly.Module(directU8HelperBytes)).exports.main(), 1);
-const directArrayBoundsTrapPath = join(outDir, "direct-array-bounds-trap");
-rmSync(`${directArrayBoundsTrapPath}.wasm`, { force: true });
-const directArrayBoundsTrapReport = json(["build", "--json", "--emit", "wasm", "--target", "wasm32-web", "examples/direct-array-bounds-trap.0", "--out", directArrayBoundsTrapPath]).body;
-const directArrayBoundsTrapBytes = readFileSync(`${directArrayBoundsTrapPath}.wasm`);
-assert.equal(directArrayBoundsTrapReport.generatedCBytes, 0);
-assert.equal(directArrayBoundsTrapReport.objectBackend.directFacts.runtime.linearMemory, true);
-assert.equal(directArrayBoundsTrapReport.objectBackend.directFacts.runtime.boundsTraps, "pay-as-used");
-assert.throws(() => new WebAssembly.Instance(new WebAssembly.Module(directArrayBoundsTrapBytes)).exports.main(), WebAssembly.RuntimeError);
-const directUnhandledErrorWasmPath = join(outDir, "direct-unhandled-error-exit");
-rmSync(`${directUnhandledErrorWasmPath}.wasm`, { force: true });
-const directUnhandledErrorWasmReport = json(["build", "--json", "--emit", "wasm", "--target", "wasm32-web", "examples/direct-unhandled-error-exit.0", "--out", directUnhandledErrorWasmPath]).body;
-const directUnhandledErrorWasmBytes = readFileSync(`${directUnhandledErrorWasmPath}.wasm`);
-assert.equal(directUnhandledErrorWasmReport.generatedCBytes, 0);
-assert.equal(directUnhandledErrorWasmReport.objectBackend.objectEmission.path, "direct-wasm");
-assert.equal(new WebAssembly.Instance(new WebAssembly.Module(directUnhandledErrorWasmBytes)).exports.main(), 1);
-const directFsFallibleResourcesWasiPath = join(outDir, "direct-std-fs-fallible-resources-wasi");
-rmSync(`${directFsFallibleResourcesWasiPath}.wasm`, { force: true });
-const directFsFallibleResourcesWasiReport = json(["build", "--json", "--emit", "wasm", "--target", "wasm32-wasi", "conformance/native/pass/std-fs-fallible-resources.0", "--out", directFsFallibleResourcesWasiPath]).body;
-const directFsFallibleResourcesWasiBytes = readFileSync(`${directFsFallibleResourcesWasiPath}.wasm`);
-assert.equal(directFsFallibleResourcesWasiReport.generatedCBytes, 0);
-assert.equal(directFsFallibleResourcesWasiReport.objectBackend.objectEmission.path, "direct-wasm");
-assert.equal(directFsFallibleResourcesWasiReport.targetSupport.fsAvailable, true);
-assert(directFsFallibleResourcesWasiBytes.includes(wasmI64ConstBytes(2n << 32n)));
-assert(directFsFallibleResourcesWasiBytes.includes(wasmI64ConstBytes(4n << 32n)));
-const directFsFallibleWasiPath = join(outDir, "direct-std-fs-fallible-wasi");
-rmSync(`${directFsFallibleWasiPath}.wasm`, { force: true });
-const directFsFallibleWasiReport = json(["build", "--json", "--emit", "wasm", "--target", "wasm32-wasi", "conformance/native/pass/std-fs-fallible.0", "--out", directFsFallibleWasiPath]).body;
-const directFsFallibleWasiBytes = readFileSync(`${directFsFallibleWasiPath}.wasm`);
-assert.equal(directFsFallibleWasiReport.generatedCBytes, 0);
-assert.equal(directFsFallibleWasiReport.objectBackend.objectEmission.path, "direct-wasm");
-assert.equal(directFsFallibleWasiReport.targetSupport.fsAvailable, true);
-assert(directFsFallibleWasiBytes.includes(wasmI64ConstBytes(2n << 32n)));
-assert(directFsFallibleWasiBytes.includes(wasmI64ConstBytes(3n << 32n)));
-assert(directFsFallibleWasiBytes.includes(wasmI64ConstBytes(4n << 32n)));
-const directStringLenPath = join(outDir, "direct-string-len");
-rmSync(`${directStringLenPath}.wasm`, { force: true });
-const directStringLenReport = json(["build", "--json", "--emit", "wasm", "--target", "wasm32-web", "examples/direct-string-len.0", "--out", directStringLenPath]).body;
-const directStringLenBytes = readFileSync(`${directStringLenPath}.wasm`);
-assert.equal(directStringLenReport.generatedCBytes, 0);
-assert.equal(new WebAssembly.Instance(new WebAssembly.Module(directStringLenBytes)).exports.main(), 5);
-const directStringLiteralPath = join(outDir, "direct-string-literal");
-rmSync(`${directStringLiteralPath}.wasm`, { force: true });
-const directStringLiteralReport = json(["build", "--json", "--emit", "wasm", "--target", "wasm32-web", "examples/direct-string-literal.0", "--out", directStringLiteralPath]).body;
-const directStringLiteralBytes = readFileSync(`${directStringLiteralPath}.wasm`);
-assert.equal(directStringLiteralReport.generatedCBytes, 0);
-assert.equal(directStringLiteralReport.objectBackend.objectEmission.dataSections, true);
-assert.equal(directStringLiteralReport.objectBackend.directFacts.runtime.readonlyDataBytes, 6);
-assert.equal(new WebAssembly.Instance(new WebAssembly.Module(directStringLiteralBytes)).exports.main(), 116);
-const directSpanReadPath = join(outDir, "direct-span-read");
-rmSync(`${directSpanReadPath}.wasm`, { force: true });
-const directSpanReadReport = json(["build", "--json", "--emit", "wasm", "--target", "wasm32-web", "examples/direct-span-read.0", "--out", directSpanReadPath]).body;
-const directSpanReadBytes = readFileSync(`${directSpanReadPath}.wasm`);
-assert.equal(directSpanReadReport.generatedCBytes, 0);
-assert.equal(directSpanReadReport.objectBackend.objectEmission.dataSections, true);
-assert.equal(directSpanReadReport.objectBackend.directFacts.runtime.readonlyDataBytes, 6);
-assert.equal(new WebAssembly.Instance(new WebAssembly.Module(directSpanReadBytes)).exports.main(), 107);
-const directCrc32BytesPath = join(outDir, "direct-crc32-bytes");
-rmSync(`${directCrc32BytesPath}.wasm`, { force: true });
-const directCrc32BytesReport = json(["build", "--json", "--emit", "wasm", "--target", "wasm32-web", "examples/direct-crc32-bytes.0", "--out", directCrc32BytesPath]).body;
-const directCrc32BytesBytes = readFileSync(`${directCrc32BytesPath}.wasm`);
-assert.equal(directCrc32BytesReport.generatedCBytes, 0);
-assert.equal(directCrc32BytesReport.objectBackend.objectEmission.path, "direct-wasm");
-assert.equal(directCrc32BytesReport.objectBackend.directFacts.runtime.readonlyDataBytes, 19);
-assert.equal(new WebAssembly.Instance(new WebAssembly.Module(directCrc32BytesBytes)).exports.main(), 1120241454);
-const directStringEqlPath = join(outDir, "direct-string-eql");
-rmSync(`${directStringEqlPath}.wasm`, { force: true });
-const directStringEqlReport = json(["build", "--json", "--emit", "wasm", "--target", "wasm32-web", "examples/direct-string-eql.0", "--out", directStringEqlPath]).body;
-const directStringEqlBytes = readFileSync(`${directStringEqlPath}.wasm`);
-assert.equal(directStringEqlReport.generatedCBytes, 0);
-assert.equal(directStringEqlReport.objectBackend.objectEmission.dataSections, true);
-assert.equal(directStringEqlReport.objectBackend.directFacts.runtime.readonlyDataBytes, 12);
-assert.equal(new WebAssembly.Instance(new WebAssembly.Module(directStringEqlBytes)).exports.main(), 1);
-const directByteViewLocalsPath = join(outDir, "direct-byte-view-locals");
-rmSync(`${directByteViewLocalsPath}.wasm`, { force: true });
-const directByteViewLocalsReport = json(["build", "--json", "--emit", "wasm", "--target", "wasm32-web", "examples/direct-byte-view-locals.0", "--out", directByteViewLocalsPath]).body;
-const directByteViewLocalsBytes = readFileSync(`${directByteViewLocalsPath}.wasm`);
-assert.equal(directByteViewLocalsReport.generatedCBytes, 0);
-assert.equal(directByteViewLocalsReport.objectBackend.objectEmission.dataSections, true);
-assert.equal(directByteViewLocalsReport.objectBackend.directFacts.runtime.readonlyDataBytes, 10);
-assert.equal(new WebAssembly.Instance(new WebAssembly.Module(directByteViewLocalsBytes)).exports.main(), 107);
-const directMutSpanLenPath = join(outDir, "direct-mutspan-len");
-rmSync(`${directMutSpanLenPath}.wasm`, { force: true });
-const directMutSpanLenReport = json(["build", "--json", "--emit", "wasm", "--target", "wasm32-web", "examples/direct-mutspan-len.0", "--out", directMutSpanLenPath]).body;
-const directMutSpanLenBytes = readFileSync(`${directMutSpanLenPath}.wasm`);
-assert.equal(directMutSpanLenReport.generatedCBytes, 0);
-assert.equal(directMutSpanLenReport.objectBackend.directFacts.runtime.linearMemory, true);
-const directMutSpanLenInstance = new WebAssembly.Instance(new WebAssembly.Module(directMutSpanLenBytes));
-assert.equal(directMutSpanLenInstance.exports.main(), 5);
-assert(directMutSpanLenInstance.exports.memory instanceof WebAssembly.Memory);
-const directMemoryPeekPath = join(outDir, "direct-memory-peek");
-rmSync(`${directMemoryPeekPath}.wasm`, { force: true });
-const directMemoryPeekReport = json(["build", "--json", "--emit", "wasm", "--target", "wasm32-web", "examples/direct-memory-peek.0", "--out", directMemoryPeekPath]).body;
-const directMemoryPeekBytes = readFileSync(`${directMemoryPeekPath}.wasm`);
-assert.equal(directMemoryPeekReport.generatedCBytes, 0);
-assert.equal(directMemoryPeekReport.objectBackend.directFacts.runtime.linearMemory, true);
-assert.equal(directMemoryPeekReport.objectBackend.directFacts.exportCount, 3);
-const directMemoryPeekInstance = new WebAssembly.Instance(new WebAssembly.Module(directMemoryPeekBytes));
-assert(directMemoryPeekInstance.exports.memory instanceof WebAssembly.Memory);
-new Uint8Array(directMemoryPeekInstance.exports.memory.buffer)[1024] = 90;
-assert.equal(directMemoryPeekInstance.exports.read_at(1024), 90);
-const directByteCopyFillPath = join(outDir, "direct-byte-copy-fill");
-rmSync(`${directByteCopyFillPath}.wasm`, { force: true });
-const directByteCopyFillReport = json(["build", "--json", "--emit", "wasm", "--target", "wasm32-web", "examples/direct-byte-copy-fill.0", "--out", directByteCopyFillPath]).body;
-const directByteCopyFillBytes = readFileSync(`${directByteCopyFillPath}.wasm`);
-assert.equal(directByteCopyFillReport.generatedCBytes, 0);
-assert.equal(directByteCopyFillReport.objectBackend.objectEmission.dataSections, true);
-assert.equal(directByteCopyFillReport.objectBackend.directFacts.runtime.readonlyDataBytes, 6);
-assert.equal(new WebAssembly.Instance(new WebAssembly.Module(directByteCopyFillBytes)).exports.main(), 111);
-const directAllocBumpPath = join(outDir, "direct-alloc-bump");
-rmSync(`${directAllocBumpPath}.wasm`, { force: true });
-const directAllocBumpReport = json(["build", "--json", "--emit", "wasm", "--target", "wasm32-web", "examples/direct-alloc-bump.0", "--out", directAllocBumpPath]).body;
-const directAllocBumpBytes = readFileSync(`${directAllocBumpPath}.wasm`);
-assert.equal(directAllocBumpReport.generatedCBytes, 0);
-assert.equal(directAllocBumpReport.objectBackend.directFacts.allocatorHelperCount, 2);
-assert.equal(directAllocBumpReport.objectBackend.directFacts.runtime.heapPolicy, "explicit-fixed-buffer-bump");
-assert.equal(directAllocBumpReport.objectBackend.directFacts.runtime.allocator, "FixedBufAlloc");
-assert.equal(new WebAssembly.Instance(new WebAssembly.Module(directAllocBumpBytes)).exports.main(), 114);
-const directAllocOverflowPath = join(outDir, "direct-alloc-overflow");
-rmSync(`${directAllocOverflowPath}.wasm`, { force: true });
-const directAllocOverflowReport = json(["build", "--json", "--emit", "wasm", "--target", "wasm32-web", "examples/direct-alloc-overflow.0", "--out", directAllocOverflowPath]).body;
-const directAllocOverflowBytes = readFileSync(`${directAllocOverflowPath}.wasm`);
-assert.equal(directAllocOverflowReport.generatedCBytes, 0);
-assert.equal(directAllocOverflowReport.objectBackend.directFacts.allocatorHelperCount, 2);
-assert.equal(directAllocOverflowReport.objectBackend.directFacts.runtime.heapPolicy, "explicit-fixed-buffer-bump");
-assert.equal(new WebAssembly.Instance(new WebAssembly.Module(directAllocOverflowBytes)).exports.main(), 1);
-const directTokenShapePath = join(outDir, "direct-token-shape");
-rmSync(`${directTokenShapePath}.wasm`, { force: true });
-const directTokenShapeReport = json(["build", "--json", "--emit", "wasm", "--target", "wasm32-web", "examples/direct-token-shape.0", "--out", directTokenShapePath]).body;
-const directTokenShapeBytes = readFileSync(`${directTokenShapePath}.wasm`);
-assert.equal(directTokenShapeReport.generatedCBytes, 0);
-assert.equal(directTokenShapeReport.objectBackend.directFacts.runtime.linearMemory, true);
-assert(directTokenShapeReport.objectBackend.directFacts.maxFrameBytes > 0);
-assert.equal(new WebAssembly.Instance(new WebAssembly.Module(directTokenShapeBytes)).exports.main(), 65);
-const directEnumMatchPath = join(outDir, "direct-enum-match");
-rmSync(`${directEnumMatchPath}.wasm`, { force: true });
-const directEnumMatchReport = json(["build", "--json", "--emit", "wasm", "--target", "wasm32-web", "examples/direct-enum-match.0", "--out", directEnumMatchPath]).body;
-const directEnumMatchBytes = readFileSync(`${directEnumMatchPath}.wasm`);
-assert.equal(directEnumMatchReport.generatedCBytes, 0);
-assert.equal(directEnumMatchReport.objectBackend.directFacts.runtime.linearMemory, true);
-assert.equal(new WebAssembly.Instance(new WebAssembly.Module(directEnumMatchBytes)).exports.main(), 2);
-const directRaisesBasicPath = join(outDir, "direct-raises-basic");
-rmSync(`${directRaisesBasicPath}.wasm`, { force: true });
-const directRaisesBasicReport = json(["build", "--json", "--emit", "wasm", "--target", "wasm32-web", "examples/direct-raises-basic.0", "--out", directRaisesBasicPath]).body;
-const directRaisesBasicBytes = readFileSync(`${directRaisesBasicPath}.wasm`);
-assert.equal(directRaisesBasicReport.generatedCBytes, 0);
-assert.equal(directRaisesBasicReport.objectBackend.targetFacts.selectedEmitter, "zero-wasm");
-assert.equal(new WebAssembly.Instance(new WebAssembly.Module(directRaisesBasicBytes)).exports.main(), 7);
-const directRescueBasicPath = join(outDir, "direct-rescue-basic");
-rmSync(`${directRescueBasicPath}.wasm`, { force: true });
-const directRescueBasicReport = json(["build", "--json", "--emit", "wasm", "--target", "wasm32-web", "examples/direct-rescue-basic.0", "--out", directRescueBasicPath]).body;
-const directRescueBasicBytes = readFileSync(`${directRescueBasicPath}.wasm`);
-assert.equal(directRescueBasicReport.generatedCBytes, 0);
-assert.equal(directRescueBasicReport.objectBackend.targetFacts.selectedEmitter, "zero-wasm");
-assert.equal(new WebAssembly.Instance(new WebAssembly.Module(directRescueBasicBytes)).exports.main(), 9);
-const directByteBufPath = join(outDir, "direct-byte-buf");
-rmSync(`${directByteBufPath}.wasm`, { force: true });
-const directByteBufReport = json(["build", "--json", "--emit", "wasm", "--target", "wasm32-web", "examples/direct-byte-buf.0", "--out", directByteBufPath]).body;
-const directByteBufBytes = readFileSync(`${directByteBufPath}.wasm`);
-assert.equal(directByteBufReport.generatedCBytes, 0);
-assert.equal(directByteBufReport.objectBackend.directFacts.bufferHelperCount, 3);
-assert.equal(directByteBufReport.objectBackend.directFacts.runtime.linearMemory, true);
-assert.equal(directByteBufReport.objectBackend.directFacts.runtime.buffer, "Vec<u8>");
-assert.equal(new WebAssembly.Instance(new WebAssembly.Module(directByteBufBytes)).exports.main(), 66);
-const directGenericIdentityPath = join(outDir, "direct-generic-identity");
-rmSync(`${directGenericIdentityPath}.wasm`, { force: true });
-const directGenericIdentityReport = json(["build", "--json", "--emit", "wasm", "--target", "wasm32-web", "examples/direct-generic-identity.0", "--out", directGenericIdentityPath]).body;
-const directGenericIdentityBytes = readFileSync(`${directGenericIdentityPath}.wasm`);
-assert.equal(directGenericIdentityReport.generatedCBytes, 0);
-assert.equal(directGenericIdentityReport.objectBackend.directFacts.functionCount, 2);
-assert.equal(new WebAssembly.Instance(new WebAssembly.Module(directGenericIdentityBytes)).exports.main(), 42);
-const directGenericFixedBufPath = join(outDir, "direct-generic-fixedbuf");
-rmSync(`${directGenericFixedBufPath}.wasm`, { force: true });
-const directGenericFixedBufReport = json(["build", "--json", "--emit", "wasm", "--target", "wasm32-web", "examples/direct-generic-fixedbuf.0", "--out", directGenericFixedBufPath]).body;
-const directGenericFixedBufBytes = readFileSync(`${directGenericFixedBufPath}.wasm`);
-assert.equal(directGenericFixedBufReport.generatedCBytes, 0);
-assert.equal(directGenericFixedBufReport.objectBackend.directFacts.runtime.linearMemory, true);
-assert.equal(new WebAssembly.Instance(new WebAssembly.Module(directGenericFixedBufBytes)).exports.main(), 55);
-const directGenericVecPath = join(outDir, "direct-generic-vec");
-rmSync(`${directGenericVecPath}.wasm`, { force: true });
-const directGenericVecReport = json(["build", "--json", "--emit", "wasm", "--target", "wasm32-web", "examples/direct-generic-vec.0", "--out", directGenericVecPath]).body;
-const directGenericVecBytes = readFileSync(`${directGenericVecPath}.wasm`);
-assert.equal(directGenericVecReport.generatedCBytes, 0);
-assert.equal(directGenericVecReport.objectBackend.directFacts.runtime.linearMemory, true);
-assert.equal(new WebAssembly.Instance(new WebAssembly.Module(directGenericVecBytes)).exports.main(), 61);
-const directStdIoMem = json(["mem", "--json", "conformance/native/pass/std-io-direct.0"]).body;
-assert.equal(directStdIoMem.generatedCBytes, 0);
-assert.equal(directStdIoMem.cBridgeFallback, false);
-assert.equal(directStdIoMem.memory.hiddenHeapAllocation, false);
-assert.equal(directStdIoMem.memory.stackBytes > 0, true);
-assert.equal(directStdIoMem.memory.maxFrameBytes > 0, true);
-assert.equal(directStdIoMem.directFacts.runtimeHelperCount, 1);
-assert(directStdIoMem.usedStdlibHelpers.some((helper) => helper.name === "std.io.bufferedReader"));
-assert(directStdIoMem.usedStdlibHelpers.some((helper) => helper.name === "std.io.bufferedWriter"));
-assert(directStdIoMem.usedStdlibHelpers.some((helper) => helper.name === "std.io.copy"));
-assert.equal(directStdIoMem.capabilityFacts.worldStdio, "available");
-const directPackageCallOrderPath = join(outDir, "direct-package-call-order");
-rmSync(`${directPackageCallOrderPath}.wasm`, { force: true });
-const directPackageCallOrderReport = json(["build", "--json", "--emit", "wasm", "--target", "wasm32-web", "examples/direct-package-call-order", "--out", directPackageCallOrderPath]).body;
-const directPackageCallOrderBytes = readFileSync(`${directPackageCallOrderPath}.wasm`);
-assert.equal(directPackageCallOrderReport.generatedCBytes, 0);
-assert.equal(directPackageCallOrderReport.objectBackend.directFacts.moduleCount, 3);
-assert.equal(directPackageCallOrderReport.objectBackend.internalIr.functionIdentity, "module-qualified-stable-sorted");
-assert.equal(new WebAssembly.Instance(new WebAssembly.Module(directPackageCallOrderBytes)).exports.main(), 27);
 const directLinuxGnuObjPath = join(outDir, "direct-linux-gnu.o");
 rmSync(directLinuxGnuObjPath, { force: true });
 const directLinuxGnuObjReport = json(["build", "--json", "--emit", "obj", "--target", "linux-x64", "examples/direct-call-add.0", "--out", directLinuxGnuObjPath]).body;
@@ -1137,242 +870,6 @@ assert.equal(directArm64ElfBytes.toString("ascii", 1, 4), "ELF");
 assert.equal(directArm64ElfBytes.readUInt16LE(18), 183);
 assert(directArm64ElfBytes.includes(Buffer.concat([Buffer.from("main"), Buffer.from([0])])));
 assert(directArm64ElfBytes.includes(Buffer.from([0x00, 0x00, 0x80, 0x52, 0xc0, 0x03, 0x5f, 0xd6])));
-const compilerZeroStage0Path = join(outDir, "compiler-zero-stage0");
-rmSync(`${compilerZeroStage0Path}.wasm`, { force: true });
-const compilerZeroStage0Report = json(["build", "--json", "--emit", "wasm", "--target", "wasm32-web", "compiler-zero", "--out", compilerZeroStage0Path]).body;
-const compilerZeroStage0Bytes = readFileSync(`${compilerZeroStage0Path}.wasm`);
-assert.equal(compilerZeroStage0Report.emit, "wasm");
-assert.equal(compilerZeroStage0Report.target, "wasm32-web");
-assert.equal(compilerZeroStage0Report.generatedCBytes, 0);
-assert.equal(compilerZeroStage0Report.objectBackend.directFacts.moduleCount, 10);
-assert.equal(compilerZeroStage0Report.objectBackend.directFacts.bufferHelperCount, 3);
-assert.equal(compilerZeroStage0Report.selfHostRouting.subsetCompatible, true);
-assert.equal(compilerZeroStage0Report.selfHostRouting.mode, "seed");
-assert.equal(compilerZeroStage0Report.selfHostRouting.phases.parse, "zero-c");
-assert.equal(compilerZeroStage0Report.selfHostRouting.phases.emit, "zero-c-direct-wasm");
-assert.equal(compilerZeroStage0Report.selfHostRouting.phases.selfHostCompilerRole, "seed-artifact");
-assert.equal(compilerZeroStage0Report.selfHostRouting.frontend.selected, true);
-assert.equal(compilerZeroStage0Report.selfHostRouting.wasmEmitter.selected, true);
-assert.equal(compilerZeroStage0Report.selfHostRouting.cBridge.required, false);
-assert.equal(compilerZeroStage0Bytes[0], 0);
-assert.equal(compilerZeroStage0Bytes[1], 0x61);
-const compilerZeroStage0Instance = new WebAssembly.Instance(new WebAssembly.Module(compilerZeroStage0Bytes));
-assert.equal(compilerZeroStage0Instance.exports.main(), 48);
-assert(compilerZeroStage0Instance.exports.memory instanceof WebAssembly.Memory);
-assert.equal(compilerZeroStage0Instance.exports.compiler_runtime_arena_plan(64, 16), 54);
-assert.equal(compilerZeroStage0Instance.exports.compiler_source_input_mode(1, 1, 0), 61);
-assert.equal(compilerZeroStage0Instance.exports.compiler_source_input_mode(2, 0, 1), 62);
-const compilerZeroSourceBytes = new TextEncoder().encode("pub fun main() -> Void {}\n");
-new Uint8Array(compilerZeroStage0Instance.exports.memory.buffer).set(compilerZeroSourceBytes, 1024);
-assert.equal(compilerZeroStage0Instance.exports.compiler_accept_source_buffer(1024, compilerZeroSourceBytes.length, compilerZeroStage0Instance.exports.memory.buffer.byteLength), 63);
-assert.equal(compilerZeroStage0Instance.exports.compiler_token_summary(1024, compilerZeroSourceBytes.length, compilerZeroStage0Instance.exports.memory.buffer.byteLength), 1025);
-assert.equal(compilerZeroStage0Instance.exports.compiler_source_hash(1024, compilerZeroSourceBytes.length, compilerZeroStage0Instance.exports.memory.buffer.byteLength) >>> 0, 3863097883);
-assert.equal(compilerZeroStage0Instance.exports.compiler_source_location_at(1024, compilerZeroSourceBytes.length, compilerZeroStage0Instance.exports.memory.buffer.byteLength, 18), 1019);
-assert.equal(compilerZeroStage0Instance.exports.compiler_source_location_at(1024, compilerZeroSourceBytes.length, compilerZeroStage0Instance.exports.memory.buffer.byteLength, 26), 2001);
-assert.equal(compilerZeroStage0Instance.exports.compiler_source_order_key(1, 2, 3863097883, 3863097884), 64);
-assert.equal(compilerZeroStage0Instance.exports.compiler_source_order_key(2, 1, 3863097883, 3863097884), 65);
-assert.equal(compilerZeroStage0Instance.exports.compiler_source_order_key(1, 1, 3863097883, 3863097884), 66);
-const compilerZeroManifestBytes = readFileSync("compiler-zero/zero.json");
-new Uint8Array(compilerZeroStage0Instance.exports.memory.buffer).set(compilerZeroManifestBytes, 4096);
-assert.equal(compilerZeroStage0Instance.exports.compiler_manifest_summary(4096, compilerZeroManifestBytes.length, compilerZeroStage0Instance.exports.memory.buffer.byteLength), 52);
-assert.equal(compilerZeroStage0Instance.exports.compiler_hosted_package_source_plan(4096, compilerZeroManifestBytes.length, 1024, compilerZeroSourceBytes.length, compilerZeroStage0Instance.exports.memory.buffer.byteLength, 1), 68);
-assert.equal(compilerZeroStage0Instance.exports.compiler_hosted_package_source_plan(4096, compilerZeroManifestBytes.length, 1024, compilerZeroSourceBytes.length, compilerZeroStage0Instance.exports.memory.buffer.byteLength, 0), 0);
-const compilerZeroRuntimeAbiBytes = new TextEncoder().encode('export c fun add(a: i32, b: i32) -> i32 { return a + b }\npub fun main(world: World, args: Args, env: Env, alloc: Alloc) -> Void raises { Bad } { let bytes: [4]u8 = [1, 2, 3, 4] check world.out.write("ok") check world.err.write("bad") raise Bad }\n');
-new Uint8Array(compilerZeroStage0Instance.exports.memory.buffer).set(compilerZeroRuntimeAbiBytes, 34816);
-assert.equal(compilerZeroStage0Instance.exports.compiler_runtime_abi_summary(34816, compilerZeroRuntimeAbiBytes.length, compilerZeroStage0Instance.exports.memory.buffer.byteLength, 1), 1023);
-assert.equal(compilerZeroStage0Instance.exports.compiler_runtime_memory_layout(64, 4, 1), 6400041);
-assert.equal(compilerZeroStage0Instance.exports.compiler_runtime_shim_cost(1, 1, 1, 1, 1), 11610);
-assert.equal(compilerZeroStage0Instance.exports.compiler_runtime_helper_summary(34816, compilerZeroRuntimeAbiBytes.length, compilerZeroStage0Instance.exports.memory.buffer.byteLength, 1), 249);
-assert.equal(compilerZeroStage0Instance.exports.compiler_runtime_helper_summary(34816, compilerZeroRuntimeAbiBytes.length, compilerZeroStage0Instance.exports.memory.buffer.byteLength, 2), 250);
-assert.equal(compilerZeroStage0Instance.exports.compiler_runtime_helper_summary(34816, compilerZeroRuntimeAbiBytes.length, compilerZeroStage0Instance.exports.memory.buffer.byteLength, 3), 252);
-assert.equal(compilerZeroStage0Instance.exports.compiler_browser_compile_request(1024, compilerZeroSourceBytes.length, 4096, compilerZeroManifestBytes.length, compilerZeroStage0Instance.exports.memory.buffer.byteLength, 1, 2, 3), 1020363);
-assert.equal(compilerZeroStage0Instance.exports.compiler_browser_compile_response(511, 255, 65535, 141), 800141);
-assert.equal(compilerZeroStage0Instance.exports.compiler_browser_artifact_plan(34816, compilerZeroRuntimeAbiBytes.length, compilerZeroStage0Instance.exports.memory.buffer.byteLength, 1, 3), 1311);
-assert.equal(compilerZeroStage0Instance.exports.compiler_self_host_source_graph_plan(1024, compilerZeroSourceBytes.length, 4096, compilerZeroManifestBytes.length, compilerZeroStage0Instance.exports.memory.buffer.byteLength, 1), 52680001);
-assert.equal(compilerZeroStage0Instance.exports.compiler_self_host_compile_request(1024, compilerZeroSourceBytes.length, 4096, compilerZeroManifestBytes.length, compilerZeroStage0Instance.exports.memory.buffer.byteLength, 1, 2, 3), 1821673);
-assert.equal(compilerZeroStage0Instance.exports.compiler_self_host_module_graph_packet(1024, compilerZeroSourceBytes.length, 4096, compilerZeroManifestBytes.length, compilerZeroStage0Instance.exports.memory.buffer.byteLength, 1), 13171111);
-assert.equal(compilerZeroStage0Instance.exports.compiler_self_host_source_diag_code(1024, compilerZeroSourceBytes.length, 4096, compilerZeroManifestBytes.length, compilerZeroStage0Instance.exports.memory.buffer.byteLength, 1), 0);
-assert.equal(compilerZeroStage0Instance.exports.compiler_self_host_write_minimal_wasm(8192, 8, compilerZeroStage0Instance.exports.memory.buffer.byteLength), 8);
-assert.equal(compilerZeroStage0Instance.exports.compiler_self_host_minimal_wasm_hash(8192, 8, compilerZeroStage0Instance.exports.memory.buffer.byteLength), 1836278016);
-assert.equal(compilerZeroStage0Instance.exports.compiler_self_host_write_return42_wasm(14336, 64, compilerZeroStage0Instance.exports.memory.buffer.byteLength), 38);
-const compilerZeroReturn42Bytes = new Uint8Array(compilerZeroStage0Instance.exports.memory.buffer).slice(14336, 14336 + 38);
-const compilerZeroReturn42Instance = new WebAssembly.Instance(new WebAssembly.Module(compilerZeroReturn42Bytes));
-assert.equal(compilerZeroReturn42Instance.exports.main(), 42);
-const compilerZeroStage0PlaygroundHelloBytes = new TextEncoder().encode('pub fun main(world: World) -> Void raises { check world.out.write("hello from zero\\n") }\n');
-new Uint8Array(compilerZeroStage0Instance.exports.memory.buffer).set(compilerZeroStage0PlaygroundHelloBytes, 20480);
-assert.equal(compilerZeroStage0Instance.exports.compiler_self_host_write_playground_wasm(20480, compilerZeroStage0PlaygroundHelloBytes.length, 24576, 512, compilerZeroStage0Instance.exports.memory.buffer.byteLength), 157);
-assert.equal(compilerZeroStage0Instance.exports.compiler_self_host_command_response(1, 52680001, 1821673, 1836278016), 4010001);
-assert.equal(compilerZeroStage0Instance.exports.compiler_self_host_command_response(2, 52680001, 1821673, 1836278016), 4020008);
-assert.equal(compilerZeroStage0Instance.exports.compiler_self_host_command_response(3, 52680001, 1821673, 1836278016), 4030001);
-assert.equal(compilerZeroStage0Instance.exports.compiler_self_host_command_response(4, 52680001, 1821673, 1836278016), 4040008);
-const compilerDriverCheck = json(["check", "--json", "--target", "wasm32-web", "examples/hello.0"]).body;
-assert.equal(compilerDriverCheck.selfHostRouting.mode, "seed");
-assert.equal(compilerDriverCheck.selfHostRouting.phases.check, "zero-c");
-assert.equal(compilerDriverCheck.selfHostRouting.frontend.selected, true);
-assert.equal(compilerDriverCheck.selfHostRouting.wasmEmitter.selected, false);
-assert.equal(compilerDriverCheck.targetReadiness.ok, false);
-assert.equal(compilerDriverCheck.targetReadiness.languageOk, true);
-assert.equal(compilerDriverCheck.targetReadiness.buildable, false);
-assert.equal(compilerDriverCheck.targetReadiness.target, "wasm32-web");
-assert.equal(compilerDriverCheck.targetReadiness.emit, "exe");
-assert.equal(compilerDriverCheck.targetReadiness.diagnostics[0].code, "CGEN004");
-assert.equal(compilerDriverCheck.targetReadiness.diagnostics[0].backendBlocker.stage, "select");
-const defaultTargetCheck = json(["check", "--json", "examples/hello.0"]).body;
-assert.equal(defaultTargetCheck.targetReadiness.target, version.host);
-const compilerDriverBuildPath = join(outDir, "compiler-driver-hello");
-rmSync(`${compilerDriverBuildPath}.wasm`, { force: true });
-const compilerDriverBuild = json(["build", "--json", "--emit", "wasm", "--target", "wasm32-web", "examples/hello.0", "--out", compilerDriverBuildPath]).body;
-const compilerDriverBuildBytes = readFileSync(`${compilerDriverBuildPath}.wasm`);
-assert.equal(compilerDriverBuild.selfHostRouting.mode, "seed");
-assert.equal(compilerDriverBuild.selfHostRouting.phases.emit, "zero-c-direct-wasm");
-assert.equal(compilerDriverBuild.selfHostRouting.frontend.selected, true);
-assert.equal(compilerDriverBuild.selfHostRouting.wasmEmitter.selected, true);
-assert.equal(compilerDriverBuild.generatedCBytes, 0);
-assert.equal(compilerDriverBuild.selfHostRouting.cBridge.required, false);
-assert.equal(compilerDriverBuild.artifactBytes, 157);
-assert.equal(compilerDriverBuildBytes[0], 0);
-assert.equal(compilerDriverBuildBytes[1], 0x61);
-assert.equal(compilerZeroStage0Instance.exports.compiler_self_host_fixed_point_packet(2, 4020008, 7009121, 1836278016), 2203300);
-assert.equal(compilerZeroStage0Instance.exports.compiler_self_host_fixed_point_packet(3, 4020008, 7009121, 1836278016), 3303300);
-assert.equal(compilerZeroStage0Instance.exports.compiler_self_host_native_artifact_plan(1, 1, 0, 0), 801101);
-assert.equal(compilerZeroStage0Instance.exports.compiler_self_host_native_artifact_plan(2, 2, 0, 0), 802202);
-assert.equal(compilerZeroStage0Instance.exports.compiler_self_host_native_artifact_plan(2, 3, 0, 0), 802303);
-assert.equal(compilerZeroStage0Instance.exports.compiler_self_host_native_artifact_plan(2, 2, 0, 1), 0);
-assert.equal(compilerZeroStage0Instance.exports.compiler_self_host_target_capability_diag(2, 1, 1, 3), 0);
-assert.equal(compilerZeroStage0Instance.exports.compiler_self_host_target_capability_diag(5, 1, 0, 2), 6002);
-assert.equal(compilerZeroStage0Instance.exports.compiler_self_host_required_capabilities(), 8191);
-assert.equal(compilerZeroStage0Instance.exports.compiler_self_host_supported_capabilities(), 8191);
-assert.equal(compilerZeroStage0Instance.exports.compiler_self_host_gap_mask(), 0);
-assert.equal(compilerZeroStage0Instance.exports.compiler_self_host_gap_diag_code(512), 7003);
-assert.equal(compilerZeroStage0Instance.exports.compiler_self_host_gap_diag_code(1024), 7004);
-assert.equal(compilerZeroStage0Instance.exports.compiler_self_host_gap_diag_code(2048), 7005);
-assert.equal(compilerZeroStage0Instance.exports.compiler_self_host_gap_diag_code(4096), 7006);
-assert.equal(compilerZeroStage0Instance.exports.compiler_self_host_stage_plan(3, 8191, 8191, 0, 0), 3300);
-const compilerZeroUnsupportedSelfHostBytes = new TextEncoder().encode("pub extern c fun main() -> i32\n");
-new Uint8Array(compilerZeroStage0Instance.exports.memory.buffer).set(compilerZeroUnsupportedSelfHostBytes, 12288);
-assert.equal(compilerZeroStage0Instance.exports.compiler_self_host_source_diag_code(12288, compilerZeroUnsupportedSelfHostBytes.length, 4096, compilerZeroManifestBytes.length, compilerZeroStage0Instance.exports.memory.buffer.byteLength, 1), 7009);
-assert.equal(compilerZeroStage0Instance.exports.compiler_self_host_diagnostic_packet(7009, 1, 4, 2), 7009121);
-const compilerZeroModuleSourceBytes = new TextEncoder().encode("use lib\npub fun main() -> Void {}\n");
-new Uint8Array(compilerZeroStage0Instance.exports.memory.buffer).set(compilerZeroModuleSourceBytes, 8192);
-assert.equal(compilerZeroStage0Instance.exports.compiler_module_import_summary(8192, compilerZeroModuleSourceBytes.length, compilerZeroStage0Instance.exports.memory.buffer.byteLength, 2), 73);
-assert.equal(compilerZeroStage0Instance.exports.compiler_module_import_summary(8192, compilerZeroModuleSourceBytes.length, compilerZeroStage0Instance.exports.memory.buffer.byteLength, 1), 0);
-assert.equal(compilerZeroStage0Instance.exports.compiler_module_import_diag_code(8192, compilerZeroModuleSourceBytes.length, compilerZeroStage0Instance.exports.memory.buffer.byteLength, 1), 3003);
-assert.equal(compilerZeroStage0Instance.exports.compiler_module_graph_reject_code(1, 1, 0, 0, 0), 3003);
-assert.equal(compilerZeroStage0Instance.exports.compiler_module_graph_reject_code(2, 1, 1, 0, 0), 3008);
-assert.equal(compilerZeroStage0Instance.exports.compiler_module_graph_reject_code(2, 1, 0, 1, 0), 3009);
-assert.equal(compilerZeroStage0Instance.exports.compiler_module_graph_reject_code(2, 1, 0, 0, 1), 3010);
-const compilerZeroScopeBytes = new TextEncoder().encode("pub shape Point { x: i32 }\npub fun main() -> Void {\n let x = 1\n let y = x\n}\nfun helper() -> Void {}\n");
-new Uint8Array(compilerZeroStage0Instance.exports.memory.buffer).set(compilerZeroScopeBytes, 32768);
-assert.equal(compilerZeroStage0Instance.exports.compiler_scope_summary(32768, compilerZeroScopeBytes.length, compilerZeroStage0Instance.exports.memory.buffer.byteLength), 40202);
-assert.equal(compilerZeroStage0Instance.exports.compiler_name_resolution_packet(32768, compilerZeroScopeBytes.length, compilerZeroStage0Instance.exports.memory.buffer.byteLength, 0, 0), 0);
-assert.equal(compilerZeroStage0Instance.exports.compiler_name_resolution_packet(32768, compilerZeroScopeBytes.length, compilerZeroStage0Instance.exports.memory.buffer.byteLength, 1, 0), 3003);
-assert.equal(compilerZeroStage0Instance.exports.compiler_name_resolution_packet(32768, compilerZeroScopeBytes.length, compilerZeroStage0Instance.exports.memory.buffer.byteLength, 0, 1), 3009);
-const compilerZeroMemberNameBytes = new TextEncoder().encode("type BytePair = Pair<u8, u8>\nshape Pair<T, static N: usize> { left: T }\npub fun main() -> Void { pair.left }\n");
-new Uint8Array(compilerZeroStage0Instance.exports.memory.buffer).set(compilerZeroMemberNameBytes, 40960);
-assert.equal(compilerZeroStage0Instance.exports.compiler_member_name_summary(40960, compilerZeroMemberNameBytes.length, compilerZeroStage0Instance.exports.memory.buffer.byteLength), 1010201);
-const compilerZeroTypeSurfaceBytes = new TextEncoder().encode("shape Box { items: [4]u8, name: String, next: ref<Box> } enum Color { red } choice Event { quit } pub fun main(flag: Bool) -> Void { let n: usize = 1 }\n");
-new Uint8Array(compilerZeroStage0Instance.exports.memory.buffer).set(compilerZeroTypeSurfaceBytes, 53248);
-assert.equal(compilerZeroStage0Instance.exports.compiler_type_surface_summary(53248, compilerZeroTypeSurfaceBytes.length, compilerZeroStage0Instance.exports.memory.buffer.byteLength), 63);
-const compilerZeroExpressionSurfaceBytes = new TextEncoder().encode("let mut pair: Pair = Pair { left: 1, right: 2 } pair.left = pair.items[0]");
-new Uint8Array(compilerZeroStage0Instance.exports.memory.buffer).set(compilerZeroExpressionSurfaceBytes, 57344);
-assert.equal(compilerZeroStage0Instance.exports.compiler_expression_surface_summary(57344, compilerZeroExpressionSurfaceBytes.length, compilerZeroStage0Instance.exports.memory.buffer.byteLength), 63);
-const compilerZeroControlFlowBytes = new TextEncoder().encode("if ok { check call() } while ok { return } rescue err { return }");
-new Uint8Array(compilerZeroStage0Instance.exports.memory.buffer).set(compilerZeroControlFlowBytes, 61440);
-assert.equal(compilerZeroStage0Instance.exports.compiler_control_flow_summary(61440, compilerZeroControlFlowBytes.length, compilerZeroStage0Instance.exports.memory.buffer.byteLength), 15);
-const compilerZeroGenericStaticBytes = new TextEncoder().encode("interface Readable<T> { fun read(self: ref<T>) -> i32 } shape FixedVec<T, static N: usize> { items: [N]T fun push(self: mutref<Self>, value: T) -> Void {} } fun first<T, static N: usize>(vec: ref<FixedVec<T,N>>) -> T { return vec.items[0] } pub fun main() -> Void { vec.push(1) }\n");
-new Uint8Array(compilerZeroStage0Instance.exports.memory.buffer).set(compilerZeroGenericStaticBytes, 45056);
-assert.equal(compilerZeroStage0Instance.exports.compiler_generic_static_summary(45056, compilerZeroGenericStaticBytes.length, compilerZeroStage0Instance.exports.memory.buffer.byteLength), 255);
-const compilerZeroFallibilityBytes = new TextEncoder().encode("fun fail() -> Void raises { BadInput } { raise BadInput } pub fun main() -> Void raises { check fail() rescue err { return } }\n");
-new Uint8Array(compilerZeroStage0Instance.exports.memory.buffer).set(compilerZeroFallibilityBytes, 47104);
-assert.equal(compilerZeroStage0Instance.exports.compiler_fallibility_summary(47104, compilerZeroFallibilityBytes.length, compilerZeroStage0Instance.exports.memory.buffer.byteLength), 255);
-assert.equal(compilerZeroStage0Instance.exports.compiler_fallibility_diag_code(0, 0, 0, 0), 0);
-assert.equal(compilerZeroStage0Instance.exports.compiler_fallibility_diag_code(1, 0, 0, 0), 1003);
-assert.equal(compilerZeroStage0Instance.exports.compiler_fallibility_diag_code(0, 1, 0, 0), 1002);
-assert.equal(compilerZeroStage0Instance.exports.compiler_fallibility_diag_code(0, 0, 0, 1), 1001);
-const compilerZeroCapabilityBytes = new TextEncoder().encode('pub fun main(world: World, net: Net) -> Void raises { let fs = std.fs.host() let env = std.env.get("X") let proc = std.proc.spawn("noop") check world.out.write("target web") }\n');
-new Uint8Array(compilerZeroStage0Instance.exports.memory.buffer).set(compilerZeroCapabilityBytes, 59392);
-assert.equal(compilerZeroStage0Instance.exports.compiler_capability_summary(59392, compilerZeroCapabilityBytes.length, compilerZeroStage0Instance.exports.memory.buffer.byteLength), 255);
-assert.equal(compilerZeroStage0Instance.exports.compiler_capability_diag_code(0, 0), 0);
-assert.equal(compilerZeroStage0Instance.exports.compiler_capability_diag_code(1, 0), 6002);
-assert.equal(compilerZeroStage0Instance.exports.compiler_capability_diag_code(1, 1), 0);
-const compilerZeroOwnershipBytes = new TextEncoder().encode("shape Receiver { value: i32 fun add(self: mutref<Self>) -> Void { self.value = self.value + 1 } } pub fun main() -> Void { let mut bytes: [2]u8 = [0, 0] let span: MutSpan<u8> = bytes bytes[0] = 1 let owned: owned<Receiver> = Receiver { value: 1 } consume(owned) Receiver.add(&mut owned) }\n");
-new Uint8Array(compilerZeroStage0Instance.exports.memory.buffer).set(compilerZeroOwnershipBytes, 6144);
-assert.equal(compilerZeroStage0Instance.exports.compiler_ownership_summary(6144, compilerZeroOwnershipBytes.length, compilerZeroStage0Instance.exports.memory.buffer.byteLength), 255);
-assert.equal(compilerZeroStage0Instance.exports.compiler_ownership_diag_code(1, 0, 0, 0), 1009);
-assert.equal(compilerZeroStage0Instance.exports.compiler_ownership_diag_code(0, 1, 0, 0), 3013);
-assert.equal(compilerZeroStage0Instance.exports.compiler_ownership_diag_code(0, 0, 1, 0), 3048);
-assert.equal(compilerZeroStage0Instance.exports.compiler_ownership_diag_code(0, 0, 0, 1), 3109);
-const compilerZeroMirBytes = new TextEncoder().encode('pub const LIMIT: usize = 4\nshape Pair { left: i32, right: i32 }\nenum Color { red }\nchoice Result { ok: i32, bad }\npub fun main(world: World) -> i32 raises { Bad } { let local: [4]u8 = [1, 2, 3, 4] let msg: String = "ok" let span: Span<u8> = local if local[0] == 1 { return helper(span.len) } raise Bad }\n');
-new Uint8Array(compilerZeroStage0Instance.exports.memory.buffer).set(compilerZeroMirBytes, 32768);
-assert.equal(compilerZeroStage0Instance.exports.compiler_mir_lowering_summary(32768, compilerZeroMirBytes.length, compilerZeroStage0Instance.exports.memory.buffer.byteLength), 65535);
-const compilerZeroMirHashA = compilerZeroStage0Instance.exports.compiler_mir_hash(32768, compilerZeroMirBytes.length, compilerZeroStage0Instance.exports.memory.buffer.byteLength, 1);
-const compilerZeroMirHashB = compilerZeroStage0Instance.exports.compiler_mir_hash(32768, compilerZeroMirBytes.length, compilerZeroStage0Instance.exports.memory.buffer.byteLength, 2);
-assert(compilerZeroMirHashA > 0);
-assert(compilerZeroMirHashB > 0);
-assert.equal(compilerZeroStage0Instance.exports.compiler_mir_module_order_hash(1, compilerZeroMirHashA, 2, compilerZeroMirHashB), compilerZeroStage0Instance.exports.compiler_mir_module_order_hash(2, compilerZeroMirHashB, 1, compilerZeroMirHashA));
-assert.equal(compilerZeroStage0Instance.exports.compiler_mir_json_contract(65535, 1, 2), 167535);
-const compilerZeroParseItemBytes = new TextEncoder().encode('import math\nuse lib\nconst answer: i32 = 42\nshape Point { x: i32 }\nenum Color { red }\nchoice Event { quit }\nextern c "x.h" as x\npub fun main() -> Void {}\ntest "ok" {}\n');
-new Uint8Array(compilerZeroStage0Instance.exports.memory.buffer).set(compilerZeroParseItemBytes, 16384);
-assert.equal(compilerZeroStage0Instance.exports.compiler_parse_item_summary(16384, compilerZeroParseItemBytes.length, compilerZeroStage0Instance.exports.memory.buffer.byteLength), 511);
-const compilerZeroParseStmtBytes = new TextEncoder().encode('pub fun main() -> Void raises {\n let x = 1\n if x { check world.out.write("x") }\n while x { return }\n match x { ._ { raise Bad } }\n let y = call() rescue err { return }\n}\n');
-new Uint8Array(compilerZeroStage0Instance.exports.memory.buffer).set(compilerZeroParseStmtBytes, 20480);
-assert.equal(compilerZeroStage0Instance.exports.compiler_parse_stmt_expr_summary(20480, compilerZeroParseStmtBytes.length, compilerZeroStage0Instance.exports.memory.buffer.byteLength), 255);
-const compilerZeroParseRootBytes = readFileSync("conformance/parse/compiler-smoke.0");
-new Uint8Array(compilerZeroStage0Instance.exports.memory.buffer).set(compilerZeroParseRootBytes, 24576);
-assert.equal(compilerZeroStage0Instance.exports.compiler_parse_root_summary(24576, compilerZeroParseRootBytes.length, compilerZeroStage0Instance.exports.memory.buffer.byteLength), 1010101);
-const compilerZeroParsePublicBytes = new TextEncoder().encode('pub const answer: i32 = 42\npub shape Point { x: i32 }\npub enum Color { red }\npub choice Event { quit }\npub fun main() -> Void {}\nfun helper() -> Void {}\n');
-new Uint8Array(compilerZeroStage0Instance.exports.memory.buffer).set(compilerZeroParsePublicBytes, 28672);
-assert.equal(compilerZeroStage0Instance.exports.compiler_parse_public_api_summary(28672, compilerZeroParsePublicBytes.length, compilerZeroStage0Instance.exports.memory.buffer.byteLength), 11111);
-const compilerZeroParseAstBytes = new TextEncoder().encode("pub const answer: i32 = 42\nshape Point { x: i32 }\npub fun main() -> Void { let x = 1 return }\n");
-new Uint8Array(compilerZeroStage0Instance.exports.memory.buffer).set(compilerZeroParseAstBytes, 49152);
-assert.equal(compilerZeroStage0Instance.exports.compiler_parse_ast_summary(49152, compilerZeroParseAstBytes.length, compilerZeroStage0Instance.exports.memory.buffer.byteLength), 1010081);
-assert.equal(compilerZeroStage0Instance.exports.compiler_byte_buffer_plan(8, 2), 71);
-const compilerZeroDiagSourceBytes = new TextEncoder().encode("pub fun main() -> Void {}\nmissing\n");
-new Uint8Array(compilerZeroStage0Instance.exports.memory.buffer).set(compilerZeroDiagSourceBytes, 36864);
-assert.equal(compilerZeroStage0Instance.exports.compiler_diagnostic_packet_build(36864, compilerZeroDiagSourceBytes.length, compilerZeroStage0Instance.exports.memory.buffer.byteLength, 26, 3003, 1, 2), 2014203);
-assert.equal(compilerZeroStage0Instance.exports.compiler_diagnostic_detail_summary(1, 2, 3, 4, 5, 6), 123456);
-assert.equal(compilerZeroStage0Instance.exports.compiler_related_span_summary(2, 3, 7, 11, 4), 2037114);
-const compilerZeroGraph = json(["graph", "--json", "--target", "wasm32-web", "compiler-zero"]).body;
-assert.equal(compilerZeroGraph.selfHostSubset.compatible, true);
-assert.equal(compilerZeroGraph.selfHostSubset.target, "wasm32-web");
-assert.equal(compilerZeroGraph.selfHostSubset.backend, "direct-wasm");
-assert.equal(compilerZeroGraph.selfHostRouting.mode, "seed");
-assert.equal(compilerZeroGraph.selfHostRouting.phases.parse, "zero-c");
-assert.equal(compilerZeroGraph.selfHostRouting.frontend.selected, true);
-assert.equal(compilerZeroGraph.selfHostRouting.metadata.graphJson, true);
-assert.equal(compilerZeroGraph.selfHostRouting.cBridge.required, false);
-assert(compilerZeroGraph.releaseMatrixTargetSupport.some((target) => target.target === "linux-musl-x64" && target.directExeEmitter === "zero-elf64-exe"));
-assert(compilerZeroGraph.releaseMatrixTargetSupport.some((target) => target.target === "darwin-arm64" && target.directObjectEmitter === "zero-macho64"));
-assert(compilerZeroGraph.releaseMatrixTargetSupport.every((target) => target.fallbackPolicy === "explicit-direct-never-c-bridge"));
-assert.equal(compilerZeroGraph.selfHostSubset.blockedReasons.length, 0);
-assert.equal(compilerZeroGraph.selfHostSubset.featureFacts.strings.dataSegments, true);
-assert.equal(compilerZeroGraph.selfHostSubset.featureFacts.strings.representation, "readonly-data-ptr-len");
-assert.equal(compilerZeroGraph.selfHostSubset.featureFacts.spans.mutableRepresentation, "ptr-len-mutspan-u8");
-assert(compilerZeroGraph.selfHostSubset.featureFacts.spans.helpers.includes("std.mem.eqlBytes"));
-assert.equal(compilerZeroGraph.selfHostSubset.featureFacts.aggregates.directWasmLowering, false);
-assert.equal(compilerZeroGraph.selfHostSubset.featureFacts.generics.runtimeMetadata, false);
-assert.equal(compilerZeroGraph.selfHostSubset.cInterop.generatedCRequired, false);
-assert(compilerZeroGraph.selfHostSubset.targetLimitations.includes("external-c-calls-require-target-library-audit"));
-assert(compilerZeroGraph.sourceMaps.some((item) => item.path === "compiler-zero/src/main.0" && item.lineCount > 0 && item.columnUnit === "utf8-byte"));
-const hostedGraph = json(["graph", "--json", "--target", "wasm32-web", "conformance/native/fail/std-fs-target-unsupported.0"]).body;
-assert.equal(hostedGraph.selfHostSubset.compatible, false);
-assert.equal(hostedGraph.selfHostRouting.subsetCompatible, false);
-assert(hostedGraph.selfHostSubset.blockedReasons.includes("fs"));
-assert(!hostedGraph.selfHostSubset.blockedReasons.includes("world"));
-const cImportGraph = json(["graph", "--json", "--target", "wasm32-web", "conformance/check/pass/c-header-import.0"]).body;
-assert.equal(cImportGraph.selfHostSubset.compatible, true);
-assert.equal(cImportGraph.selfHostSubset.cInterop.headerImports, true);
-assert.equal(cImportGraph.selfHostSubset.cInterop.typedBindings, true);
-assert.equal(cImportGraph.selfHostSubset.cInterop.generatedCRequired, false);
-assert.equal(cImportGraph.selfHostRouting.cBridge.required, false);
-assert.equal(cImportGraph.selfHostSubset.blockedReasons.length, 0);
-const cImport = cImportGraph.cImports.find((item) => item.header === "conformance/c/simple.h");
-assert(cImport.typedModel.functions.some((item) => item.name === "zero_c_add"));
-assert(cImport.typedModel.constants.some((item) => item.name === "ZERO_C_ANSWER"));
-assert(cImport.typedModel.structs.some((item) => item.name === "zero_c_point"));
-assert(cImport.typedModel.enums.some((item) => item.name === "zero_c_color"));
-assert(cImport.typedModel.typedefs.some((item) => item.name === "zero_c_int"));
-assert.equal(cImport.cache.target, "wasm32-web");
 const hostLeakGraph = json(["graph", "--json", "--target", "linux-musl-x64", "conformance/c/host-leak-package"]).body;
 assert.equal(hostLeakGraph.cLibraries[0].targetValidation.status, "blocked");
 assert.equal(hostLeakGraph.cLibraries[0].linkPlan.hostDiscovery, "blocked");
@@ -1427,66 +924,11 @@ for (const [fixture, code] of [
 const targetIncompatible = json(["check", "--json", "--target", "linux-musl-x64", "conformance/packages/target-incompatible-app"], { allowFailure: true });
 assert.notEqual(targetIncompatible.code, 0);
 assert.equal(targetIncompatible.body.diagnostics[0].code, "PKG004");
-const compilerZeroCheck = json(["check", "--json", "--target", "wasm32-web", "compiler-zero"]).body;
-assert.equal(compilerZeroCheck.selfHostRouting.mode, "seed");
-assert.equal(compilerZeroCheck.selfHostRouting.phases.check, "zero-c");
-assert.equal(compilerZeroCheck.selfHostRouting.frontend.selected, true);
-assert.equal(compilerZeroCheck.selfHostRouting.cBridge.required, false);
 
 const zeroHashSize = json(["size", "--json", "--target", "linux-musl-x64", "examples/zero-hash", "--out", join(outDir, "zero-hash-sized")]).body;
 assert.equal(zeroHashSize.generatedCBytes, 0);
 assert(zeroHashSize.usedStdlibHelpers.some((helper) => helper.name === "std.codec.crc32Bytes"));
 assert(zeroHashSize.artifactBytes < 100 * 1024);
-const zeroHashWasiSize = json(["size", "--json", "--target", "wasm32-wasi", "examples/zero-hash"]).body;
-assert.equal(zeroHashWasiSize.runtimeImportAudit.module, "wasi_snapshot_preview1");
-assert(zeroHashWasiSize.runtimeImportAudit.functions.includes("fd_write"));
-assert(zeroHashWasiSize.runtimeImportAudit.functions.includes("path_open"));
-assert.equal(zeroHashWasiSize.runtimeImportAudit.memoryFloor.floorBytes, 65536);
-assert.equal(zeroHashWasiSize.portableRuntime.runtimeKind, "wasi");
-assert.equal(zeroHashWasiSize.portableRuntime.providerSpecificDeployment, false);
-assert.equal(zeroHashWasiSize.portableRuntime.hostedDeployment, "out-of-scope");
-assert.equal(zeroHashWasiSize.portableRuntime.localRunner.productionLikeImports, true);
-assert(zeroHashWasiSize.portableRuntime.imports.functions.includes("path_open"));
-assert.equal(zeroHashWasiSize.portableRuntime.memoryFloor.floorBytes, 65536);
-const stdEnvWebSize = json(["size", "--json", "--target", "wasm32-web", "conformance/native/pass/std-env.0"]).body;
-assert.equal(stdEnvWebSize.portableRuntime.runtimeKind, "browser-worker");
-assert.equal(stdEnvWebSize.portableRuntime.providerSpecificDeployment, false);
-assert.equal(stdEnvWebSize.portableRuntime.imports.adapter, "browser-worker-import-shim");
-assert(stdEnvWebSize.portableRuntime.imports.functions.includes("environ_get"));
-assert.equal(stdEnvWebSize.portableRuntime.capabilityRestrictions.filesystem, "denied");
-const zeroHashWasiPath = join(outDir, "zero-hash-wasi");
-rmSync(`${zeroHashWasiPath}.wasm`, { force: true });
-const zeroHashWasiReport = json(["build", "--json", "--emit", "wasm", "--target", "wasm32-wasi", "examples/zero-hash", "--out", zeroHashWasiPath]).body;
-assert.equal(zeroHashWasiReport.generatedCBytes, 0);
-assert.equal(zeroHashWasiReport.targetSupport.fsAvailable, true);
-assert.equal(zeroHashWasiReport.objectBackend.objectEmission.path, "direct-wasm");
-assert.equal(zeroHashWasiReport.objectBackend.directFacts.runtime.allocator, "FixedBufAlloc");
-assert.equal(zeroHashWasiReport.objectBackend.directFacts.runtimeHelperCount, 1);
-assert(!existsSync(`${zeroHashWasiPath}.wasm.c`));
-const zeroHashMem = json(["mem", "--json", "--target", "wasm32-wasi", "examples/zero-hash"]).body;
-assert.equal(zeroHashMem.generatedCBytes, 0);
-assert.equal(zeroHashMem.cBridgeFallback, false);
-assert.deepEqual(zeroHashMem.capabilityFacts.requiredCapabilities, ["args", "fs", "memory", "alloc", "codec", "world"]);
-
-const explainText = zero(["explain", "TAR002"]).stdout;
-assert.match(explainText, /Target capability unavailable/);
-
-const explainJson = json(["explain", "--json", "TAR002"]).body;
-assert.equal(explainJson.schemaVersion, 1);
-assert.equal(explainJson.code, "TAR002");
-assert.equal(explainJson.repair.id, "choose-target-with-required-capability");
-
-const fixPlan = json(["fix", "--plan", "--json", "--target", "wasm32-web", "conformance/native/fail/std-fs-target-unsupported.0"]).body;
-assert.equal(fixPlan.schemaVersion, 1);
-assert.equal(fixPlan.mode, "plan");
-assert.equal(fixPlan.appliesEdits, false);
-assert.equal(fixPlan.fixes[0].id, "choose-target-with-required-capability");
-assert.equal(fixPlan.selfHostRepairPolicy.unsupportedFeatureSafety, "requires-human-review");
-assert.equal(fixPlan.selfHostRepairPolicy.directFallback, "never-c-bridge");
-const targetDeniedCapability = json(["check", "--json", "--target", "wasm32-web", "conformance/native/fail/std-fs-target-unsupported.0"], { allowFailure: true }).body;
-assert.equal(targetDeniedCapability.diagnostics[0].code, "TAR002");
-assert.equal(targetDeniedCapability.diagnostics[0].repair.id, "choose-target-with-required-capability");
-assert.equal(targetDeniedCapability.generatedCBytes ?? 0, 0);
 const invalidCheckEmit = json(["check", "--json", "--emit", "bogus", "examples/hello.0"], { allowFailure: true });
 assert.equal(invalidCheckEmit.code, 1);
 assert.equal(invalidCheckEmit.body.ok, false);
@@ -1532,35 +974,6 @@ assert.equal(machOObjectBlockedReadiness.targetReadiness.diagnostics[0].code, "C
 assert.equal(machOObjectBlockedReadiness.targetReadiness.diagnostics[0].backendBlocker.backend, "zero-macho64");
 assert.equal(machOObjectBlockedReadiness.targetReadiness.diagnostics[0].backendBlocker.stage, "emit");
 
-const routes = json(["routes", "--json", "examples/web/hello"]).body;
-assert.equal(routes.schemaVersion, 1);
-assert.equal(routes.runtime, "wasm32-web");
-assert(routes.routes.some((route) => route.path === "/" && route.method === "GET"));
-assert.equal(routes.routeCount, 1);
-assert(routes.requiresCapabilities.includes("web"));
-assert.equal(routes.capabilityFacts.filesystem.browserWasm, "unavailable");
-assert.equal(routes.capabilityFacts.filesystem.wasi, "capability-gated");
-assert.equal(routes.artifact.target, "wasm32-web");
-assert.equal(routes.artifact.available, true);
-assert.equal(routes.artifact.kind, "route-manifest");
-assert.equal(routes.webBundle.available, true);
-assert.equal(routes.webBundle.javascriptFrameworkTaxBytes, 0);
-assert(routes.webSurfaces.request.includes("headers"));
-assert.equal(routes.artifactAudit.filesystem, "denied for browser wasm");
-assert.equal(routes.localRuntime.runtimeKind, "browser-worker");
-assert.equal(routes.localRuntime.providerSpecificDeployment, false);
-assert.equal(routes.localRuntime.productionLikeImports, true);
-assert.equal(routes.localRuntime.frameworkTaxBytes, 0);
-assert.equal(routes.webBundle.deployment.providerSpecific, false);
-assert.equal(routes.webBundle.deployment.vercel, "out-of-scope");
-const webDevPlan = json(["dev", "--json", "--target", "wasm32-web", "examples/web/hello"]).body;
-assert.equal(webDevPlan.localRuntime.runtimeKind, "browser-worker");
-assert.equal(webDevPlan.localRuntime.productionLikeImports, true);
-assert.equal(webDevPlan.localRuntime.providerSpecificDeployment, false);
-assert.equal(webDevPlan.localRuntime.capabilityRestrictions.filesystem, "denied");
-assert.equal(webDevPlan.watch.manifest, "examples/web/hello/zero.json");
-assert.equal(webDevPlan.watch.files.some((file) => file === "examples/web/hello/src/routes/index.0"), true);
-
 const diagnostics = [
   ["PAR100", ["check", "--json", "conformance/check/fail/parse-missing-brace.0"]],
   ["NAM003", ["check", "--json", "conformance/check/fail/unknown-name.0"]],
@@ -1577,7 +990,6 @@ const diagnostics = [
   ["BLD002", ["check", "--json", "conformance/check/fail/bad-manifest-kind"]],
   ["ABI001", ["check", "--json", "conformance/native/fail/bad-c-export.0"]],
   ["PUB001", ["check", "--json", "conformance/check/fail/public-const-missing-type.0"]],
-  ["TAR002", ["check", "--json", "--target", "wasm32-web", "conformance/native/fail/std-fs-target-unsupported.0"]],
   ["TYP009", ["check", "--json", "conformance/native/fail/mem-copy-immutable-dst.0"]],
   ["ERR002", ["check", "--json", "conformance/native/fail/std-fs-create-error-set-mismatch.0"]],
   ["ERR003", ["check", "--json", "conformance/native/fail/std-fs-unchecked-resource-fallible.0"]],
@@ -1691,73 +1103,6 @@ assert(size.sections.some((section) => section.name === "direct-size-metadata" &
 assert(size.topLargestEmittedHelpers.some((helper) => helper.name === "std.mem.copy" && helper.estimatedDirectBytes > 0));
 assert.equal(size.objectBackend.objectEmission.path, "direct-elf64-object");
 assert(size.compilerRuntimeHelpers.every((helper) => helper.payAsUsed === true && helper.emitted === false));
-const compilerZeroSize = json(["size", "--json", "compiler-zero"]).body;
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_runtime_arena_plan" && helper.emitted === true && helper.estimatedDirectBytes > 0));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_source_input_mode" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_accept_source_buffer" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_token_summary" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_source_hash" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_source_location_at" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_source_order_key" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_hosted_package_source_plan" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_runtime_abi_summary" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_runtime_memory_layout" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_runtime_shim_cost" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_runtime_helper_summary" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_manifest_summary" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_module_import_summary" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_module_import_diag_code" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_module_graph_reject_code" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_scope_summary" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_name_resolution_packet" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_member_name_summary" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_type_surface_summary" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_expression_surface_summary" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_control_flow_summary" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_generic_static_summary" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_fallibility_summary" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_fallibility_diag_code" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_capability_summary" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_capability_diag_code" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_ownership_summary" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_ownership_diag_code" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_mir_lowering_summary" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_mir_hash" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_mir_module_order_hash" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_mir_json_contract" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_browser_compile_request" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_browser_compile_response" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_browser_artifact_plan" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_self_host_source_graph_plan" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_self_host_compile_request" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_self_host_module_graph_packet" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_self_host_source_diag_code" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_self_host_diagnostic_packet" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_self_host_command_response" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_self_host_fixed_point_packet" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_self_host_native_artifact_plan" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_self_host_target_capability_diag" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_self_host_write_minimal_wasm" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_self_host_write_return42_wasm" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_self_host_write_playground_wasm" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_self_host_minimal_wasm_hash" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_self_host_required_capabilities" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_self_host_supported_capabilities" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_self_host_gap_mask" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_self_host_gap_diag_code" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_self_host_stage_plan" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_parse_item_summary" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_parse_stmt_expr_summary" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_parse_root_summary" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_parse_public_api_summary" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_parse_ast_summary" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_byte_buffer_plan" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_diagnostic_packet_build" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_diagnostic_detail_summary" && helper.emitted === true));
-assert(compilerZeroSize.compilerRuntimeHelpers.some((helper) => helper.symbol === "compiler_related_span_summary" && helper.emitted === true));
-assert.equal(compilerZeroSize.selfHostRouting.mode, "seed");
-assert.equal(compilerZeroSize.selfHostRouting.metadata.sizeJson, true);
-assert.equal(compilerZeroSize.selfHostRouting.cBridge.required, false);
 const sizedArtifact = join(outDir, "sized-memory-package");
 rmSync(sizedArtifact, { force: true });
 rmSync(`${sizedArtifact}.c`, { force: true });
@@ -1770,10 +1115,8 @@ assert.equal(diagnostics.find((item) => item.code === "ERR003").repair.id, "chec
 assert.equal(diagnostics.find((item) => item.code === "TYP025").repair.id, "add-explicit-generic-type-arguments");
 assert.equal(diagnostics.find((item) => item.code === "TYP009").repair.id, "make-binding-mutable");
 assert.equal(diagnostics.find((item) => item.code === "FLD002").repair.id, "initialize-missing-field");
-assert.equal(diagnostics.find((item) => item.code === "TAR002").repair.id, "choose-target-with-required-capability");
 assert.equal(diagnostics.find((item) => item.code === "PUB001").repair.id, "add-public-api-type");
 assert.equal(diagnostics.find((item) => item.code === "IMP001").repair.id, "fix-import-path");
-assert.match(diagnostics.find((item) => item.code === "TAR002").help, /host target|hosted std\.fs/);
 const generatedCBytesAfterReadOnlyCommands = json(["size", "--json", "examples/memory-package"]).body.generatedCBytes;
 assert.equal(generatedCBytesAfterReadOnlyCommands, generatedCBytesBeforeReadOnlyCommands);
 
@@ -1785,15 +1128,11 @@ for (const targetName of ["darwin-arm64", "darwin-x64", "linux-arm64", "linux-x6
 }
 assert(targets.targets.some((target) => target.hosted === true && target.capabilities.includes("fs")));
 assert(targets.targets.some((target) => target.hosted === false && !target.capabilities.includes("fs")));
-const wasmWebTarget = targets.targets.find((target) => target.name === "wasm32-web");
 const linuxGnuTarget = targets.targets.find((target) => target.name === "linux-x64");
 const linuxMuslTarget = targets.targets.find((target) => target.name === "linux-musl-x64");
 const darwinArm64Target = targets.targets.find((target) => target.name === "darwin-arm64");
 const winX64Target = targets.targets.find((target) => target.name === "win32-x64.exe");
 const linuxArm64Target = targets.targets.find((target) => target.name === "linux-arm64");
-assert.equal(wasmWebTarget.directBackend.status, "wasm-module");
-assert.equal(wasmWebTarget.directBackend.objectEmitter, "zero-wasm");
-assert.equal(wasmWebTarget.directBackend.explicitDirectFallback, "never-c-bridge");
 assert.equal(linuxMuslTarget.directBackend.exeSupported, true);
 assert.equal(linuxMuslTarget.directBackend.exeEmitter, "zero-elf64-exe");
 assert.equal(linuxGnuTarget.directBackend.objectEmitter, "zero-elf64");
@@ -1821,15 +1160,6 @@ assert.equal(badCAbi.diagnostics[0].code, "ABI001");
 
 const report = {
   generatedAt: new Date().toISOString(),
-  explain: {
-    textIncludesTitle: explainText.includes("Target capability unavailable"),
-    jsonCode: explainJson.code,
-  },
-  fixPlan: {
-    mode: fixPlan.mode,
-    appliesEdits: fixPlan.appliesEdits,
-    fixCount: fixPlan.fixes.length,
-  },
   productShell: {
     version: version.version,
     host: version.host,
@@ -1863,12 +1193,6 @@ const report = {
         cBridgeFallback: directExeReport.selfHostRouting?.cBridge?.required ?? false,
         objectEmissionPath: directExeReport.objectBackend.objectEmission.path,
       },
-      {
-        id: "direct-web-wasm",
-        generatedCBytes: directWebWasmReport.generatedCBytes,
-        cBridgeFallback: directWebWasmReport.selfHostRouting?.cBridge?.required ?? false,
-        objectEmissionPath: directWebWasmReport.objectBackend.objectEmission.path,
-      },
     ],
     knownDefaultCGap: {
       id: "hello-linux-default",
@@ -1892,10 +1216,6 @@ const report = {
         generatedCBytes: directCoffExeReport.generatedCBytes,
         objectEmissionPath: directCoffExeReport.objectBackend.objectEmission.path,
       },
-    },
-    targetDeniedCapability: {
-      code: targetDeniedCapability.diagnostics[0].code,
-      repair: targetDeniedCapability.diagnostics[0].repair.id,
     },
   },
   targets: {

@@ -10,10 +10,10 @@ bin/zero build --target linux-musl-x64 examples/memory-package --out .zero/out/m
 
 The compiler separates checking from executable linking. Target-neutral code can
 check for non-host targets, while hosted APIs such as `std.fs` are rejected when
-the target does not provide that capability.
+the selected target or direct backend cannot provide that capability.
 
 ```sh
-bin/zero check --json --target wasm32-web conformance/native/fail/std-fs-target-unsupported.0
+bin/zero check --json --target linux-musl-x64 conformance/packages/target-incompatible-app
 ```
 
 For agent planning, `check --json` can also report whether a selected direct
@@ -36,7 +36,7 @@ external backend.
 
 ```sh
 bin/zero build --emit exe --target linux-musl-x64 examples/direct-exe-return.0 --out .zero/out/direct-exe-return
-bin/zero build --emit wasm --target wasm32-web examples/direct-wasm-add.0 --out .zero/out/direct-wasm-add
+bin/zero build --emit obj --target darwin-arm64 examples/direct-call-add.0 --out .zero/out/direct-call-add.o
 ```
 
 Use JSON modes to inspect target support, required capabilities, selected
@@ -44,8 +44,8 @@ emitters, and artifact facts:
 
 ```sh
 bin/zero build --json --emit exe --target linux-musl-x64 examples/direct-exe-return.0
-bin/zero graph --json --target wasm32-web examples/memory-package
-bin/zero size --json --target wasm32-web examples/direct-wasm-add.0
+bin/zero graph --json --target darwin-arm64 examples/memory-package
+bin/zero size --json --target linux-musl-x64 examples/direct-exe-return.0
 ```
 
 ## Sysroots And C Boundaries
@@ -57,22 +57,10 @@ use the environment variable named by `zero targets --json`.
 C interop is still early. Keep C-facing code small, inspect `zero abi --json`
 where applicable, and prefer examples that make target assumptions explicit.
 
-## Wasm And Local Web Runtime
+## Current Boundary
 
-The direct WebAssembly path supports small browser and WASI artifacts for the
-documented subset:
-
-```sh
-bin/zero build --emit wasm --target wasm32-wasi examples/direct-wasm-add.0 --out .zero/out/direct-wasm-add.wasm
-bin/zero build --emit wasm --target wasm32-web examples/direct-array-sum.0 --out .zero/out/direct-array-sum
-```
-
-Route metadata is available through:
-
-```sh
-bin/zero routes --json examples/web/hello
-```
-
-This reports route maps, local-runtime facts, explicit imports, and capability
-restrictions. Hosted deployment adapters are not the focus of the current public
-preview.
+The public target set is focused on native executables and object files. Use
+`zero targets --json`, `zero check --json --emit <kind>`, and
+`zero size --json` to inspect whether a requested target is supported before
+writing artifacts. Unsupported target/backend combinations should fail with a
+structured diagnostic instead of silently falling back to a different backend.

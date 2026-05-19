@@ -33,11 +33,7 @@ required for the normal path.
 - interop tool readiness
 
 `zero doctor --json` includes `targetToolchains`, a per-target readiness matrix
-for relevant tools.
-
-The `--emit wasm --target wasm32-wasi` path writes a minimal WebAssembly module
-directly and does not require an external C toolchain. It supports the
-direct-wasm MVP subset.
+for relevant tools. Native direct emitters are the current artifact path.
 
 ```sh
 zero build --emit exe --target linux-musl-x64 examples/hello.0 --out .zero/out/hello

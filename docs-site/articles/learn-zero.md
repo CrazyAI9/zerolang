@@ -432,34 +432,6 @@ extern shape CConfig {
 
 Interop types should make layout and ABI boundaries clear. Use `extern shape` for data that must match C layout.
 
-## Write A Web Handler
-
-A web route exports a handler such as `GET`:
-
-```zero
-pub fun GET(req: Request) -> Response {
-    return Response.text("hello from zero web\n")
-}
-```
-
-The example package declares a web route runtime:
-
-```json
-{
-  "targets": {
-    "web": { "kind": "web", "runtime": "wasm32-web", "routes": "src/routes" }
-  }
-}
-```
-
-Inspect the route manifest and web bundle audit metadata:
-
-```sh
-zero routes --json examples/web/hello
-```
-
-The `wasm32-web` route report includes browser-safe capability restrictions, request/response surfaces, and bundle import facts for local runtime tests.
-
 ## What To Read Next
 
 - The examples index lists examples in a learning order.

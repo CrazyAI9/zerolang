@@ -131,34 +131,10 @@ async function compilerDiagnostics(uri, text) {
       message: diag.message,
       data: { repair: diag.repair, fixSafety: diag.fixSafety },
     }));
-    if (diagnostics.length === 0) diagnostics.push(...await selfHostDiagnostics(uri, path, text));
     return diagnostics;
   } catch {
     return simpleDiagnostics(uri, text);
   }
-}
-
-async function selfHostDiagnostics(uri, path, text) {
-  const result = await execFileAsync(zero, ["graph", "--json", "--target", "wasm32-web", path]).catch((error) => error);
-  if (!result.stdout) return [];
-  const graph = JSON.parse(result.stdout);
-  if (graph.selfHostSubset?.compatible !== false) return [];
-  const reason = graph.selfHostSubset.blockedReasons?.[0] ?? "unsupported-compiler-subset-form";
-  return [{
-    range: { start: { line: 0, character: 0 }, end: positionAt(text, Math.min(text.length, 1)) },
-    severity: 2,
-    code: "AGT001",
-    source: "zero-compiler",
-    message: `source is outside the compiler subset: ${reason}`,
-    data: {
-      repair: {
-        id: "compiler-subset-unsupported-feature",
-        summary: "Move this form behind a compatibility path or rewrite to the compiler subset.",
-      },
-      fixSafety: "requires-human-review",
-      selfHostSubset: graph.selfHostSubset,
-    },
-  }];
 }
 
 async function compilerFacts(path) {

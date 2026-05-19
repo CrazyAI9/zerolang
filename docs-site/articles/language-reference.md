@@ -798,35 +798,6 @@ extern shape CConfig {
 
 Interop declarations should make layout and ABI expectations explicit.
 
-## Web Handlers
-
-Web routes export handlers such as `GET`:
-
-```zero
-pub fun GET(req: Request) -> Response {
-    return Response.text("hello from zero web\n")
-}
-```
-
-The web manifest shape is:
-
-```json
-{
-  "targets": {
-    "web": { "kind": "web", "runtime": "wasm32-web", "routes": "src/routes" }
-  }
-}
-```
-
-The current `wasm32-web` route report includes `localRuntime` facts for a
-portable browser-worker shim:
-
-- explicit web imports
-- denied filesystem/process access
-- preloaded environment input
-- `frameworkTaxBytes: 0`
-- `providerSpecificDeployment: false`
-
 ## Toolchain
 
 Common native commands:
@@ -838,7 +809,6 @@ zero build --emit exe examples/add.0 --out .zero/out/add
 zero build --emit exe --target linux-musl-x64 examples/add.0 --out .zero/out/add-linux-musl
 zero graph --json examples/systems-package
 zero size --json examples/point.0
-zero routes --json examples/web/hello
 zero targets
 ```
 

@@ -18,7 +18,7 @@ Most commands accept the same input forms:
 | `zero run <input>` | Build and run a host executable. |
 | `zero test <input>` | Run inline `test` blocks. |
 | `zero fmt <input>` | Print formatted source. Add `--check` in CI. |
-| `zero build <input>` | Emit an executable, object file, or WebAssembly module. |
+| `zero build <input>` | Emit an executable or object file. |
 | `zero ship <input>` | Produce a release preview with checksums and metadata. |
 | `zero graph <input>` | Inspect modules, symbols, capabilities, and helper use. |
 | `zero size <input>` | Explain artifact size, retained helpers, and profile budgets. |
@@ -33,7 +33,6 @@ zero check examples/hello.0
 zero run examples/add.0
 zero test conformance/native/pass/test-blocks.0
 zero build --emit exe --target linux-musl-x64 examples/add.0 --out .zero/out/add
-zero build --emit wasm --target wasm32-wasi examples/direct-wasm-add.0 --out .zero/out/add.wasm
 zero graph --json examples/systems-package
 zero size --json examples/point.0
 zero ship --json --target linux-musl-x64 examples/hello.0 --out .zero/ship/hello
@@ -91,7 +90,6 @@ linking facts such as retained runtime objects, provider libraries, and
 | --- | --- |
 | Native executable | `zero build --emit exe --target linux-musl-x64 <input>` |
 | Native object | `zero build --emit obj --target linux-musl-x64 <input>` |
-| WebAssembly | `zero build --emit wasm --target wasm32-wasi <input>` |
 
 Removed backend flags report `BLD003`. Use direct emitters; the removed C
 backend is not a compatibility path.
@@ -139,10 +137,10 @@ document symbols, and quick-fix code actions surfaced from `zero fix` for
 zero --version [--json]
 zero new cli|lib|package <path>
 zero doctor [--json]
-zero check [--json] [--target <target>] [--emit exe|obj|wasm] <input>
+zero check [--json] [--target <target>] [--emit exe|obj] <input>
 zero dev [--json] [--trace] [--target <target>] <input>
 zero run [--target <target>] [--profile dev|release] [--out <file>] <input> [-- args...]
-zero build [--emit exe|obj|wasm] [--target <target>] [--profile dev|release] [--out <file>] <input>
+zero build [--emit exe|obj] [--target <target>] [--profile dev|release] [--out <file>] <input>
 zero ship [--json] [--target <target>] [--profile release-small|tiny|audit] [--out <file>] <input>
 zero test [--json] [--filter <name>] [--target <target>] [--cc <path>] [--out <file>] <input>
 zero fmt [--check] <input>
@@ -155,7 +153,6 @@ zero targets
 zero clean [--all]
 zero mem [--json] [--target <target>] <input>
 zero time --json [--target <target>] <input>
-zero routes --json <project>
 zero abi check|dump [--json] [--target <target>] <input>
 zero tokens --json <input>
 zero parse --json <input>

@@ -961,8 +961,6 @@ static const char *std_call_return_type(const Expr *callee) {
   else if (strcmp(name.data, "std.mem.len") == 0) result = "usize";
   else if (strcmp(name.data, "std.mem.get") == 0) result = "Unknown";
   else if (strcmp(name.data, "std.mem.eqlBytes") == 0) result = "Bool";
-  else if (strcmp(name.data, "std.mem.peekByte") == 0) result = "u8";
-  else if (strcmp(name.data, "std.mem.pokeByte") == 0) result = "Bool";
   else if (strcmp(name.data, "std.mem.nullAlloc") == 0) result = "NullAlloc";
   else if (strcmp(name.data, "std.mem.fixedBufAlloc") == 0) result = "FixedBufAlloc";
   else if (strcmp(name.data, "std.mem.arena") == 0) result = "FixedBufAlloc";
@@ -1107,8 +1105,6 @@ static int std_call_arg_count(const char *name) {
   if (strcmp(name, "std.mem.len") == 0) return 1;
   if (strcmp(name, "std.mem.get") == 0) return 2;
   if (strcmp(name, "std.mem.eqlBytes") == 0) return 2;
-  if (strcmp(name, "std.mem.peekByte") == 0) return 1;
-  if (strcmp(name, "std.mem.pokeByte") == 0) return 2;
   if (strcmp(name, "std.mem.nullAlloc") == 0) return 0;
   if (strcmp(name, "std.mem.fixedBufAlloc") == 0) return 1;
   if (strcmp(name, "std.mem.arena") == 0) return 1;
@@ -1250,8 +1246,6 @@ static const char *std_call_arg_type(const char *name, size_t index) {
   if (strcmp(name, "std.mem.eql") == 0) return "String";
   if (strcmp(name, "std.mem.span") == 0) return "String";
   if (strcmp(name, "std.mem.get") == 0) return index == 1 ? "usize" : NULL;
-  if (strcmp(name, "std.mem.peekByte") == 0) return "usize";
-  if (strcmp(name, "std.mem.pokeByte") == 0) return index == 0 ? "usize" : "u8";
   if (strcmp(name, "std.mem.fixedBufAlloc") == 0) return "MutSpan<u8>";
   if (strcmp(name, "std.mem.arena") == 0) return "MutSpan<u8>";
   if (strcmp(name, "std.mem.allocBytes") == 0) return index == 1 ? "usize" : NULL;
@@ -2885,7 +2879,7 @@ static bool meta_target_fact(const Expr *expr, MetaValue *out) {
       return true;
     }
     if (strcmp(expr->text, "pointerWidth") == 0) {
-      *out = (MetaValue){.kind = META_VALUE_NUMBER, .number = (target->arch && strstr(target->arch, "wasm32")) ? 32 : 64};
+      *out = (MetaValue){.kind = META_VALUE_NUMBER, .number = 64};
       return true;
     }
   }

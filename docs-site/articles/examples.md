@@ -10,7 +10,6 @@ Start here:
 bin/zero check examples/hello.0
 bin/zero build --emit exe --target linux-musl-x64 examples/add.0 --out .zero/out/add
 ./.zero/out/add
-bin/zero build --emit wasm --target wasm32-wasi examples/direct-wasm-add.0 --out .zero/out/direct-wasm-add.wasm
 ```
 
 Tiny profile smoke:
@@ -60,7 +59,6 @@ artifact size without executing the foreign binary.
 Core examples:
 
 - `examples/hello.0`: `World`, stdout, `check`, and `raises`.
-- `examples/direct-wasm-add.0`: experimental direct wasm output for exported primitive integer arithmetic.
 - `examples/point.0`: shapes, literals, fields, and helper functions.
 - `examples/result-choice.0`: enums, choices, payload binding, and `match`.
 - `examples/fixed-vec.0`: field defaults, static value parameters, constructor-style methods, and receiver calls.
@@ -84,7 +82,6 @@ Core examples:
 - `examples/memory-package/`: target-neutral package helper checks without hosted filesystem dependencies.
 - `examples/error-tour/`: broken examples, explanations, and canonical repairs for common diagnostics.
 - `examples/agent-repair-demo/`: a scripted agent loop that checks JSON diagnostics, explains the code, plans a repair, applies the edit, and re-runs check.
-- `examples/web/hello/`: route manifest and web bundle audit metadata for web projects.
 
 Use the index in `examples/README.md` for the full learning order and copyable commands.
 
@@ -110,7 +107,7 @@ It stays useful without a large standard library.
 Build command:
 
 ```sh
-bin/zero build --emit wasm --target wasm32-wasi examples/zero-hash --out .zero/out/zero-hash
+bin/zero build --emit exe --target linux-musl-x64 examples/zero-hash --out .zero/out/zero-hash
 ```
 
 Run command:
@@ -128,7 +125,7 @@ zero-hash ok
 Size output:
 
 ```sh
-bin/zero size --json --target wasm32-wasi examples/zero-hash --out .zero/out/zero-hash-size.json
+bin/zero size --json --target linux-musl-x64 examples/zero-hash --out .zero/out/zero-hash-size.json
 ```
 
 Inspect metadata:
@@ -153,32 +150,11 @@ The benchmark report includes the Zero-only `zero-hash` case with expected outpu
 Cross-target status:
 
 ```sh
-bin/zero check --json --target wasm32-web examples/zero-hash
+bin/zero check --json --target linux-musl-x64 examples/zero-hash
 ```
 
-`zero-hash` intentionally uses hosted filesystem APIs. WASI provides the required
-filesystem capability for the direct harness. Browser-style `wasm32-web` checks
-report `TAR002`.
+`zero-hash` intentionally uses hosted filesystem APIs. Use
+`examples/memory-package/` for target-neutral direct builds that avoid hosted
+filesystem requirements.
 
 Use `examples/memory-package/` for target-neutral cross-target direct builds.
-
-## Web Routes: `web/hello`
-
-Route map:
-
-```sh
-bin/zero routes --json examples/web/hello
-```
-
-The packet reports the runtime target (`wasm32-web`), route count, route files,
-artifact metadata, web surfaces, and web bundle audit facts.
-
-The route packet also reports `localRuntime` for the portable browser-worker
-path:
-
-- explicit imports
-- denied filesystem/process access
-- `frameworkTaxBytes: 0`
-- `providerSpecificDeployment: false`
-
-Use `pnpm run wasm:runtime:smoke` to run the local WASI/browser import harness.

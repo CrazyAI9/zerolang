@@ -68,22 +68,16 @@ bin/zero build --emit exe --target win32-x64.exe examples/hello.0 --out .zero/ou
 Unsupported target or feature requests report diagnostics instead of silently
 choosing another backend.
 
-## Web And Wasm
+## Direct Objects
 
-Build a small WebAssembly artifact:
-
-```sh
-bin/zero build --emit wasm --target wasm32-web examples/direct-wasm-add.0 --out .zero/out/direct-wasm-add
-```
-
-Inspect a web route manifest:
+Build a small object artifact for a foreign native target:
 
 ```sh
-bin/zero routes --json examples/web/hello
+bin/zero build --emit obj --target darwin-arm64 examples/direct-call-add.0 --out .zero/out/direct-call-add.o
 ```
 
-The web route support is an early local-runtime surface. Use it to inspect route
-metadata and browser-worker/WASI facts, not as a hosted deployment promise.
+Use `bin/zero check --json --emit obj --target <target> <input>` before a build
+when an agent needs a structured readiness packet without writing artifacts.
 
 ## Current Language Subset
 

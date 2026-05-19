@@ -24,15 +24,6 @@ const nextConfig = {
           },
         ],
       },
-      {
-        source: "/playground/zeroc-zero.wasm",
-        headers: [
-          {
-            key: "Cache-Control",
-            value: "no-store, max-age=0",
-          },
-        ],
-      },
     ];
   },
   pageExtensions: ["js", "jsx", "mdx"],

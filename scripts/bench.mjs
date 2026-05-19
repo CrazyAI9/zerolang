@@ -410,8 +410,6 @@ function buildMeasurementCoverage(results) {
   return {
     startup: [
       measurementFact(results, "baseline-hello", "cli-startup"),
-      { name: "wasi-startup", measurement: "wasi-startup", status: "metadata-only", note: "native bootstrap records target facts; WASI runner is not wired into this benchmark harness yet" },
-      { name: "serverless-startup", measurement: "serverless-startup", status: "metadata-only", note: "serverless route metadata is covered by zero routes; deployed runner timing is a follow-up" },
     ],
     memory: [
       measurementFact(results, "baseline-hello", "runtime-memory-floor"),

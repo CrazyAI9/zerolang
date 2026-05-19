@@ -62,7 +62,6 @@ bin/zero fix --plan --json <file-or-package>
 ## Project Layout
 
 - `native/zero-c/`: native compiler implementation.
-- `compiler-zero/`: Zero-authored compiler sources.
 - `examples/`: small runnable programs and packages.
 - `conformance/`: language and CLI fixtures.
 - `docs-site/`: public documentation site.

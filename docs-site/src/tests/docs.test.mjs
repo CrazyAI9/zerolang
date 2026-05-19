@@ -72,7 +72,6 @@ describe("docs registry", () => {
     }
     assert.match(await readDoc("cli-reference"), /toolchain/);
     assert.match(await readDoc("cli-reference"), /targetToolchains/);
-    assert.match(await readDoc("cli-reference"), /--emit wasm/);
     assert.match(await readDoc("cli-reference"), /zero dev --json/);
     assert.match(await readDoc("cli-reference"), /zero dev --json --trace/);
     assert.match(await readDoc("cli-reference"), /interfaceFingerprints/);
@@ -101,14 +100,12 @@ describe("docs registry", () => {
     assert.match(install, /https:\/\/zerolang\.ai\/install\.sh/);
     assert.match(install, /release checksum file/);
     assert.match(install, /targetToolchains/);
-    assert.match(install, /direct-wasm/);
     const packageManifest = await readDoc("package-manifest");
     for (const packageTerm of ["dependencies", "package.lockfile", "packageCache.cacheKeyInputs", "PKG001", "PKG004", "publicationGate"]) {
       assert.match(packageManifest, new RegExp(packageTerm));
     }
     const crossCompilation = await readDoc("cross-compilation");
-    assert.match(crossCompilation, /wasm32-web/);
-    for (const runtimeTerm of ["Direct Artifacts", "Sysroots And C Boundaries", "Wasm And Local Web Runtime", "Route metadata", "Hosted deployment adapters"]) {
+    for (const runtimeTerm of ["Direct Artifacts", "Sysroots And C Boundaries", "Current Boundary"]) {
       assert.match(crossCompilation, new RegExp(runtimeTerm));
     }
     const stdlib = await readDoc("standard-library");
@@ -126,7 +123,6 @@ describe("docs registry", () => {
     const examples = await readDoc("examples");
     for (const example of [
       "examples/hello.0",
-      "examples/direct-wasm-add.0",
       "examples/add.0",
       "examples/point.0",
       "examples/fixed-vec.0",
@@ -146,7 +142,6 @@ describe("docs registry", () => {
       "examples/resource-cli/",
       "examples/error-tour/",
       "examples/agent-repair-demo/",
-      "examples/web/hello/",
     ]) {
       assert.match(examples, new RegExp(example.replace(".", "\\.")));
     }
@@ -166,9 +161,6 @@ describe("docs registry", () => {
     for (const repairTerm of ["checks JSON diagnostics", "plans a repair", "applies the edit", "re-runs check"]) {
       assert.match(examples, new RegExp(repairTerm, "i"));
     }
-    for (const webTerm of ["Route map", "runtime target", "route count", "artifact metadata", "localRuntime", "providerSpecificDeployment", "frameworkTaxBytes"]) {
-      assert.match(examples, new RegExp(webTerm, "i"));
-    }
     const homePage = await readFile(join(docsSiteRoot, "app/page.jsx"), "utf8");
     assert.match(homePage, /The programming language\s+<br \/>\s+for agents/);
     assert.match(homePage, /standard-library\s+first/);
@@ -178,8 +170,6 @@ describe("docs registry", () => {
     assert.match(installCopy, /curl -fsSL https:\/\/zerolang\.ai\/install\.sh \| bash/);
     const packageJson = JSON.parse(await readFile(resolve(docsSiteRoot, "..", "package.json"), "utf8"));
     assert.match(packageJson.scripts["docs:build"], /docs-site/);
-    assert.match(packageJson.scripts["docs:compiler"], /playground-wasm-smoke/);
-    assert.doesNotMatch(JSON.stringify(packageJson.scripts), /docs:wasm:legacy-emcc/);
     assert.doesNotMatch(JSON.stringify(packageJson.scripts), /self-host|no-c|bootstrap-stage2/);
     const benchmarks = await readDoc("benchmarks");
     for (const caseName of ["hello", "add", "structs", "params", "buffers", "parser", "codec", "parse", "slices", "arena", "fallibility", "branches", "module-package", "rescue", "fs-resource", "mem-copy-fill", "zero-hash"]) {
@@ -212,17 +202,6 @@ describe("docs registry", () => {
         assert.ok(line.length <= 240, `${doc.sourcePath}:${index + 1} has an overlong prose line`);
       });
     }
-  });
-
-  it("keeps browser compiler output tied to the latest source", async () => {
-    const runner = await readFile(join(docsSiteRoot, "lib/zero-wasm.js"), "utf8");
-    const nextConfig = await readFile(join(docsSiteRoot, "next.config.mjs"), "utf8");
-    assert.match(runner, /verifyBrowserCompiler/);
-    assert.match(runner, /math broke\\n/);
-    assert.match(runner, /browser compiler is stale/);
-    assert.match(nextConfig, /\/playground\/zeroc-zero\.wasm/);
-    assert.match(nextConfig, /no-store, max-age=0/);
-    assert.match(nextConfig, /\/install\.sh/);
   });
 
   it("serves a static installer for latest GitHub releases", async () => {
