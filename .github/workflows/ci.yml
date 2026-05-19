@@ -23,7 +23,7 @@ jobs:
       - name: Enable pnpm
         run: |
           corepack enable
-          corepack prepare pnpm@10.11.0 --activate
+          corepack prepare pnpm@11.1.3 --activate
 
       - uses: mlugg/setup-zig@v2
         with:
@@ -57,14 +57,11 @@ jobs:
       - name: Docs tests
         run: pnpm run docs:test
 
-      - name: Install docs dependencies
-        run: pnpm --prefix docs-site install --frozen-lockfile
-
       - name: Docs production build
         run: pnpm run docs:build
 
       - name: Extension tests
-        run: npm --prefix extensions/vscode test
+        run: pnpm run extension:test
 
       - name: Command contract snapshots
         run: pnpm run command-contracts:local
