@@ -1918,6 +1918,7 @@ static bool apply_checked_call_storage_effects(
   Scope *scope,
   ZDiag *diag
 );
+static char *canonical_static_arg(const Program *program, const char *text);
 
 static bool function_is_generic(const Function *fun) {
   return fun && fun->type_params.len > 0;
@@ -1949,6 +1950,21 @@ static void resolved_provenance_call_free(ResolvedProvenanceCall *resolved) {
   *resolved = (ResolvedProvenanceCall){0};
 }
 
+static bool generic_binding_values_compatible(const Program *program, const char *bound, const char *next) {
+  if (!next) return false;
+  char *bound_static = canonical_static_arg(program, bound);
+  char *next_static = canonical_static_arg(program, next);
+  bool ok = false;
+  if (bound_static || next_static) {
+    ok = bound_static && next_static && strcmp(bound_static, next_static) == 0;
+  } else {
+    ok = types_compatible(program, bound, next);
+  }
+  free(bound_static);
+  free(next_static);
+  return ok;
+}
+
 static bool generic_binding_set(const Program *program, GenericBinding *bindings, size_t len, const char *name, const char *type) {
   for (size_t i = 0; i < len; i++) {
     if (strcmp(bindings[i].name, name) == 0) {
@@ -1956,7 +1972,7 @@ static bool generic_binding_set(const Program *program, GenericBinding *bindings
         bindings[i].type = z_strdup(type ? type : "Unknown");
         return true;
       }
-      return type && types_compatible(program, bindings[i].type, type);
+      return generic_binding_values_compatible(program, bindings[i].type, type);
     }
   }
   return true;
@@ -3541,7 +3557,7 @@ static bool generic_binding_set_in_range(const Program *program, GenericBinding 
         bindings[i].type = z_strdup(type ? type : "Unknown");
         return true;
       }
-      return type && types_compatible(program, bindings[i].type, type);
+      return generic_binding_values_compatible(program, bindings[i].type, type);
     }
   }
   return true;

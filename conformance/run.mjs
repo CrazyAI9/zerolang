@@ -1315,6 +1315,24 @@ const shapeMethodStaticTag = shapeMethodStaticBox.methods.find((item) => item.na
 assert(shapeMethodStaticTag);
 assert(shapeMethodStaticTag.staticParams.some((item) => item.name === "N" && item.type === "usize" && item.staticDispatch === true));
 
+const shapeMethodStaticCanonicalFixture = `${outDir}/shape-method-static-canonical.0`;
+await writeFile(shapeMethodStaticCanonicalFixture, `shape Box {
+    fun take<static N: usize>(a: [N]u8, b: [N]u8) -> usize {
+        return N
+    }
+}
+
+pub fun main() -> Void {
+    let a: [4]u8 = [1, 2, 3, 4]
+    let b: [0x4]u8 = [1, 2, 3, 4]
+    let inferred: usize = Box.take(a, b)
+    let explicit: usize = Box.take<0x4>(a, b)
+}
+`);
+const shapeMethodStaticCanonicalJson = await execFileAsync(zero, ["check", "--json", shapeMethodStaticCanonicalFixture]);
+const shapeMethodStaticCanonicalBody = JSON.parse(shapeMethodStaticCanonicalJson.stdout);
+assert.equal(shapeMethodStaticCanonicalBody.ok, true);
+
 const interfaceMethodStaticParamFixture = `${outDir}/interface-method-static-param.0`;
 await writeFile(interfaceMethodStaticParamFixture, `interface Width<T> {
     fun width<static N: usize>(self: ref<T>) -> usize
