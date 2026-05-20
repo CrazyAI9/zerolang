@@ -343,6 +343,31 @@ static void expect_concrete_first_static_substitution(void) {
   z_type_arena_free(&arena);
 }
 
+static bool mixed_arg_kind(const void *context, const char *type_name, size_t arg_index, ZTypeArgKind *out_kind) {
+  (void)context;
+  if (!type_name || strcmp(type_name, "Mixed") != 0 || arg_index > 1 || !out_kind) return false;
+  *out_kind = arg_index == 0 ? Z_TYPE_ARG_TYPE : Z_TYPE_ARG_STATIC;
+  return true;
+}
+
+static void expect_slot_aware_ambiguous_arg_parse(void) {
+  ZTypeArena arena;
+  z_type_arena_init(&arena);
+  ZTypeBinderDecl decls[] = {
+    {.name = "Foo", .kind = Z_TYPE_BINDER_STATIC, .id = 63, .static_type = "usize"},
+  };
+  ZTypeBinderScope scope = {.items = decls, .len = 1, .arg_kind = mixed_arg_kind};
+  ZTypeId mixed = parse_with_binders_or_die(&arena, "Mixed<Foo,Foo>", &scope);
+  expect(z_type_kind(&arena, mixed) == Z_TYPE_NODE_APPLY, "slot-aware parse did not create an applied type");
+  const ZTypeArg *type_arg = z_type_apply_arg(&arena, mixed, 0);
+  const ZTypeArg *static_arg = z_type_apply_arg(&arena, mixed, 1);
+  expect(type_arg && type_arg->kind == Z_TYPE_ARG_TYPE, "ambiguous type slot parsed as static value");
+  expect(z_type_kind(&arena, type_arg->as.type) == Z_TYPE_NODE_NAME, "ambiguous type slot did not parse as a concrete type");
+  expect(static_arg && static_arg->kind == Z_TYPE_ARG_STATIC, "ambiguous static slot parsed as a type");
+  expect(static_arg->as.static_value.kind == Z_STATIC_VALUE_BINDER && static_arg->as.static_value.binder == 63, "ambiguous static slot did not use the static binder");
+  z_type_arena_free(&arena);
+}
+
 static void expect_static_binder_types_are_checked(void) {
   ZTypeArena arena;
   z_type_arena_init(&arena);
@@ -472,6 +497,7 @@ int main(void) {
   expect_chained_static_substitution();
   expect_concrete_first_type_substitution();
   expect_concrete_first_static_substitution();
+  expect_slot_aware_ambiguous_arg_parse();
   expect_static_binder_types_are_checked();
   expect_failed_unify_rolls_back_trace();
   expect_failed_substitute_rolls_back_arena();

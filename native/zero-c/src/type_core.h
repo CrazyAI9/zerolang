@@ -16,6 +16,11 @@ typedef enum {
   Z_TYPE_BINDER_STATIC
 } ZTypeBinderKind;
 
+typedef enum {
+  Z_TYPE_ARG_TYPE,
+  Z_TYPE_ARG_STATIC
+} ZTypeArgKind;
+
 typedef struct {
   const char *name;
   ZTypeBinderKind kind;
@@ -23,9 +28,13 @@ typedef struct {
   const char *static_type;
 } ZTypeBinderDecl;
 
+typedef bool (*ZTypeArgKindCallback)(const void *context, const char *type_name, size_t arg_index, ZTypeArgKind *out_kind);
+
 typedef struct {
   const ZTypeBinderDecl *items;
   size_t len;
+  ZTypeArgKindCallback arg_kind;
+  const void *arg_kind_context;
 } ZTypeBinderScope;
 
 typedef enum {
@@ -53,11 +62,6 @@ typedef enum {
   Z_TYPE_NODE_ARRAY,
   Z_TYPE_NODE_APPLY
 } ZTypeNodeKind;
-
-typedef enum {
-  Z_TYPE_ARG_TYPE,
-  Z_TYPE_ARG_STATIC
-} ZTypeArgKind;
 
 typedef struct {
   ZTypeArgKind kind;

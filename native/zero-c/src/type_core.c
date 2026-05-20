@@ -412,6 +412,19 @@ char *z_static_value_format(const ZStaticValue *value) {
 
 static bool parser_parse_static_value(TypeParser *parser, const char *text, size_t start, ZStaticValue *out);
 
+static bool parser_expected_arg_kind(TypeParser *parser, const char *type_name, size_t arg_index, ZTypeArgKind *out_kind) {
+  if (!parser || !parser->scope || !parser->scope->arg_kind) return false;
+  return parser->scope->arg_kind(parser->scope->arg_kind_context, type_name, arg_index, out_kind);
+}
+
+static bool parser_parse_static_arg(TypeParser *parser, size_t start, ZStaticValue *out) {
+  while (parser->text[parser->cursor] && parser->text[parser->cursor] != ',' && parser->text[parser->cursor] != '>') parser->cursor++;
+  char *text = trimmed_copy(parser->text + start, parser->cursor - start);
+  bool ok = parser_parse_static_value(parser, text, start, out);
+  free(text);
+  return ok;
+}
+
 static bool parser_static_until(TypeParser *parser, char delimiter, ZStaticValue *out) {
   parser_skip_ws(parser);
   size_t start = parser->cursor;
@@ -445,10 +458,18 @@ static bool parser_parse_static_value(TypeParser *parser, const char *text, size
   return ok;
 }
 
-static bool parse_type_arg(TypeParser *parser, ZTypeArena *arena, ZTypeArg *out) {
+static bool parse_type_arg(TypeParser *parser, ZTypeArena *arena, const char *type_name, size_t arg_index, ZTypeArg *out) {
   parser_skip_ws(parser);
   size_t start = parser->cursor;
-  if (ident_start(parser->text[parser->cursor])) {
+  ZTypeArgKind expected_kind = Z_TYPE_ARG_TYPE;
+  bool has_expected_kind = parser_expected_arg_kind(parser, type_name, arg_index, &expected_kind);
+  if (has_expected_kind && expected_kind == Z_TYPE_ARG_STATIC) {
+    ZStaticValue value = {0};
+    if (!parser_parse_static_arg(parser, start, &value)) return false;
+    *out = (ZTypeArg){.kind = Z_TYPE_ARG_STATIC, .as.static_value = value};
+    return true;
+  }
+  if (!has_expected_kind && ident_start(parser->text[parser->cursor])) {
     size_t ident_end = parser->cursor + 1;
     while (ident_continue(parser->text[ident_end])) ident_end++;
     char *name = type_strndup(parser->text + parser->cursor, ident_end - parser->cursor);
@@ -466,15 +487,11 @@ static bool parse_type_arg(TypeParser *parser, ZTypeArena *arena, ZTypeArg *out)
     }
     free(name);
   }
-  if (isdigit((unsigned char)parser->text[parser->cursor]) ||
+  if (!has_expected_kind && (isdigit((unsigned char)parser->text[parser->cursor]) ||
       parser_keyword(parser, "true") ||
-      parser_keyword(parser, "false")) {
+      parser_keyword(parser, "false"))) {
     ZStaticValue value = {0};
-    while (parser->text[parser->cursor] && parser->text[parser->cursor] != ',' && parser->text[parser->cursor] != '>') parser->cursor++;
-    char *text = trimmed_copy(parser->text + start, parser->cursor - start);
-    bool ok = parser_parse_static_value(parser, text, start, &value);
-    free(text);
-    if (!ok) return false;
+    if (!parser_parse_static_arg(parser, start, &value)) return false;
     *out = (ZTypeArg){.kind = Z_TYPE_ARG_STATIC, .as.static_value = value};
     return true;
   }
@@ -486,6 +503,11 @@ static bool parse_type_arg(TypeParser *parser, ZTypeArena *arena, ZTypeArg *out)
       *out = (ZTypeArg){.kind = Z_TYPE_ARG_TYPE, .as.type = type};
       return true;
     }
+  }
+  if (has_expected_kind && expected_kind == Z_TYPE_ARG_TYPE) {
+    parser_restore(parser, arena, type_mark);
+    parser_error(parser, "expected type argument");
+    return false;
   }
   parser_restore(parser, arena, type_mark);
   while (parser->text[parser->cursor] && parser->text[parser->cursor] != ',' && parser->text[parser->cursor] != '>') parser->cursor++;
@@ -548,7 +570,7 @@ static bool parse_type(TypeParser *parser, ZTypeArena *arena, ZTypeId *out) {
       args = type_reallocarray(args, arg_cap, sizeof(ZTypeArg));
     }
     args[arg_len] = (ZTypeArg){0};
-    if (!parse_type_arg(parser, arena, &args[arg_len])) {
+    if (!parse_type_arg(parser, arena, name, arg_len, &args[arg_len])) {
       for (size_t i = 0; i < arg_len; i++) type_arg_free(&args[i]);
       free(args);
       free(name);
