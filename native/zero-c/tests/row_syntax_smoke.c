@@ -177,6 +177,27 @@ static void rejects_indent_jump(void) {
   z_free_row_tokens(&tokens);
 }
 
+static void rejects_escaped_string_newline(void) {
+  const char *source =
+    "pub fn main Void\n"
+    "  check world.out.write \"bad\\\n"
+    "next\"\n";
+  ZDiag diag = {0};
+  ZRowTokenVec tokens = z_row_tokenize(source, &diag);
+  expect(diag.code == 100, "expected escaped string newline rejection");
+  expect(strstr(diag.message, "unterminated string") != NULL, "expected unterminated string diagnostic");
+  z_free_row_tokens(&tokens);
+}
+
+static void rejects_short_hex_character_escape(void) {
+  const char *source = "pub fn main Void\n  let bad u8 '\\x";
+  ZDiag diag = {0};
+  ZRowTokenVec tokens = z_row_tokenize(source, &diag);
+  expect(diag.code == 100, "expected short hex character escape rejection");
+  expect(strstr(diag.message, "hex") != NULL, "expected hex escape diagnostic");
+  z_free_row_tokens(&tokens);
+}
+
 int main(void) {
   tokenizes_layout_and_trivia();
   tracks_nested_dedents();
@@ -184,6 +205,8 @@ int main(void) {
   rejects_tabs();
   rejects_odd_indent();
   rejects_indent_jump();
+  rejects_escaped_string_newline();
+  rejects_short_hex_character_escape();
   printf("row syntax smoke ok\n");
   return 0;
 }

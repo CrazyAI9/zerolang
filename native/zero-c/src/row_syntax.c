@@ -116,6 +116,11 @@ static bool row_scan_string(const char *source, size_t *offset, int *column, ZRo
         row_diag(diag, line, start_column, 1, "unterminated string literal", "escape target", NULL);
         return false;
       }
+      if (escaped == '\n' || escaped == '\r') {
+        free(value);
+        row_diag(diag, line, start_column, 1, "unterminated string literal", "closing quote", NULL);
+        return false;
+      }
       if (escaped == 'n') row_append_char(&value, &len, &cap, '\n');
       else if (escaped == 'r') row_append_char(&value, &len, &cap, '\r');
       else if (escaped == 't') row_append_char(&value, &len, &cap, '\t');
@@ -165,8 +170,10 @@ static bool row_scan_char(const char *source, size_t *offset, int *column, ZRowT
     else if (escaped == '"') value = '"';
     else if (escaped == '\\') value = '\\';
     else if (escaped == 'x') {
-      int high = row_hex_digit(source[*offset + 1]);
-      int low = row_hex_digit(source[*offset + 2]);
+      char high_ch = source[*offset + 1];
+      char low_ch = high_ch ? source[*offset + 2] : 0;
+      int high = row_hex_digit(high_ch);
+      int low = row_hex_digit(low_ch);
       if (high < 0 || low < 0) {
         row_diag(diag, line, start_column, 1, "malformed hex character escape", "one byte character literal", "use an escape like '\\x41'");
         return false;
