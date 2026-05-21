@@ -87,6 +87,7 @@ expected_output() {
     examples/codec-varint.0) printf "codec primitives ok" ;;
     examples/parse-cursor.0) printf "parse primitives ok" ;;
     examples/file-copy.0) printf "file copy ok" ;;
+    conformance/native/pass/std-crypto-hmac32.0) printf "crypto hmac32 ok" ;;
     conformance/native/pass/string-byte-ergonomics.0) printf "string byte ergonomics ok" ;;
     *)
       echo "missing expected output for $1" >&2
@@ -120,6 +121,7 @@ examples=(
   examples/codec-varint.0
   examples/parse-cursor.0
   examples/file-copy.0
+  conformance/native/pass/std-crypto-hmac32.0
   conformance/native/pass/string-byte-ergonomics.0
 )
 

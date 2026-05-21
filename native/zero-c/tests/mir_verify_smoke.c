@@ -351,6 +351,16 @@ static void helper_result_type_mismatch_fails(void) {
   expect_fail("helper result type mismatch", &ir, "helper result type mismatch");
 }
 
+static void byte_view_len_u32_passes(void) {
+  IrValue bytes = byte_view_value();
+  IrValue len = value(IR_VALUE_BYTE_VIEW_LEN, IR_TYPE_U32);
+  len.left = &bytes;
+  IrInstr ret = {.kind = IR_INSTR_RETURN, .value = &len, .line = 1, .column = 1};
+  IrFunction fun = function("main", IR_TYPE_U32, IR_TYPE_U32, NULL, 0, 0, &ret, 1, 0, false);
+  IrProgram ir = program(&fun, 1);
+  expect_ok("byte-view length u32", &ir);
+}
+
 static void maybe_has_non_maybe_local_fails(void) {
   IrLocal locals[] = {scalar_local("x", IR_TYPE_I32, 0, false)};
   IrValue has = value(IR_VALUE_MAYBE_HAS, IR_TYPE_BOOL);
@@ -451,6 +461,7 @@ int main(void) {
   allocator_helper_contract_fails();
   buffer_helper_contract_fails();
   helper_result_type_mismatch_fails();
+  byte_view_len_u32_passes();
   maybe_has_non_maybe_local_fails();
   maybe_value_type_mismatch_fails();
   runtime_helper_shape_fails();

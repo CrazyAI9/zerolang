@@ -245,6 +245,15 @@ static bool mir_verify_value_is_integer(IrProgram *ir, const IrValue *value, con
   return false;
 }
 
+static bool mir_verify_byte_view_len_result(IrProgram *ir, const IrValue *value) {
+  if (!ir || !ir->mir_valid) return false;
+  if (value && (value->type == IR_TYPE_USIZE || value->type == IR_TYPE_U32)) return true;
+  char actual[160];
+  snprintf(actual, sizeof(actual), "byte-view length is %s but expected usize or u32", value ? mir_type_kind_name(value->type) : "missing");
+  mir_verify_mark_unsupported(ir, "MIR verifier found byte-view length result type mismatch", value ? value->line : 1, value ? value->column : 1, actual);
+  return false;
+}
+
 static bool mir_verify_local_value_kind(IrProgram *ir, const IrFunction *fun, unsigned index, IrTypeKind expected, int line, int column, const char *message, const char *role) {
   if (!mir_verify_local_index(ir, fun, index, line, column, message)) return false;
   const IrLocal *local = &fun->locals[index];
@@ -449,7 +458,7 @@ static bool mir_verify_direct_value(IrProgram *ir, const IrFunction *fun, const 
   if ((value->kind == IR_VALUE_MAYBE_HAS || value->kind == IR_VALUE_MAYBE_VALUE) && !mir_verify_maybe_value_contract(ir, fun, value)) return false;
   if (value->kind == IR_VALUE_BYTE_SLICE && !mir_verify_byte_view_value_contract(ir, value)) return false;
   if (value->kind == IR_VALUE_BYTE_VIEW_LEN) {
-    if (!mir_verify_value_type(ir, value, IR_TYPE_USIZE, "MIR verifier found byte-view length result type mismatch", "byte-view length")) return false;
+    if (!mir_verify_byte_view_len_result(ir, value)) return false;
     if (!mir_verify_value_type(ir, value->left, IR_TYPE_BYTE_VIEW, "MIR verifier found invalid byte-view length input", "byte-view length input")) return false;
   }
   if (value->kind == IR_VALUE_BYTE_VIEW_INDEX_LOAD) {
