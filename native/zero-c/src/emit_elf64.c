@@ -667,10 +667,7 @@ static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *val
       return true;
     case IR_VALUE_TIME_AS_MS:
       if (!elf_emit_value(code, fun, value->left, ctx, diag)) return false;
-      z_x64_append_u8(code, 0x48);
-      z_x64_append_u8(code, 0xc7);
-      z_x64_append_u8(code, 0xc1);
-      z_x64_append_u32(code, 1000000u);
+      z_x64_emit_mov_reg_i32(code, 1, 1000000);
       z_x64_append_u8(code, 0x48);
       z_x64_append_u8(code, 0x99);
       z_x64_append_u8(code, 0x48);
