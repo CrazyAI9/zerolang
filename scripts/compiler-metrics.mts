@@ -26,8 +26,12 @@ const fileBudgets = {
   "native/zero-c/src/call_resolve.h": { maxLines: 100, maxStrcmpCalls: 0 },
   "native/zero-c/src/coff_format.c": { maxLines: 370, maxStrcmpCalls: 0 },
   "native/zero-c/src/coff_format.h": { maxLines: 100, maxStrcmpCalls: 0 },
+  "native/zero-c/src/coff_emit_state.c": { maxLines: 150, maxStrcmpCalls: 0 },
+  "native/zero-c/src/coff_emit_state.h": { maxLines: 70, maxStrcmpCalls: 0 },
   "native/zero-c/src/elf_format.c": { maxLines: 220, maxStrcmpCalls: 0 },
   "native/zero-c/src/elf_format.h": { maxLines: 60, maxStrcmpCalls: 0 },
+  "native/zero-c/src/elf_emit_state.c": { maxLines: 160, maxStrcmpCalls: 0 },
+  "native/zero-c/src/elf_emit_state.h": { maxLines: 90, maxStrcmpCalls: 0 },
   "native/zero-c/src/macho_format.c": { maxLines: 470, maxStrcmpCalls: 0 },
   "native/zero-c/src/macho_format.h": { maxLines: 90, maxStrcmpCalls: 0 },
   "native/zero-c/src/aarch64_emit.c": { maxLines: 320, maxStrcmpCalls: 0 },
@@ -35,9 +39,9 @@ const fileBudgets = {
   "native/zero-c/src/emit_macho64.c": { maxLines: 1400, maxStrcmpCalls: 2 },
   "native/zero-c/src/macho_emit_state.c": { maxLines: 210, maxStrcmpCalls: 0 },
   "native/zero-c/src/macho_emit_state.h": { maxLines: 90, maxStrcmpCalls: 0 },
-  "native/zero-c/src/emit_elf64.c": { maxLines: 3000, maxStrcmpCalls: 3 },
+  "native/zero-c/src/emit_elf64.c": { maxLines: 2700, maxStrcmpCalls: 3 },
   "native/zero-c/src/emit_elf_aarch64.c": { maxLines: 205, maxStrcmpCalls: 1 },
-  "native/zero-c/src/emit_coff.c": { maxLines: 1150, maxStrcmpCalls: 1 },
+  "native/zero-c/src/emit_coff.c": { maxLines: 1050, maxStrcmpCalls: 1 },
   "native/zero-c/src/fs.c": { maxLines: 1250, maxStrcmpCalls: 32 },
   "native/zero-c/src/mir_verify.c": { maxLines: 1300, maxStrcmpCalls: 0 },
   "native/zero-c/src/mir_verify.h": { maxLines: 50, maxStrcmpCalls: 0 },
@@ -57,23 +61,21 @@ const fileBudgets = {
 const knownLargeFunctionLimits = new Map([
   ["native/zero-c/src/ir.c|static bool ir_lower_expr(const Program *program, IrProgram *ir, const IrFunction *fun, const Expr *expr, IrValue **out) {", 1484],
   ["native/zero-c/src/checker.c|static bool check_expr_expected(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, const char *expected) {", 1170],
-  ["native/zero-c/src/emit_elf64.c|static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *value, ElfEmitContext *ctx, ZDiag *diag) {", 1085],
+  ["native/zero-c/src/emit_elf64.c|static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *value, ElfEmitContext *ctx, ZDiag *diag) {", 1077],
   ["native/zero-c/src/main.c|int main(int argc, char **argv) {", 924],
   ["native/zero-c/src/emit_macho64.c|bool z_emit_macho64_object_from_ir(const IrProgram *program, ZBuf *out, ZDiag *diag) {", 157],
-  ["native/zero-c/src/emit_elf64.c|bool z_emit_elf64_object_from_ir(const IrProgram *ir, ZBuf *out, ZDiag *diag) {", 302],
+  ["native/zero-c/src/emit_elf64.c|bool z_emit_elf64_object_from_ir(const IrProgram *ir, ZBuf *out, ZDiag *diag) {", 125],
   ["native/zero-c/src/main.c|static void append_graph_json(ZBuf *buf, const SourceInput *input, const Program *program, const ZTargetInfo *target) {", 374],
   ["native/zero-c/src/emit_elf64.c|static bool elf_emit_instr(ZBuf *text, const IrFunction *fun, const IrInstr *instr, ElfEmitContext *ctx, ZDiag *diag) {", 300],
   ["native/zero-c/src/emit_macho64.c|static bool macho_emit_value_to_reg_at(ZBuf *text, const IrFunction *fun, const IrValue *value, unsigned reg, unsigned frame_size, unsigned scratch_slot, MachOEmitContext *ctx, ZDiag *diag) {", 275],
   ["native/zero-c/src/checker.c|static bool check_stmt(CheckContext *ctx, const Program *program, const Function *fun, const Stmt *stmt, Scope *scope, ZDiag *diag, int loop_depth) {", 259],
   ["native/zero-c/src/checker.c|bool z_check_program(const Program *program, ZDiag *diag) {", 213],
-  ["native/zero-c/src/emit_coff.c|bool z_emit_coff_x64_exe_from_ir(const IrProgram *program, ZBuf *out, ZDiag *diag) {", 213],
   ["native/zero-c/src/checker.c|static const char *expr_type(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope) {", 205],
   ["native/zero-c/src/emit_macho64.c|static bool macho_emit_instr(ZBuf *text, const IrFunction *fun, const IrInstr *instr, unsigned frame_size, bool restore_process_args, MachOEmitContext *ctx, ZDiag *diag) {", 193],
   ["native/zero-c/src/checker.c|static bool collect_return_value_provenance_from_stmt_vec(CheckContext *ctx, const Program *program, const Function *fun, const StmtVec *body, Scope *scope, GenericBinding *bindings, size_t binding_len, ValueProvenance *out, bool *may_return, bool *complete) {", 192],
   ["native/zero-c/src/emit_coff.c|static bool coff_emit_value(ZBuf *text, const IrFunction *fun, const IrValue *value, CoffEmitContext *ctx, ZDiag *diag) {", 191],
   ["native/zero-c/src/row_syntax.c|ZRowTokenVec z_row_tokenize(const char *source, ZDiag *diag) {", 177],
   ["native/zero-c/src/ir.c|static bool ir_lower_stmt_to_vec(const Program *program, IrProgram *ir, IrFunction *mir_fun, const Stmt *stmt, IrInstr **out_items, size_t *out_len, size_t *out_cap, bool *saw_return) {", 172],
-  ["native/zero-c/src/emit_coff.c|bool z_emit_coff_x64_object_from_ir(const IrProgram *program, ZBuf *out, ZDiag *diag) {", 171],
   ["native/zero-c/src/emit_coff.c|static bool coff_emit_instr(ZBuf *text, const IrFunction *fun, const IrInstr *instr, CoffEmitContext *ctx, ZDiag *diag) {", 165],
   ["native/zero-c/src/checker.c|static bool expr_reference_provenance(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ValueProvenance *origins) {", 152],
   ["native/zero-c/src/main.c|static int run_tests_direct(const Command *command, const SourceInput *input, const Program *program, const ZTargetInfo *target) {", 151],
@@ -603,6 +605,19 @@ function budgetViolations(files, allLargeFunctions, stdlib, backendFormats) {
       paths: backendFormats.elf.archFilesWithLocalSectionWriters,
     });
   }
+  if (!backendFormats.elf.patchStateModule ||
+      !backendFormats.elf.x86UsesPatchStateModule) {
+    violations.push({
+      kind: "elf-patch-state-split",
+      elf: backendFormats.elf,
+    });
+  }
+  if (backendFormats.elf.archFilesWithLocalPatchState.length > 0) {
+    violations.push({
+      kind: "elf-patch-state-in-architecture-file",
+      paths: backendFormats.elf.archFilesWithLocalPatchState,
+    });
+  }
   if (!backendFormats.coff.sharedWriter ||
       !backendFormats.coff.objectUsesSharedWriter ||
       !backendFormats.coff.executableUsesSharedWriter) {
@@ -615,6 +630,19 @@ function budgetViolations(files, allLargeFunctions, stdlib, backendFormats) {
     violations.push({
       kind: "coff-container-writer-in-architecture-file",
       paths: backendFormats.coff.archFilesWithLocalContainerWriters,
+    });
+  }
+  if (!backendFormats.coff.patchStateModule ||
+      !backendFormats.coff.x64UsesPatchStateModule) {
+    violations.push({
+      kind: "coff-patch-state-split",
+      coff: backendFormats.coff,
+    });
+  }
+  if (backendFormats.coff.archFilesWithLocalPatchState.length > 0) {
+    violations.push({
+      kind: "coff-patch-state-in-architecture-file",
+      paths: backendFormats.coff.archFilesWithLocalPatchState,
     });
   }
   if (!backendFormats.macho.sharedWriter ||
@@ -750,7 +778,9 @@ const stdlib = {
   },
 };
 const elfFormatSource = texts.get("native/zero-c/src/elf_format.c") ?? "";
+const elfEmitStateSource = cCodeText(texts.get("native/zero-c/src/elf_emit_state.c") ?? "");
 const coffFormatSource = texts.get("native/zero-c/src/coff_format.c") ?? "";
+const coffEmitStateSource = cCodeText(texts.get("native/zero-c/src/coff_emit_state.c") ?? "");
 const machoFormatSource = texts.get("native/zero-c/src/macho_format.c") ?? "";
 const machoEmitStateSource = cCodeText(texts.get("native/zero-c/src/macho_emit_state.c") ?? "");
 const aarch64EmitSource = texts.get("native/zero-c/src/aarch64_emit.c") ?? "";
@@ -772,6 +802,17 @@ const backendFormats = {
     ]
       .filter(([, text]) => /\bappend_section_header\s*\(/.test(text))
       .map(([path]) => path),
+    patchStateModule: /\bz_elf_record_value_runtime_patch\s*\(/.test(elfEmitStateSource) &&
+      /\bz_elf_append_runtime_relocations\s*\(/.test(elfEmitStateSource) &&
+      /\bz_elf_patch_rodata_patches\s*\(/.test(elfEmitStateSource),
+    x86UsesPatchStateModule: /\bz_elf_record_value_runtime_patch\s*\(/.test(elfX64Source) &&
+      /\bz_elf_append_runtime_relocations\s*\(/.test(elfX64Source) &&
+      /\bz_elf_has_runtime_patches\s*\(/.test(elfX64Source),
+    archFilesWithLocalPatchState: [
+      ["native/zero-c/src/emit_elf64.c", elfX64Source],
+    ]
+      .filter(([, text]) => /\bElfRuntimePatch\b|(?:\.|->)runtime_[A-Za-z0-9_]+_patch_len\b|(?:\.|->)runtime_[A-Za-z0-9_]+_patches\b|\bstatic\s+bool\s+elf_record_(?:call_patch|rodata_patch|runtime_)\b|\bstatic\s+void\s+elf_patch_(?:call_patches|rodata_patches)\b/.test(text))
+      .map(([path]) => path),
   },
   coff: {
     sharedWriter: /\bz_coff_write_object\s*\(/.test(coffFormatSource) && /\bz_coff_write_pe64_executable\s*\(/.test(coffFormatSource),
@@ -781,6 +822,17 @@ const backendFormats = {
       ["native/zero-c/src/emit_coff.c", coffX64Source],
     ]
       .filter(([, text]) => /\bappend_coff_name\s*\(|\bcoff_append_import_table\s*\(|\bPE32\+|\bIMAGE_FILE_MACHINE_AMD64/.test(text))
+      .map(([path]) => path),
+    patchStateModule: /\bz_coff_record_instr_runtime_patch\s*\(/.test(coffEmitStateSource) &&
+      /\bz_coff_append_runtime_relocations\s*\(/.test(coffEmitStateSource) &&
+      /\bz_coff_patch_runtime_patches\s*\(/.test(coffEmitStateSource),
+    x64UsesPatchStateModule: /\bz_coff_record_instr_runtime_patch\s*\(/.test(coffX64Source) &&
+      /\bz_coff_append_runtime_relocations\s*\(/.test(coffX64Source) &&
+      /\bz_coff_patch_runtime_patches\s*\(/.test(coffX64Source),
+    archFilesWithLocalPatchState: [
+      ["native/zero-c/src/emit_coff.c", coffX64Source],
+    ]
+      .filter(([, text]) => /\bCoff(?:CallPatch|WorldWritePatch)\b|(?:\.|->)world_write_patch_len\b|(?:\.|->)world_write_patches\b|\bstatic\s+bool\s+coff_record_(?:call_patch|rodata_patch|world_write_patch)\b/.test(text))
       .map(([path]) => path),
   },
   macho: {

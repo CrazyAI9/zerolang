@@ -1,4 +1,5 @@
 #include "zero.h"
+#include "coff_emit_state.h"
 #include "coff_format.h"
 #include "x64_emit.h"
 
@@ -49,31 +50,6 @@ static bool coff_diag_at(ZDiag *diag, const char *message, int line, int column,
   }
   return false;
 }
-
-typedef struct {
-  size_t patch_offset;
-  unsigned callee_index;
-} CoffCallPatch;
-
-typedef struct {
-  size_t patch_offset;
-} CoffWorldWritePatch;
-
-typedef struct {
-  const IrProgram *program;
-  size_t *function_offsets;
-  size_t function_count;
-  CoffCallPatch *call_patches;
-  size_t call_patch_len;
-  size_t call_patch_cap;
-  ZCoffImageDataPatch *rodata_patches;
-  size_t rodata_patch_len;
-  size_t rodata_patch_cap;
-  CoffWorldWritePatch *world_write_patches;
-  size_t world_write_patch_len;
-  size_t world_write_patch_cap;
-  unsigned rodata_base_offset;
-} CoffEmitContext;
 
 static bool coff_type_is_scalar32(IrTypeKind type) {
   return type == IR_TYPE_BOOL || type == IR_TYPE_U8 || type == IR_TYPE_U16 || type == IR_TYPE_I32 || type == IR_TYPE_U32 || type == IR_TYPE_USIZE;
@@ -162,38 +138,6 @@ static unsigned coff_setcc_opcode(IrCompareOp op) {
   return 0x94;
 }
 
-static bool coff_record_call_patch(CoffEmitContext *ctx, size_t patch_offset, unsigned callee_index, const IrValue *value, ZDiag *diag) {
-  if (!ctx || callee_index >= ctx->function_count) {
-    return coff_diag_at(diag, "direct COFF call target index is out of range", value ? value->line : 1, value ? value->column : 1, "invalid callee");
-  }
-  if (ctx->call_patch_len == ctx->call_patch_cap) {
-    ctx->call_patch_cap = z_grow_capacity(ctx->call_patch_cap, ctx->call_patch_len + 1, 8);
-    ctx->call_patches = z_checked_reallocarray(ctx->call_patches, ctx->call_patch_cap, sizeof(CoffCallPatch));
-  }
-  ctx->call_patches[ctx->call_patch_len++] = (CoffCallPatch){.patch_offset = patch_offset, .callee_index = callee_index};
-  return true;
-}
-
-static bool coff_record_rodata_patch(CoffEmitContext *ctx, size_t patch_offset, unsigned data_offset, const IrValue *value, ZDiag *diag) {
-  if (!ctx) return coff_diag_at(diag, "direct COFF readonly data relocation requires an emit context", value ? value->line : 1, value ? value->column : 1, "missing context");
-  if (ctx->rodata_patch_len == ctx->rodata_patch_cap) {
-    ctx->rodata_patch_cap = z_grow_capacity(ctx->rodata_patch_cap, ctx->rodata_patch_len + 1, 8);
-    ctx->rodata_patches = z_checked_reallocarray(ctx->rodata_patches, ctx->rodata_patch_cap, sizeof(ZCoffImageDataPatch));
-  }
-  ctx->rodata_patches[ctx->rodata_patch_len++] = (ZCoffImageDataPatch){.patch_offset = patch_offset, .data_offset = data_offset};
-  return true;
-}
-
-static bool coff_record_world_write_patch(CoffEmitContext *ctx, size_t patch_offset, const IrInstr *instr, ZDiag *diag) {
-  if (!ctx) return coff_diag_at(diag, "direct COFF World write relocation requires an emit context", instr ? instr->line : 1, instr ? instr->column : 1, "missing context");
-  if (ctx->world_write_patch_len == ctx->world_write_patch_cap) {
-    ctx->world_write_patch_cap = z_grow_capacity(ctx->world_write_patch_cap, ctx->world_write_patch_len + 1, 4);
-    ctx->world_write_patches = z_checked_reallocarray(ctx->world_write_patches, ctx->world_write_patch_cap, sizeof(CoffWorldWritePatch));
-  }
-  ctx->world_write_patches[ctx->world_write_patch_len++] = (CoffWorldWritePatch){.patch_offset = patch_offset};
-  return true;
-}
-
 static bool coff_const_u32_value(const IrValue *value, unsigned *out) {
   if (!value || value->kind != IR_VALUE_INT || value->int_value > UINT32_MAX) return false;
   if (out) *out = (unsigned)value->int_value;
@@ -254,7 +198,7 @@ static bool coff_emit_rodata_ptr_rax(ZBuf *text, unsigned data_offset, CoffEmitC
   size_t patch = text->len;
   uint64_t addend = data_offset - (ctx ? ctx->rodata_base_offset : 0);
   for (unsigned i = 0; i < 8; i++) append_u8(text, (unsigned)((addend >> (i * 8)) & 0xffu));
-  return coff_record_rodata_patch(ctx, patch, data_offset, value, diag);
+  return z_coff_record_rodata_patch(ctx, patch, data_offset, value, diag);
 }
 
 static bool coff_emit_byte_view_ptr(ZBuf *text, const IrFunction *fun, const IrValue *view, CoffEmitContext *ctx, ZDiag *diag);
@@ -385,7 +329,7 @@ static bool coff_emit_value(ZBuf *text, const IrFunction *fun, const IrValue *va
       size_t patch = text->len;
       append_u32le(text, 0);
       z_x64_emit_add_rsp(text, 32);
-      return coff_record_call_patch(ctx, patch, value->callee_index, value, diag);
+      return z_coff_record_call_patch(ctx, patch, value->callee_index, value, diag);
     }
     case IR_VALUE_VEC_LEN:
     case IR_VALUE_VEC_CAPACITY:
@@ -537,7 +481,7 @@ static bool coff_emit_world_write(ZBuf *text, const IrFunction *fun, const IrIns
   append_u8(text, 0x0f);
   append_u8(text, 0x0b); // ud2 on runtime write failure
   z_x64_patch_rel32(text, ok_patch, text->len);
-  return coff_record_world_write_patch(ctx, patch, instr, diag);
+  return z_coff_record_instr_runtime_patch(ctx, COFF_RUNTIME_WORLD_WRITE, patch, instr, diag);
 }
 
 static bool coff_emit_instr(ZBuf *text, const IrFunction *fun, const IrInstr *instr, CoffEmitContext *ctx, ZDiag *diag) {
@@ -815,9 +759,7 @@ bool z_emit_coff_x64_object_from_ir(const IrProgram *program, ZBuf *out, ZDiag *
     while (text.len % 16 != 0) append_u8(&text, 0x90);
     offsets[i] = text.len;
     if (!coff_emit_function_text(&text, &program->functions[i], &ctx, diag)) {
-      free(ctx.world_write_patches);
-      free(ctx.rodata_patches);
-      free(ctx.call_patches);
+      z_coff_emit_context_free(&ctx);
       free(offsets);
       zbuf_free(&relocs);
       zbuf_free(&rodata);
@@ -827,32 +769,22 @@ bool z_emit_coff_x64_object_from_ir(const IrProgram *program, ZBuf *out, ZDiag *
   }
 
   unsigned section_symbol_count = has_rodata ? 2u : 1u;
-  size_t symbol_len = program->function_len + (ctx.world_write_patch_len > 0 ? 1u : 0u);
+  bool has_world_write = z_coff_runtime_patch_count(&ctx, COFF_RUNTIME_WORLD_WRITE) > 0;
+  size_t symbol_len = program->function_len + (has_world_write ? 1u : 0u);
   ZCoffSymbol *symbols = z_checked_calloc(symbol_len, sizeof(ZCoffSymbol));
   if (!symbols) {
-    free(ctx.world_write_patches);
-    free(ctx.rodata_patches);
-    free(ctx.call_patches);
+    z_coff_emit_context_free(&ctx);
     free(offsets);
     zbuf_free(&relocs);
     zbuf_free(&rodata);
     zbuf_free(&text);
     return coff_diag(diag, "out of memory while emitting COFF object");
   }
-  for (size_t i = 0; i < ctx.call_patch_len; i++) {
-    const CoffCallPatch *patch = &ctx.call_patches[i];
-    z_x64_patch_rel32(&text, patch->patch_offset, offsets[patch->callee_index]);
-    z_coff_append_reloc_amd64(&relocs, (uint32_t)patch->patch_offset, section_symbol_count + patch->callee_index, Z_COFF_RELOC_AMD64_REL32);
-  }
-  for (size_t i = 0; i < ctx.rodata_patch_len; i++) {
-    const ZCoffImageDataPatch *patch = &ctx.rodata_patches[i];
-    z_coff_append_reloc_amd64(&relocs, (uint32_t)patch->patch_offset, 1u, Z_COFF_RELOC_AMD64_ADDR64);
-  }
+  z_coff_patch_call_patches(&text, &ctx);
+  z_coff_append_call_relocations(&relocs, &ctx, section_symbol_count);
+  z_coff_append_rodata_relocations(&relocs, &ctx, 1u);
   uint32_t world_write_symbol_index = section_symbol_count + (uint32_t)program->function_len;
-  for (size_t i = 0; i < ctx.world_write_patch_len; i++) {
-    const CoffWorldWritePatch *patch = &ctx.world_write_patches[i];
-    z_coff_append_reloc_amd64(&relocs, (uint32_t)patch->patch_offset, world_write_symbol_index, Z_COFF_RELOC_AMD64_REL32);
-  }
+  z_coff_append_runtime_relocations(&relocs, &ctx, COFF_RUNTIME_WORLD_WRITE, world_write_symbol_index);
 
   for (size_t i = 0; i < program->function_len; i++) {
     symbols[i] = (ZCoffSymbol){
@@ -863,9 +795,9 @@ bool z_emit_coff_x64_object_from_ir(const IrProgram *program, ZBuf *out, ZDiag *
       .storage_class = program->functions[i].is_exported ? Z_COFF_SYMBOL_EXTERNAL : Z_COFF_SYMBOL_STATIC
     };
   }
-  if (ctx.world_write_patch_len > 0) {
+  if (has_world_write) {
     symbols[program->function_len] = (ZCoffSymbol){
-      .name = "zero_world_write",
+      .name = z_coff_runtime_helper_symbol(COFF_RUNTIME_WORLD_WRITE),
       .section_number = 0,
       .type = 0x20,
       .storage_class = Z_COFF_SYMBOL_EXTERNAL
@@ -876,15 +808,13 @@ bool z_emit_coff_x64_object_from_ir(const IrProgram *program, ZBuf *out, ZDiag *
     .text = &text,
     .rodata = has_rodata ? &rodata : NULL,
     .text_relocs = &relocs,
-    .text_reloc_count = (uint16_t)(ctx.call_patch_len + ctx.rodata_patch_len + ctx.world_write_patch_len),
+    .text_reloc_count = (uint16_t)z_coff_text_relocation_count(&ctx),
     .symbols = symbols,
     .symbol_len = symbol_len
   };
   z_coff_write_object(out, &image);
 
-  free(ctx.world_write_patches);
-  free(ctx.rodata_patches);
-  free(ctx.call_patches);
+  z_coff_emit_context_free(&ctx);
   free(offsets);
   free(symbols);
   zbuf_free(&relocs);
@@ -1047,9 +977,7 @@ bool z_emit_coff_x64_exe_from_ir(const IrProgram *program, ZBuf *out, ZDiag *dia
     while (text.len % 16 != 0) append_u8(&text, 0x90);
     offsets[i] = text.len;
     if (!coff_emit_function_text(&text, &program->functions[i], &ctx, diag)) {
-      free(ctx.world_write_patches);
-      free(ctx.rodata_patches);
-      free(ctx.call_patches);
+      z_coff_emit_context_free(&ctx);
       free(offsets);
       zbuf_free(&rdata);
       zbuf_free(&text);
@@ -1057,19 +985,14 @@ bool z_emit_coff_x64_exe_from_ir(const IrProgram *program, ZBuf *out, ZDiag *dia
     }
   }
   size_t world_write_offset = 0;
-  if (ctx.world_write_patch_len > 0) {
+  if (z_coff_runtime_patch_count(&ctx, COFF_RUNTIME_WORLD_WRITE) > 0) {
     while (text.len % 16 != 0) append_u8(&text, 0x90);
     world_write_offset = coff_emit_exe_world_write(&text, import_patches, &import_patch_len);
   }
 
   z_x64_patch_rel32(&text, start_main_patch, offsets[main_index]);
-  for (size_t i = 0; i < ctx.call_patch_len; i++) {
-    const CoffCallPatch *patch = &ctx.call_patches[i];
-    z_x64_patch_rel32(&text, patch->patch_offset, offsets[patch->callee_index]);
-  }
-  for (size_t i = 0; i < ctx.world_write_patch_len; i++) {
-    z_x64_patch_rel32(&text, ctx.world_write_patches[i].patch_offset, world_write_offset);
-  }
+  z_coff_patch_call_patches(&text, &ctx);
+  z_coff_patch_runtime_patches(&text, &ctx, COFF_RUNTIME_WORLD_WRITE, world_write_offset);
 
   ZCoffExecutableImage image = {
     .machine = Z_COFF_MACHINE_AMD64,
@@ -1086,9 +1009,7 @@ bool z_emit_coff_x64_exe_from_ir(const IrProgram *program, ZBuf *out, ZDiag *dia
   };
   z_coff_write_pe64_executable(out, &image);
 
-  free(ctx.world_write_patches);
-  free(ctx.rodata_patches);
-  free(ctx.call_patches);
+  z_coff_emit_context_free(&ctx);
   free(offsets);
   zbuf_free(&rdata);
   zbuf_free(&text);

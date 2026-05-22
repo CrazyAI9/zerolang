@@ -607,10 +607,16 @@ assert.equal(compilerMetricsBody.backendFormats.elf.x86ExecutableUsesSharedWrite
 assert.equal(compilerMetricsBody.backendFormats.elf.aarch64ObjectUsesSharedWriter, true);
 assert.equal(compilerMetricsBody.backendFormats.elf.aarch64ExecutableUsesSharedWriter, true);
 assert.deepEqual(compilerMetricsBody.backendFormats.elf.archFilesWithLocalSectionWriters, []);
+assert.equal(compilerMetricsBody.backendFormats.elf.patchStateModule, true);
+assert.equal(compilerMetricsBody.backendFormats.elf.x86UsesPatchStateModule, true);
+assert.deepEqual(compilerMetricsBody.backendFormats.elf.archFilesWithLocalPatchState, []);
 assert.equal(compilerMetricsBody.backendFormats.coff.sharedWriter, true);
 assert.equal(compilerMetricsBody.backendFormats.coff.objectUsesSharedWriter, true);
 assert.equal(compilerMetricsBody.backendFormats.coff.executableUsesSharedWriter, true);
 assert.deepEqual(compilerMetricsBody.backendFormats.coff.archFilesWithLocalContainerWriters, []);
+assert.equal(compilerMetricsBody.backendFormats.coff.patchStateModule, true);
+assert.equal(compilerMetricsBody.backendFormats.coff.x64UsesPatchStateModule, true);
+assert.deepEqual(compilerMetricsBody.backendFormats.coff.archFilesWithLocalPatchState, []);
 assert.equal(compilerMetricsBody.backendFormats.macho.sharedWriter, true);
 assert.equal(compilerMetricsBody.backendFormats.macho.objectUsesSharedWriter, true);
 assert.equal(compilerMetricsBody.backendFormats.macho.executableUsesSharedWriter, true);
