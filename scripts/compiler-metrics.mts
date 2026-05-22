@@ -1,32 +1,37 @@
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 
 const LARGE_FUNCTION_REPORT_THRESHOLD = 80;
 const NEW_LARGE_FUNCTION_LIMIT = 120;
 
-const sourceFiles = [
-  "native/zero-c/src/checker.c",
-  "native/zero-c/src/main.c",
-  "native/zero-c/src/ir.c",
-  "native/zero-c/src/row_syntax.c",
-  "native/zero-c/src/ast.c",
-  "native/zero-c/src/emit_macho64.c",
-  "native/zero-c/src/emit_elf64.c",
-  "native/zero-c/src/emit_coff.c",
-  "native/zero-c/src/target.c",
-  "native/zero-c/include/zero.h",
+const sourceFileDirs = [
+  "native/zero-c/include",
+  "native/zero-c/src",
 ];
 
 const fileBudgets = {
+  "native/zero-c/include/zero.h": { maxLines: 900, maxStrcmpCalls: 0 },
+  "native/zero-c/include/zero_runtime.h": { maxLines: 100, maxStrcmpCalls: 0 },
   "native/zero-c/src/checker.c": { maxLines: 9800, maxStrcmpCalls: 687 },
   "native/zero-c/src/main.c": { maxLines: 10300, maxStrcmpCalls: 546 },
   "native/zero-c/src/ir.c": { maxLines: 3700, maxStrcmpCalls: 224 },
   "native/zero-c/src/row_syntax.c": { maxLines: 2150, maxStrcmpCalls: 11 },
   "native/zero-c/src/ast.c": { maxLines: 250, maxStrcmpCalls: 0 },
+  "native/zero-c/src/call_resolve.c": { maxLines: 200, maxStrcmpCalls: 2 },
+  "native/zero-c/src/call_resolve.h": { maxLines: 100, maxStrcmpCalls: 0 },
   "native/zero-c/src/emit_macho64.c": { maxLines: 2600, maxStrcmpCalls: 2 },
   "native/zero-c/src/emit_elf64.c": { maxLines: 3300, maxStrcmpCalls: 3 },
+  "native/zero-c/src/emit_elf_aarch64.c": { maxLines: 400, maxStrcmpCalls: 1 },
   "native/zero-c/src/emit_coff.c": { maxLines: 1500, maxStrcmpCalls: 1 },
+  "native/zero-c/src/fs.c": { maxLines: 1250, maxStrcmpCalls: 32 },
+  "native/zero-c/src/mir_verify.c": { maxLines: 1300, maxStrcmpCalls: 0 },
+  "native/zero-c/src/mir_verify.h": { maxLines: 50, maxStrcmpCalls: 0 },
+  "native/zero-c/src/specialize.c": { maxLines: 150, maxStrcmpCalls: 2 },
+  "native/zero-c/src/specialize.h": { maxLines: 50, maxStrcmpCalls: 0 },
   "native/zero-c/src/target.c": { maxLines: 550, maxStrcmpCalls: 48 },
-  "native/zero-c/include/zero.h": { maxLines: 900, maxStrcmpCalls: 0 },
+  "native/zero-c/src/type_core.c": { maxLines: 900, maxStrcmpCalls: 8 },
+  "native/zero-c/src/type_core.h": { maxLines: 150, maxStrcmpCalls: 0 },
+  "native/zero-c/src/unify.c": { maxLines: 500, maxStrcmpCalls: 14 },
+  "native/zero-c/src/unify.h": { maxLines: 75, maxStrcmpCalls: 0 },
 };
 
 const knownLargeFunctionLimits = new Map([
@@ -56,11 +61,31 @@ const knownLargeFunctionLimits = new Map([
   ["native/zero-c/src/ast.c|void z_free_program(Program *program) {", 143],
   ["native/zero-c/src/checker.c|static int std_call_arg_count(const char *name) {", 141],
   ["native/zero-c/src/checker.c|static const char *std_call_arg_type(const char *name, size_t index) {", 139],
+  ["native/zero-c/src/emit_elf_aarch64.c|bool z_emit_elf_aarch64_object_from_ir(const IrProgram *ir, ZBuf *out, ZDiag *diag) {", 134],
+  ["native/zero-c/src/mir_verify.c|static bool mir_verify_direct_value_kind_contract(IrProgram *ir, const IrFunction *fun, const MirVerifierState *state, const IrValue *value, MirHelperRequirements *requirements) {", 134],
   ["native/zero-c/src/row_syntax.c|static Stmt *row_parse_statement(const ZRowTokenVec *tokens, const ZRowTree *tree, size_t row_index, ZDiag *diag) {", 132],
   ["native/zero-c/src/row_syntax.c|Program z_parse_row(const ZRowTokenVec *tokens, const ZRowTree *tree, ZDiag *diag) {", 130],
   ["native/zero-c/src/ir.c|static bool ir_lower_byte_view(const Program *program, IrProgram *ir, const IrFunction *fun, const Expr *expr, IrValue **out) {", 124],
   ["native/zero-c/src/row_syntax.c|bool z_row_parse_layout(const ZRowTokenVec *tokens, ZRowTree *tree, ZDiag *diag) {", 123],
 ]);
+
+const allowedMainHelpersMissingFromCheckerKnownNames = [
+  "std.args",
+  "std.env",
+  "std.fs",
+  "std.net",
+  "std.proc",
+];
+
+async function nativeSourceFiles() {
+  const groups = await Promise.all(sourceFileDirs.map(async (dir) => {
+    const entries = await readdir(dir, { withFileTypes: true });
+    return entries
+      .filter((entry) => entry.isFile() && /\.[ch]$/.test(entry.name))
+      .map((entry) => `${dir}/${entry.name}`);
+  }));
+  return groups.flat().sort((a, b) => a.localeCompare(b));
+}
 
 function countMatches(text, pattern) {
   return [...text.matchAll(pattern)].length;
@@ -124,6 +149,11 @@ function largeFunctionKey(item) {
 
 function budgetViolations(files, allLargeFunctions, stdlib) {
   const violations = [];
+  for (const path of Object.keys(files).sort()) {
+    if (!fileBudgets[path]) {
+      violations.push({ kind: "missing-file-budget", path });
+    }
+  }
   for (const [path, budget] of Object.entries(fileBudgets)) {
     const metrics = files[path];
     if (!metrics) {
@@ -182,9 +212,30 @@ function budgetViolations(files, allLargeFunctions, stdlib) {
       names: stdlib.returnNamesMissingFromMainHelpers,
     });
   }
+  const unexpectedCheckerGaps = missingFrom(
+    stdlib.mainHelpersMissingFromCheckerKnownNames,
+    allowedMainHelpersMissingFromCheckerKnownNames,
+  );
+  if (unexpectedCheckerGaps.length > 0) {
+    violations.push({
+      kind: "stdlib-main-helper-checker-parity",
+      names: unexpectedCheckerGaps,
+    });
+  }
+  const staleCheckerGapAllowlist = missingFrom(
+    allowedMainHelpersMissingFromCheckerKnownNames,
+    stdlib.mainHelpersMissingFromCheckerKnownNames,
+  );
+  if (staleCheckerGapAllowlist.length > 0) {
+    violations.push({
+      kind: "stale-stdlib-main-helper-checker-parity-allowlist",
+      names: staleCheckerGapAllowlist,
+    });
+  }
   return violations;
 }
 
+const sourceFiles = await nativeSourceFiles();
 const texts = new Map();
 for (const path of sourceFiles) {
   texts.set(path, await readFile(path, "utf8"));
@@ -233,6 +284,8 @@ const report = {
     ok: violations.length === 0,
     newLargeFunctionLimit: NEW_LARGE_FUNCTION_LIMIT,
     reportThreshold: LARGE_FUNCTION_REPORT_THRESHOLD,
+    sourceFileCount: sourceFiles.length,
+    allowedMainHelpersMissingFromCheckerKnownNames,
     violations,
   },
 };
