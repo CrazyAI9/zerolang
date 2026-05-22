@@ -39,9 +39,9 @@ const fileBudgets = {
   "native/zero-c/src/emit_macho64.c": { maxLines: 1400, maxStrcmpCalls: 2 },
   "native/zero-c/src/macho_emit_state.c": { maxLines: 210, maxStrcmpCalls: 0 },
   "native/zero-c/src/macho_emit_state.h": { maxLines: 90, maxStrcmpCalls: 0 },
-  "native/zero-c/src/emit_elf64.c": { maxLines: 2130, maxStrcmpCalls: 3 },
+  "native/zero-c/src/emit_elf64.c": { maxLines: 2090, maxStrcmpCalls: 3 },
   "native/zero-c/src/emit_elf_aarch64.c": { maxLines: 205, maxStrcmpCalls: 1 },
-  "native/zero-c/src/emit_coff.c": { maxLines: 900, maxStrcmpCalls: 1 },
+  "native/zero-c/src/emit_coff.c": { maxLines: 890, maxStrcmpCalls: 1 },
   "native/zero-c/src/fs.c": { maxLines: 1250, maxStrcmpCalls: 32 },
   "native/zero-c/src/mir_verify.c": { maxLines: 1300, maxStrcmpCalls: 0 },
   "native/zero-c/src/mir_verify.h": { maxLines: 50, maxStrcmpCalls: 0 },
@@ -54,7 +54,7 @@ const fileBudgets = {
   "native/zero-c/src/type_core.h": { maxLines: 150, maxStrcmpCalls: 0 },
   "native/zero-c/src/unify.c": { maxLines: 500, maxStrcmpCalls: 14 },
   "native/zero-c/src/unify.h": { maxLines: 75, maxStrcmpCalls: 0 },
-  "native/zero-c/src/x64_emit.c": { maxLines: 610, maxStrcmpCalls: 0 },
+  "native/zero-c/src/x64_emit.c": { maxLines: 670, maxStrcmpCalls: 0 },
   "native/zero-c/src/x64_emit.h": { maxLines: 95, maxStrcmpCalls: 0 },
 };
 
@@ -692,6 +692,12 @@ function budgetViolations(files, allLargeFunctions, stdlib, backendFormats) {
       paths: backendFormats.x64.formatFilesWithRawStackRegisterBytes,
     });
   }
+  if (backendFormats.x64.formatFilesWithRawRegisterImmediateBytes.length > 0) {
+    violations.push({
+      kind: "x64-register-immediate-byte-in-format-file",
+      paths: backendFormats.x64.formatFilesWithRawRegisterImmediateBytes,
+    });
+  }
   if (!backendFormats.aarch64.sharedEncodingPrimitives ||
       !backendFormats.aarch64.elfUsesSharedEncodingPrimitives ||
       !backendFormats.aarch64.machoUsesSharedEncodingPrimitives) {
@@ -875,6 +881,11 @@ const backendFormats = {
       /\bz_x64_emit_cmp_rax_rsp_offset\s*\(/.test(x64EmitSource) &&
       /\bz_x64_emit_cmp_reg_reg\s*\(/.test(x64EmitSource) &&
       /\bz_x64_emit_mov_reg_from_rax\s*\(/.test(x64EmitSource) &&
+      /\bz_x64_emit_mov_reg_from_reg\s*\(/.test(x64EmitSource) &&
+      /\bz_x64_emit_mov_reg_u32\s*\(/.test(x64EmitSource) &&
+      /\bz_x64_emit_mov_reg_i32\s*\(/.test(x64EmitSource) &&
+      /\bz_x64_emit_mov_reg_u64\s*\(/.test(x64EmitSource) &&
+      /\bz_x64_emit_xor_reg_reg\s*\(/.test(x64EmitSource) &&
       /\bz_x64_emit_load_reg8_base_index\s*\(/.test(x64EmitSource) &&
       /\bz_x64_emit_movzx_reg32_base_index_u8\s*\(/.test(x64EmitSource) &&
       /\bz_x64_emit_store_base_index_reg8\s*\(/.test(x64EmitSource) &&
@@ -946,6 +957,11 @@ const backendFormats = {
       /\bz_x64_emit_cmp_rax_rsp_offset\s*\(/.test(elfX64Source) &&
       /\bz_x64_emit_cmp_reg_reg\s*\(/.test(elfX64Source) &&
       /\bz_x64_emit_mov_reg_from_rax\s*\(/.test(elfX64Source) &&
+      /\bz_x64_emit_mov_reg_from_reg\s*\(/.test(elfX64Source) &&
+      /\bz_x64_emit_mov_reg_u32\s*\(/.test(elfX64Source) &&
+      /\bz_x64_emit_mov_reg_i32\s*\(/.test(elfX64Source) &&
+      /\bz_x64_emit_mov_reg_u64\s*\(/.test(elfX64Source) &&
+      /\bz_x64_emit_xor_reg_reg\s*\(/.test(elfX64Source) &&
       /\bz_x64_emit_load_reg8_base_index\s*\(/.test(elfX64Source) &&
       /\bz_x64_emit_movzx_reg32_base_index_u8\s*\(/.test(elfX64Source) &&
       /\bz_x64_emit_store_base_index_reg8\s*\(/.test(elfX64Source) &&
@@ -1016,6 +1032,8 @@ const backendFormats = {
       /\bz_x64_emit_pop_rax\s*\(/.test(coffX64Source) &&
       /\bz_x64_emit_mov_rcx_from_rax\s*\(/.test(coffX64Source) &&
       /\bz_x64_emit_mov_reg_from_rax\s*\(/.test(coffX64Source) &&
+      /\bz_x64_emit_mov_reg_from_reg\s*\(/.test(coffX64Source) &&
+      /\bz_x64_emit_mov_reg_u32\s*\(/.test(coffX64Source) &&
       /\bz_x64_emit_mov_eax_from_ecx\s*\(/.test(coffX64Source) &&
       /\bz_x64_emit_shl_rcx_imm8\s*\(/.test(coffX64Source) &&
       /\bz_x64_emit_load_eax_ptr_rax_u8\s*\(/.test(coffX64Source) &&
@@ -1046,6 +1064,12 @@ const backendFormats = {
       ["native/zero-c/src/emit_coff.c", coffX64Source],
     ]
       .filter(([, text]) => /\bz_x64_append_u8\s*\(\s*(?:code|text)\s*,\s*0x5[0-9a-f]\s*\)/i.test(text))
+      .map(([path]) => path),
+    formatFilesWithRawRegisterImmediateBytes: [
+      ["native/zero-c/src/emit_elf64.c", elfX64Source],
+      ["native/zero-c/src/emit_coff.c", coffX64Source],
+    ]
+      .filter(([, text]) => /\bz_x64_append_u8\s*\(\s*(?:code|text)\s*,\s*0xb[9aef]\s*\)/i.test(text))
       .map(([path]) => path),
   },
   aarch64: {
