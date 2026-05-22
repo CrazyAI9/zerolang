@@ -4178,6 +4178,7 @@ static bool resolve_direct_row_package_source(const char *input_path, SourceInpu
   if (!z_parse_manifest_json(manifest, &parsed_manifest, diag)) {
     diag->path = z_strdup(manifest_path);
     free(manifest);
+    free(manifest_path);
     return false;
   }
   if (!parsed_manifest.main_path || !is_row_source_path(parsed_manifest.main_path)) {
