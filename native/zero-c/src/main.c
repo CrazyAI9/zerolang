@@ -9521,8 +9521,9 @@ int main(int argc, char **argv) {
       z_free_source(&input);
       return 1;
     }
-    const char *emitter = z_direct_object_emitter(target);
-    if (!emitter || strcmp(emitter, "none") == 0) {
+    ZDirectBackend object_backend = z_direct_object_backend(target);
+    const char *emitter = z_direct_backend_object_emitter(object_backend);
+    if (object_backend == Z_DIRECT_BACKEND_NONE) {
       int rc = return_direct_backend_error(&command, &input, target, "obj", z_direct_backend_reason(target), &ir, &program);
       z_free_source(&input);
       return rc;
@@ -9531,10 +9532,13 @@ int main(int argc, char **argv) {
     ZBuf object;
     phase_started = now_ms();
     bool emitted_object = false;
-    if (strcmp(emitter, "zero-elf64") == 0) emitted_object = z_emit_elf64_object_from_ir(&ir, &object, &diag);
-    else if (strcmp(emitter, "zero-elf-aarch64") == 0) emitted_object = z_emit_elf_aarch64_object_from_ir(&ir, &object, &diag);
-    else if (strcmp(emitter, "zero-macho64") == 0) emitted_object = z_emit_macho64_object_from_ir(&ir, &object, &diag);
-    else if (strcmp(emitter, "zero-coff-x64") == 0) emitted_object = z_emit_coff_x64_object_from_ir(&ir, &object, &diag);
+    switch (object_backend) {
+      case Z_DIRECT_BACKEND_ELF64: emitted_object = z_emit_elf64_object_from_ir(&ir, &object, &diag); break;
+      case Z_DIRECT_BACKEND_ELF_AARCH64: emitted_object = z_emit_elf_aarch64_object_from_ir(&ir, &object, &diag); break;
+      case Z_DIRECT_BACKEND_MACHO64: emitted_object = z_emit_macho64_object_from_ir(&ir, &object, &diag); break;
+      case Z_DIRECT_BACKEND_COFF_X64: emitted_object = z_emit_coff_x64_object_from_ir(&ir, &object, &diag); break;
+      case Z_DIRECT_BACKEND_NONE: emitted_object = false; break;
+    }
     input.codegen_ms = now_ms() - phase_started;
     if (!emitted_object) {
       z_map_source_diag(&input, &diag);
@@ -9547,7 +9551,6 @@ int main(int argc, char **argv) {
       z_free_source(&input);
       return 1;
     }
-
     char *base_object_file = command.out ? z_strdup(command.out) : z_default_out_path(input.source_file);
     char *object_file = base_object_file;
     phase_started = now_ms();

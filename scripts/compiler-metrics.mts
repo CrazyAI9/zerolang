@@ -18,7 +18,7 @@ const fileBudgets = {
   "native/zero-c/include/zero.h": { maxLines: 905, maxStrcmpCalls: 0 },
   "native/zero-c/include/zero_runtime.h": { maxLines: 100, maxStrcmpCalls: 0 },
   "native/zero-c/src/checker.c": { maxLines: 9395, maxStrcmpCalls: 403 },
-  "native/zero-c/src/main.c": { maxLines: 10000, maxStrcmpCalls: 473 },
+  "native/zero-c/src/main.c": { maxLines: 10000, maxStrcmpCalls: 467 },
   "native/zero-c/src/ir.c": { maxLines: 3700, maxStrcmpCalls: 224 },
   "native/zero-c/src/row_syntax.c": { maxLines: 2150, maxStrcmpCalls: 11 },
   "native/zero-c/src/ast.c": { maxLines: 250, maxStrcmpCalls: 0 },
@@ -597,8 +597,10 @@ function budgetViolations(files, allLargeFunctions, stdlib, backendFormats) {
   }
   if (!backendFormats.directTarget.ruleMatrix ||
       !backendFormats.directTarget.executableUsesRuleMatrix ||
+      !backendFormats.directTarget.descriptorTable ||
       backendFormats.directTarget.executableTargetNameChecks > 0 ||
-      backendFormats.directTarget.mainExecutableEmitterStringChecks > 0) {
+      backendFormats.directTarget.mainExecutableEmitterStringChecks > 0 ||
+      backendFormats.directTarget.mainObjectEmitterStringChecks > 0) {
     violations.push({
       kind: "direct-target-backend-matrix",
       directTarget: backendFormats.directTarget,
@@ -889,8 +891,10 @@ const backendFormats = {
   directTarget: {
     ruleMatrix: /\bdirect_backend_rules\[\]/.test(targetBackendSource),
     executableUsesRuleMatrix: /return\s+direct_backend_for_target\s*\(\s*target\s*,\s*true\s*\)/.test(targetBackendSource),
+    descriptorTable: /\bdirect_backend_descriptors\[\]/.test(targetBackendSource),
     executableTargetNameChecks: countMatches(directExeBackendBody, /target\s*->\s*name/g),
     mainExecutableEmitterStringChecks: countMatches(cCodeText(main), /zero-(?:elf64|elf-aarch64|macho64|coff-x64)-exe/g),
+    mainObjectEmitterStringChecks: countMatches(cCodeText(main), /"zero-(?:elf64|elf-aarch64|macho64|coff-x64)"/g),
   },
   elf: {
     sharedWriter: /\bz_elf_write_object64\s*\(/.test(elfFormatSource) && /\bz_elf_write_executable64\s*\(/.test(elfFormatSource),
