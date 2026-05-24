@@ -5689,6 +5689,154 @@ static bool check_shape_namespace_call_expected(CheckContext *ctx, const Program
   return true;
 }
 
+static bool receiver_member_call_should_resolve(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope) {
+  if (!expr || expr->kind != EXPR_CALL || !expr->left || expr->left->kind != EXPR_MEMBER) return false;
+  const Expr *receiver = expr->left->left;
+  if (!receiver) return false;
+  ZBuf callee_name;
+  zbuf_init(&callee_name);
+  member_name_buf(expr->left, &callee_name);
+  ZCallResolution builtin_std_resolution = {0};
+  bool stdlib_member_callee = resolve_stdlib_call(expr, &builtin_std_resolution);
+  z_call_resolution_free(&builtin_std_resolution);
+  bool builtin_member_callee = strncmp(callee_name.data, "std.", strlen("std.")) == 0 ||
+    stdlib_member_callee ||
+    is_world_stream_write_callee(expr->left, scope);
+  zbuf_free(&callee_name);
+  if (builtin_member_callee) return false;
+  if (receiver->kind == EXPR_IDENT && find_shape(program, receiver->text)) return false;
+  char **receiver_constraint_args = NULL;
+  size_t receiver_constraint_arg_len = 0;
+  bool constrained_owner = receiver->kind == EXPR_IDENT &&
+    constrained_interface_for_type_param(program, ctx ? ctx->function : NULL, receiver->text, &receiver_constraint_args, &receiver_constraint_arg_len);
+  free_type_arg_list(receiver_constraint_args, receiver_constraint_arg_len);
+  return !constrained_owner;
+}
+
+static bool check_receiver_method_receiver_access(CheckContext *ctx, const Program *program, const Expr *receiver, Scope *scope, ZDiag *diag, const char *receiver_type, bool receiver_requires_mut) {
+  char receiver_ref_inner[192];
+  bool receiver_is_ref = named_ref_inner_text(receiver_type, "ref", receiver_ref_inner, sizeof(receiver_ref_inner));
+  bool receiver_is_mutref = named_ref_inner_text(receiver_type, "mutref", receiver_ref_inner, sizeof(receiver_ref_inner));
+  if (receiver_requires_mut && receiver_is_ref) {
+    return set_diag_detail(diag, 3049, "receiver method requires a mutable receiver", receiver->line, receiver->column, "mutref<Self> receiver or mutable record lvalue", receiver_type, "call the method on a mut value or pass a mutref receiver");
+  }
+  if (receiver_requires_mut && !receiver_is_mutref) {
+    if (!expr_is_addressable(receiver)) {
+      return set_diag_detail(diag, 3049, "receiver method requires an addressable mutable receiver", receiver->line, receiver->column, "mut record value", "temporary receiver", "store the value in a mut binding before calling the mutating method");
+    }
+    char root[128];
+    if (expr_root_ident(receiver, root, sizeof(root)) && !scope_is_mutable(scope, root)) {
+      return set_diag_detail(diag, 3049, "receiver method requires a mutable receiver", receiver->line, receiver->column, "mut receiver binding", "immutable receiver binding", "declare the receiver with mut before calling a mutating method");
+    }
+    char lvalue_type[192];
+    if (!check_lvalue_target(ctx, program, receiver, scope, diag, lvalue_type, sizeof(lvalue_type))) return false;
+  } else if (!receiver_requires_mut && !receiver_is_ref && !receiver_is_mutref && !expr_is_addressable(receiver)) {
+    return set_diag_detail(diag, 3049, "receiver method requires an addressable receiver", receiver->line, receiver->column, "shape lvalue or ref<Self>", "temporary receiver", "store the value in a binding before calling the method");
+  }
+  char root[128];
+  char path[256];
+  return !expr_binding_path(receiver, root, sizeof(root), path, sizeof(path)) ||
+    check_borrow_conflict_at(scope, root, path, receiver_requires_mut, diag, receiver);
+}
+
+static bool check_receiver_method_args_expected(CheckContext *ctx, const Program *program, const Shape *receiver_shape, const Function *receiver_method, const Expr *expr, Scope *scope, ZDiag *diag, ZCallResolution *resolution) {
+  for (size_t i = 0; i < expr->args.len; i++) {
+    char *expected_type = call_resolution_param_type_text(resolution, i + resolution->param_offset);
+    if (!check_expr_expected(ctx, program, expr->args.items[i], scope, diag, expected_type)) {
+      free(expected_type);
+      return false;
+    }
+    const char *actual = expr_type(ctx, program, expr->args.items[i], scope);
+    if (!types_compatible_in_scope(program, scope, expected_type, actual)) {
+      char message[256];
+      snprintf(message, sizeof(message), "argument %zu to receiver method '%s.%s' has incompatible type", i + 1, receiver_shape->name, receiver_method->name);
+      bool ok = type_static_value_mismatch(program, expected_type, actual)
+        ? set_diag_detail(diag, 3047, "receiver method static value does not match Self instantiation", expr->args.items[i]->line, expr->args.items[i]->column, expected_type, actual, "call the method with one matching generic shape instantiation")
+        : set_diag_detail(diag, 3005, message, expr->args.items[i]->line, expr->args.items[i]->column, expected_type, actual, "pass a value matching the receiver method parameter");
+      free(expected_type);
+      return ok;
+    }
+    mark_owned_move_if_needed(expr->args.items[i], scope, expected_type);
+    free(expected_type);
+  }
+  return true;
+}
+
+static bool check_receiver_shape_call_expected(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, bool *handled) {
+  diag = check_context_diag(ctx, diag);
+  if (handled) *handled = false;
+  if (!receiver_member_call_should_resolve(ctx, program, expr, scope)) return true;
+  const Expr *receiver = expr->left->left;
+  if (!check_expr(ctx, program, receiver, scope, diag)) return false;
+  const char *receiver_type_raw = expr_type(ctx, program, receiver, scope);
+  char receiver_type[192];
+  snprintf(receiver_type, sizeof(receiver_type), "%s", receiver_type_raw ? receiver_type_raw : "Unknown");
+  char owner_type[192];
+  strip_ref_like_type(receiver_type, owner_type, sizeof(owner_type));
+  const Shape *receiver_shape = find_shape_for_type(program, owner_type);
+  if (!receiver_shape) return true;
+  if (handled) *handled = true;
+
+  ZCallResolution resolution = {0};
+  if (!resolve_receiver_shape_call(ctx, program, expr, scope, receiver_type, &resolution)) {
+    const Function *method_decl = find_shape_method_decl(receiver_shape, expr->left->text);
+    if (!method_decl) {
+      char message[256];
+      snprintf(message, sizeof(message), "shape '%s' has no receiver method '%s'", receiver_shape->name, expr->left->text);
+      return set_diag_detail(diag, 3048, message, expr->line, expr->column, "method declared on receiver shape", expr->left->text, "rename the method or call a declared shape method");
+    }
+    char message[256];
+    snprintf(message, sizeof(message), "method '%s.%s' is not a receiver method", receiver_shape->name, method_decl->name);
+    return set_diag_detail(diag, 3048, message, expr->line, expr->column, "method whose first parameter is self: ref<Self> or self: mutref<Self>", "static method without self receiver", "call this method through the shape namespace or add an explicit self parameter");
+  }
+  const Function *receiver_method = resolution.callee;
+  receiver_shape = resolution.shape;
+  bool receiver_requires_mut = false;
+  bool ok = true;
+  char *self_arg_type = NULL;
+  char *expected_self = NULL;
+  char *return_type = NULL;
+  GenericBinding *receiver_bindings = NULL;
+  size_t receiver_binding_len = 0;
+  if (!shape_method_receiver_info(receiver_method, &receiver_requires_mut)) { ok = false; goto cleanup; }
+  if (receiver_method->params.len != expr->args.len + 1) {
+    char message[256];
+    snprintf(message, sizeof(message), "receiver method '%s.%s' expects %zu argument(s), got %zu", receiver_shape->name, receiver_method->name, receiver_method->params.len - 1, expr->args.len);
+    ok = set_diag_detail(diag, 3004, message, expr->line, expr->column, "matching receiver method argument count", "wrong argument count", "update the receiver method call or signature");
+    goto cleanup;
+  }
+  if (!check_receiver_method_receiver_access(ctx, program, receiver, scope, diag, receiver_type, receiver_requires_mut)) { ok = false; goto cleanup; }
+  self_arg_type = receiver_self_arg_type(receiver_type, receiver_requires_mut);
+  if (!build_receiver_shape_method_bindings(ctx, program, receiver_shape, receiver_method, expr, self_arg_type, scope, diag, &receiver_bindings, &receiver_binding_len)) { ok = false; goto cleanup; }
+  call_resolution_record_bindings(&resolution, receiver_bindings, receiver_binding_len);
+  call_resolution_record_param_facts(ctx, program, receiver_method, expr, receiver, resolution.param_offset, scope, receiver_bindings, receiver_binding_len, &resolution);
+  expected_self = type_substitute_generic_signature(program, receiver_method->params.items[0].type, receiver_bindings, receiver_binding_len);
+  if (!types_compatible_in_scope(program, scope, expected_self, self_arg_type)) {
+    ok = set_diag_detail(diag, 3047, "receiver Self type does not match method receiver", receiver->line, receiver->column, expected_self, self_arg_type, "call the method on a receiver with the expected shape instantiation");
+    goto cleanup;
+  }
+  if (!check_receiver_method_args_expected(ctx, program, receiver_shape, receiver_method, expr, scope, diag, &resolution)) { ok = false; goto cleanup; }
+  if (function_has_error_flow(ctx, program, receiver_method)) {
+    if ((!ctx || ctx->allow_fallible_call == 0)) {
+      ok = set_diag_detail(diag, 1003, "fallible receiver method call must be checked", expr->line, expr->column, "check receiver.method ...", "unchecked fallible receiver method", "prefix the call with check in a function marked with `!`");
+      goto cleanup;
+    }
+    if (!function_error_sets_compatible(ctx, ctx ? ctx->function : NULL, receiver_method, diag, expr)) { ok = false; goto cleanup; }
+  }
+  return_type = type_substitute_generic_signature(program, receiver_method->return_type, receiver_bindings, receiver_binding_len);
+  set_expr_resolved_type(expr, return_type);
+  if (!apply_checked_call_storage_effects(ctx, program, expr, scope, diag)) ok = false;
+
+cleanup:
+  free(return_type);
+  free(expected_self);
+  free(self_arg_type);
+  generic_bindings_free(receiver_bindings, receiver_binding_len);
+  free(receiver_bindings);
+  z_call_resolution_free(&resolution);
+  return ok;
+}
+
 static bool check_constrained_interface_call_expected(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, const char *expected, bool *handled) {
   diag = check_context_diag(ctx, diag);
   if (handled) *handled = false;
@@ -6081,169 +6229,9 @@ static bool check_expr_expected(CheckContext *ctx, const Program *program, const
         bool shape_namespace_call_handled = false;
         if (!check_shape_namespace_call_expected(ctx, program, expr, scope, diag, expected, &shape_namespace_call_handled)) return false;
         if (shape_namespace_call_handled) return true;
-        ZCallResolution resolution = {0};
-        const Expr *receiver = expr->left->left;
-        ZBuf callee_name;
-        zbuf_init(&callee_name);
-        member_name_buf(expr->left, &callee_name);
-        ZCallResolution builtin_std_resolution = {0};
-        bool stdlib_member_callee = resolve_stdlib_call(expr, &builtin_std_resolution);
-        z_call_resolution_free(&builtin_std_resolution);
-        bool builtin_member_callee = strncmp(callee_name.data, "std.", strlen("std.")) == 0 ||
-          stdlib_member_callee ||
-          is_world_stream_write_callee(expr->left, scope);
-        zbuf_free(&callee_name);
-        bool namespace_owner = receiver && receiver->kind == EXPR_IDENT && find_shape(program, receiver->text);
-        char **receiver_constraint_args = NULL;
-        size_t receiver_constraint_arg_len = 0;
-        bool constrained_owner = receiver && receiver->kind == EXPR_IDENT &&
-          constrained_interface_for_type_param(program, ctx ? ctx->function : NULL, receiver->text, &receiver_constraint_args, &receiver_constraint_arg_len);
-        free_type_arg_list(receiver_constraint_args, receiver_constraint_arg_len);
-        if (receiver && !namespace_owner && !constrained_owner && !builtin_member_callee) {
-          if (!check_expr(ctx, program, receiver, scope, diag)) return false;
-          const char *receiver_type_raw = expr_type(ctx, program, receiver, scope);
-          char receiver_type_buf[192];
-          snprintf(receiver_type_buf, sizeof(receiver_type_buf), "%s", receiver_type_raw ? receiver_type_raw : "Unknown");
-          const char *receiver_type = receiver_type_buf;
-          char owner_type[192];
-          strip_ref_like_type(receiver_type, owner_type, sizeof(owner_type));
-          const Shape *receiver_shape = find_shape_for_type(program, owner_type);
-          if (receiver_shape) {
-            if (!resolve_receiver_shape_call(ctx, program, expr, scope, receiver_type, &resolution)) {
-              const Function *method_decl = find_shape_method_decl(receiver_shape, expr->left->text);
-              if (!method_decl) {
-                char message[256];
-                snprintf(message, sizeof(message), "shape '%s' has no receiver method '%s'", receiver_shape->name, expr->left->text);
-                return set_diag_detail(diag, 3048, message, expr->line, expr->column, "method declared on receiver shape", expr->left->text, "rename the method or call a declared shape method");
-              }
-              char message[256];
-              snprintf(message, sizeof(message), "method '%s.%s' is not a receiver method", receiver_shape->name, method_decl->name);
-              return set_diag_detail(diag, 3048, message, expr->line, expr->column, "method whose first parameter is self: ref<Self> or self: mutref<Self>", "static method without self receiver", "call this method through the shape namespace or add an explicit self parameter");
-            }
-            const Function *receiver_method = resolution.callee;
-            receiver_shape = resolution.shape;
-            bool receiver_requires_mut = false;
-            if (!shape_method_receiver_info(receiver_method, &receiver_requires_mut)) {
-              z_call_resolution_free(&resolution);
-              return false;
-            }
-            if (receiver_method->params.len != expr->args.len + 1) {
-              char message[256];
-              snprintf(message, sizeof(message), "receiver method '%s.%s' expects %zu argument(s), got %zu", receiver_shape->name, receiver_method->name, receiver_method->params.len - 1, expr->args.len);
-              z_call_resolution_free(&resolution);
-              return set_diag_detail(diag, 3004, message, expr->line, expr->column, "matching receiver method argument count", "wrong argument count", "update the receiver method call or signature");
-            }
-            char receiver_ref_inner[192];
-            bool receiver_is_ref = named_ref_inner_text(receiver_type, "ref", receiver_ref_inner, sizeof(receiver_ref_inner));
-            bool receiver_is_mutref = named_ref_inner_text(receiver_type, "mutref", receiver_ref_inner, sizeof(receiver_ref_inner));
-            if (receiver_requires_mut) {
-              if (receiver_is_ref) {
-                z_call_resolution_free(&resolution);
-                return set_diag_detail(diag, 3049, "receiver method requires a mutable receiver", receiver->line, receiver->column, "mutref<Self> receiver or mutable record lvalue", receiver_type, "call the method on a mut value or pass a mutref receiver");
-              }
-              if (!receiver_is_mutref) {
-                if (!expr_is_addressable(receiver)) {
-                  z_call_resolution_free(&resolution);
-                  return set_diag_detail(diag, 3049, "receiver method requires an addressable mutable receiver", receiver->line, receiver->column, "mut record value", "temporary receiver", "store the value in a mut binding before calling the mutating method");
-                }
-                char root[128];
-                if (expr_root_ident(receiver, root, sizeof(root)) && !scope_is_mutable(scope, root)) {
-                  z_call_resolution_free(&resolution);
-                  return set_diag_detail(diag, 3049, "receiver method requires a mutable receiver", receiver->line, receiver->column, "mut receiver binding", "immutable receiver binding", "declare the receiver with mut before calling a mutating method");
-                }
-                char lvalue_type[192];
-                if (!check_lvalue_target(ctx, program, receiver, scope, diag, lvalue_type, sizeof(lvalue_type))) {
-                  z_call_resolution_free(&resolution);
-                  return false;
-                }
-              }
-            } else if (!receiver_is_ref && !receiver_is_mutref && !expr_is_addressable(receiver)) {
-              z_call_resolution_free(&resolution);
-              return set_diag_detail(diag, 3049, "receiver method requires an addressable receiver", receiver->line, receiver->column, "shape lvalue or ref<Self>", "temporary receiver", "store the value in a binding before calling the method");
-            }
-            char root[128];
-            char path[256];
-            if (expr_binding_path(receiver, root, sizeof(root), path, sizeof(path)) && !check_borrow_conflict_at(scope, root, path, receiver_requires_mut, diag, receiver)) {
-              z_call_resolution_free(&resolution);
-              return false;
-            }
-            char *self_arg_type = receiver_self_arg_type(receiver_type, receiver_requires_mut);
-            GenericBinding *receiver_bindings = NULL;
-            size_t receiver_binding_len = 0;
-            if (!build_receiver_shape_method_bindings(ctx, program, receiver_shape, receiver_method, expr, self_arg_type, scope, diag, &receiver_bindings, &receiver_binding_len)) {
-              free(self_arg_type);
-              z_call_resolution_free(&resolution);
-              return false;
-            }
-            call_resolution_record_bindings(&resolution, receiver_bindings, receiver_binding_len);
-            call_resolution_record_param_facts(ctx, program, receiver_method, expr, receiver, resolution.param_offset, scope, receiver_bindings, receiver_binding_len, &resolution);
-            char *expected_self = type_substitute_generic_signature(program, receiver_method->params.items[0].type, receiver_bindings, receiver_binding_len);
-            if (!types_compatible_in_scope(program, scope, expected_self, self_arg_type)) {
-              bool ok = set_diag_detail(diag, 3047, "receiver Self type does not match method receiver", receiver->line, receiver->column, expected_self, self_arg_type, "call the method on a receiver with the expected shape instantiation");
-              free(expected_self);
-              free(self_arg_type);
-              generic_bindings_free(receiver_bindings, receiver_binding_len);
-              free(receiver_bindings);
-              z_call_resolution_free(&resolution);
-              return ok;
-            }
-            free(expected_self);
-            free(self_arg_type);
-            for (size_t i = 0; i < expr->args.len; i++) {
-              char *expected_type = call_resolution_param_type_text(&resolution, i + resolution.param_offset);
-              if (!check_expr_expected(ctx, program, expr->args.items[i], scope, diag, expected_type)) {
-                free(expected_type);
-                generic_bindings_free(receiver_bindings, receiver_binding_len);
-                free(receiver_bindings);
-                z_call_resolution_free(&resolution);
-                return false;
-              }
-              const char *actual = expr_type(ctx, program, expr->args.items[i], scope);
-              if (!types_compatible_in_scope(program, scope, expected_type, actual)) {
-                char message[256];
-                snprintf(message, sizeof(message), "argument %zu to receiver method '%s.%s' has incompatible type", i + 1, receiver_shape->name, receiver_method->name);
-                bool ok = type_static_value_mismatch(program, expected_type, actual)
-                  ? set_diag_detail(diag, 3047, "receiver method static value does not match Self instantiation", expr->args.items[i]->line, expr->args.items[i]->column, expected_type, actual, "call the method with one matching generic shape instantiation")
-                  : set_diag_detail(diag, 3005, message, expr->args.items[i]->line, expr->args.items[i]->column, expected_type, actual, "pass a value matching the receiver method parameter");
-                free(expected_type);
-                generic_bindings_free(receiver_bindings, receiver_binding_len);
-                free(receiver_bindings);
-                z_call_resolution_free(&resolution);
-                return ok;
-              }
-              mark_owned_move_if_needed(expr->args.items[i], scope, expected_type);
-              free(expected_type);
-            }
-            if (function_has_error_flow(ctx, program, receiver_method)) {
-              if ((!ctx || ctx->allow_fallible_call == 0)) {
-                generic_bindings_free(receiver_bindings, receiver_binding_len);
-                free(receiver_bindings);
-                z_call_resolution_free(&resolution);
-                return set_diag_detail(diag, 1003, "fallible receiver method call must be checked", expr->line, expr->column, "check receiver.method ...", "unchecked fallible receiver method", "prefix the call with check in a function marked with `!`");
-              }
-              if (!function_error_sets_compatible(ctx, ctx ? ctx->function : NULL, receiver_method, diag, expr)) {
-                generic_bindings_free(receiver_bindings, receiver_binding_len);
-                free(receiver_bindings);
-                z_call_resolution_free(&resolution);
-                return false;
-              }
-            }
-            char *return_type = type_substitute_generic_signature(program, receiver_method->return_type, receiver_bindings, receiver_binding_len);
-            set_expr_resolved_type(expr, return_type);
-            if (!apply_checked_call_storage_effects(ctx, program, expr, scope, diag)) {
-              free(return_type);
-              generic_bindings_free(receiver_bindings, receiver_binding_len);
-              free(receiver_bindings);
-              z_call_resolution_free(&resolution);
-              return false;
-            }
-            free(return_type);
-            generic_bindings_free(receiver_bindings, receiver_binding_len);
-            free(receiver_bindings);
-            z_call_resolution_free(&resolution);
-            return true;
-          }
-        }
+        bool receiver_shape_call_handled = false;
+        if (!check_receiver_shape_call_expected(ctx, program, expr, scope, diag, &receiver_shape_call_handled)) return false;
+        if (receiver_shape_call_handled) return true;
         bool constrained_interface_call_handled = false;
         if (!check_constrained_interface_call_expected(ctx, program, expr, scope, diag, expected, &constrained_interface_call_handled)) return false;
         if (constrained_interface_call_handled) return true;

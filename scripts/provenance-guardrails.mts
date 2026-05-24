@@ -255,6 +255,7 @@ const requiredFunctions = [
   "apply_checked_call_storage_effects",
   "check_named_function_call_expected",
   "check_stdlib_table_arg_range_expected",
+  "check_receiver_shape_call_expected",
   "call_resolution_record_bindings",
   "call_resolution_record_param_facts",
   "call_resolution_param_type_text",
@@ -323,19 +324,29 @@ assertIncludes("choice call checking argument facts", choiceCallBody, "resolve_c
 assertIncludes("choice call checking argument facts", choiceCallBody, "z_call_resolution_add_arg(&choice_resolution");
 assertIncludes("choice call checking argument facts", choiceCallBody, "call_resolution_param_type_text(&choice_resolution");
 
-const shapeNamespaceCallBody = sliceBetween(checker, "static bool check_shape_namespace_call_expected", "static bool check_constrained_interface_call_expected");
+const shapeNamespaceCallBody = sliceBetween(checker, "static bool check_shape_namespace_call_expected", "static bool receiver_member_call_should_resolve");
 assertIncludes("shape namespace call checking argument facts", shapeNamespaceCallBody, "call_resolution_record_param_facts");
 assertIncludes("shape namespace call checking argument facts", shapeNamespaceCallBody, "call_resolution_param_type_text");
 assertIncludes("shape namespace call checking storage effects", shapeNamespaceCallBody, "apply_checked_call_storage_effects");
+
+const receiverCallBody = sliceBetween(checker, "static bool check_receiver_method_receiver_access", "static bool check_constrained_interface_call_expected");
+assertIncludes("receiver call checking argument facts", receiverCallBody, "resolve_receiver_shape_call");
+assertIncludes("receiver call checking argument facts", receiverCallBody, "call_resolution_record_param_facts");
+assertIncludes("receiver call checking argument facts", receiverCallBody, "call_resolution_param_type_text");
+assertIncludes("receiver call checking storage effects", receiverCallBody, "apply_checked_call_storage_effects");
 
 const constrainedInterfaceCallBody = sliceBetween(checker, "static bool check_constrained_interface_call_expected", "static bool check_world_stream_write_call_expected");
 assertIncludes("constrained interface call checking argument facts", constrainedInterfaceCallBody, "call_resolution_record_param_facts");
 assertIncludes("constrained interface call checking argument facts", constrainedInterfaceCallBody, "call_resolution_param_type_text");
 assertIncludes("constrained interface call checking storage effects", constrainedInterfaceCallBody, "apply_checked_call_storage_effects");
 
-const checkCallBody = sliceBetween(checker, "static bool check_expr_expected", "case EXPR_CAST");
-assertIncludes("call checking argument facts", checkCallBody, "call_resolution_record_param_facts");
-assertIncludes("call checking argument facts", checkCallBody, "call_resolution_param_type_text");
+const checkCallBody = sliceBetween(
+  checker,
+  "static bool check_expr_expected(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, const char *expected) {",
+  "case EXPR_CAST:"
+);
+assertIncludes("call checking receiver dispatch", checkCallBody, "check_receiver_shape_call_expected");
+assertIncludes("call checking constrained interface dispatch", checkCallBody, "check_constrained_interface_call_expected");
 
 const checkedCallBody = sliceBetween(checker, "static bool apply_checked_call_storage_effects", "static bool apply_resolved_call_storage_effects");
 assertIncludes("checked call storage effects", checkedCallBody, "resolve_provenance_call");
@@ -377,11 +388,13 @@ assertIncludes("call checking choice argument facts", callCase, "check_choice_co
 const callCaseStorageApplications = (callCase.match(/apply_checked_call_storage_effects\(ctx, program, expr, scope, diag\)/g) ?? []).length;
 const namedCallStorageApplications = (namedCallBody.match(/apply_checked_call_storage_effects\(ctx, program, expr, scope, diag\)/g) ?? []).length;
 const shapeNamespaceCallStorageApplications = (shapeNamespaceCallBody.match(/apply_checked_call_storage_effects\(ctx, program, expr, scope, diag\)/g) ?? []).length;
+const receiverCallStorageApplications = (receiverCallBody.match(/apply_checked_call_storage_effects\(ctx, program, expr, scope, diag\)/g) ?? []).length;
 const constrainedInterfaceCallStorageApplications = (constrainedInterfaceCallBody.match(/apply_checked_call_storage_effects\(ctx, program, expr, scope, diag\)/g) ?? []).length;
 const totalCallStorageApplications =
   callCaseStorageApplications +
   namedCallStorageApplications +
   shapeNamespaceCallStorageApplications +
+  receiverCallStorageApplications +
   constrainedInterfaceCallStorageApplications;
 if (totalCallStorageApplications < 4) {
   fail(`EXPR_CALL provenance: expected storage-effect application for all user call forms, found ${totalCallStorageApplications}`);
