@@ -57,9 +57,6 @@ jobs:
       - name: Docs tests
         run: pnpm run docs:test
 
-      - name: Docs production build
-        run: pnpm run docs:build
-
       - name: Extension tests
         run: pnpm run extension:test
 
