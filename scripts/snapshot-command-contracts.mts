@@ -1503,6 +1503,61 @@ for (const { target, compiler, emissionPath, magic } of directByteCopyFillTarget
   assert(directStdStrBytes.subarray(0, magic.length).equals(magic));
   assert(directStdStrBytes.includes(Buffer.from("zero row syntax")));
 }
+const directStdMathSource = join(outDir, "direct-std-math-matrix.0");
+writeFileSync(directStdMathSource, `export c fn main u8
+  mut ok Bool true
+  if != (std.math.minU32 8 3) 3
+    set ok false
+  if != (std.math.minU32 4000000000_u32 3) 3
+    set ok false
+  if != (std.math.maxU32 8 3) 8
+    set ok false
+  if != (std.math.maxU32 4000000000_u32 3) 4000000000_u32
+    set ok false
+  if != (std.math.clampU32 10 2 7) 7
+    set ok false
+  if != (std.math.clampU32 4000000000_u32 2 7) 7
+    set ok false
+  if != (std.math.clampU32 1 7 2) 2
+    set ok false
+  if != (std.math.gcdU32 84 30) 6
+    set ok false
+  if != (std.math.lcmU32 21 6) 42
+    set ok false
+  if != (std.math.powU32 3 4) 81
+    set ok false
+  if != (std.math.modPowU32 4 13 497) 445
+    set ok false
+  if != (std.math.modPowU32 9 0 1) 0
+    set ok false
+  if == (std.math.isPrimeU32 31) false
+    set ok false
+  if std.math.isPrimeU32 33
+    set ok false
+  if != (std.math.divisorCountU32 28) 6
+    set ok false
+  if != (std.math.properDivisorSumU32 28) 28
+    set ok false
+  if ok
+    ret 1_u8
+  ret 0_u8
+`);
+for (const { target, compiler, emissionPath, magic } of directByteCopyFillTargets) {
+  const directStdMathPath = join(outDir, `direct-std-math-${target.replace(/[^a-z0-9]+/gi, "-")}.o`);
+  rmSync(directStdMathPath, { force: true });
+  const directStdMathReport = json(["build", "--json", "--emit", "obj", "--target", target, directStdMathSource, "--out", directStdMathPath]).body;
+  const directStdMathBytes = readFileSync(directStdMathPath);
+  assert.equal(directStdMathReport.compiler, compiler);
+  assert.equal(directStdMathReport.generatedCBytes, 0);
+  assert.equal(directStdMathReport.objectBackend.objectEmission.path, emissionPath);
+  assert(directStdMathBytes.subarray(0, magic.length).equals(magic));
+  if (compiler === "zero-coff-x64") {
+    assert(directStdMathBytes.includes(Buffer.from([0x0f, 0x92, 0xc0])));
+    assert(directStdMathBytes.includes(Buffer.from([0x0f, 0x97, 0xc0])));
+    assert.equal(directStdMathBytes.includes(Buffer.from([0x0f, 0x9c, 0xc0])), false);
+    assert.equal(directStdMathBytes.includes(Buffer.from([0x0f, 0x9f, 0xc0])), false);
+  }
+}
 const directMachOPath = join(outDir, "direct-darwin-arm64.o");
 rmSync(directMachOPath, { force: true });
 const directMachOReport = json(["build", "--json", "--emit", "obj", "--target", "darwin-arm64", "examples/direct-call-add.0", "--out", directMachOPath]).body;

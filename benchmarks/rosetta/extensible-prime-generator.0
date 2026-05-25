@@ -1,17 +1,7 @@
-fn prime Bool n u32
-  if < n 2
-    ret false
-  mut d u32 2
-  while <= (* d d) n
-    if == (% n d) 0
-      ret false
-    set d + d 1
-  ret true
-
 fn nextPrime u32 after u32
   mut n + after 1
   while true
-    if prime n
+    if std.math.isPrimeU32 n
       ret n
     set n + n 1
   ret 0

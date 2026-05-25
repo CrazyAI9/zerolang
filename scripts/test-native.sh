@@ -18,6 +18,7 @@ make -C native/zero-c
 
 bin/zero check --json std/path.0 >/dev/null
 bin/zero check --json std/str.0 >/dev/null
+bin/zero check --json std/math.0 >/dev/null
 
 mkdir -p .zero/native-test .zero/conformance
 
@@ -89,9 +90,11 @@ expected_output() {
     examples/ownership-cleanup.0) printf "ownership cleanup ok" ;;
     examples/codec-varint.0) printf "codec primitives ok" ;;
     examples/parse-cursor.0) printf "parse primitives ok" ;;
+    examples/std-math.0) printf "std math ok" ;;
     examples/file-copy.0) printf "file copy ok" ;;
     conformance/native/pass/std-crypto-hmac32.0) printf "crypto hmac32 ok" ;;
     conformance/native/pass/string-byte-ergonomics.0) printf "string byte ergonomics ok" ;;
+    conformance/native/pass/std-math-breadth.0) printf "std math breadth ok" ;;
     conformance/native/pass/std-path-io-breadth.0) printf "std path io breadth ok" ;;
     conformance/native/pass/std-str-breadth.0) printf "std str breadth ok" ;;
     examples/std-str.0) printf "std str ok" ;;
@@ -126,10 +129,12 @@ examples=(
   examples/ownership-cleanup.0
   examples/codec-varint.0
   examples/parse-cursor.0
+  examples/std-math.0
   examples/std-str.0
   examples/file-copy.0
   conformance/native/pass/std-crypto-hmac32.0
   conformance/native/pass/string-byte-ergonomics.0
+  conformance/native/pass/std-math-breadth.0
   conformance/native/pass/std-path-io-breadth.0
   conformance/native/pass/std-str-breadth.0
 )

@@ -12,11 +12,22 @@ typedef struct {
 } ZStdSourceCall;
 
 static const ZStdSourceModule std_source_modules[] = {
+  {"std.math", "std/math.0", zero_embedded_stdlib_std_math_0_chunks},
   {"std.path", "std/path.0", zero_embedded_stdlib_std_path_0_chunks},
   {"std.str", "std/str.0", zero_embedded_stdlib_std_str_0_chunks},
 };
 
 static const ZStdSourceCall std_source_calls[] = {
+  {"std.math.clampU32", "__zero_std_math_clamp_u32", "std.math"},
+  {"std.math.divisorCountU32", "__zero_std_math_divisor_count_u32", "std.math"},
+  {"std.math.gcdU32", "__zero_std_math_gcd_u32", "std.math"},
+  {"std.math.isPrimeU32", "__zero_std_math_is_prime_u32", "std.math"},
+  {"std.math.lcmU32", "__zero_std_math_lcm_u32", "std.math"},
+  {"std.math.maxU32", "__zero_std_math_max_u32", "std.math"},
+  {"std.math.minU32", "__zero_std_math_min_u32", "std.math"},
+  {"std.math.modPowU32", "__zero_std_math_mod_pow_u32", "std.math"},
+  {"std.math.powU32", "__zero_std_math_pow_u32", "std.math"},
+  {"std.math.properDivisorSumU32", "__zero_std_math_proper_divisor_sum_u32", "std.math"},
   {"std.path.basename", "__zero_std_path_basename", "std.path"},
   {"std.path.dirname", "__zero_std_path_dirname", "std.path"},
   {"std.path.extension", "__zero_std_path_extension", "std.path"},

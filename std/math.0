@@ -1,0 +1,99 @@
+fn __zero_std_math_min_u32 u32 left u32 right u32
+  if < left right
+    ret left
+  ret right
+
+fn __zero_std_math_max_u32 u32 left u32 right u32
+  if > left right
+    ret left
+  ret right
+
+fn __zero_std_math_clamp_u32 u32 value u32 low u32 high u32
+  let lower __zero_std_math_min_u32 low high
+  let upper __zero_std_math_max_u32 low high
+  if < value lower
+    ret lower
+  if > value upper
+    ret upper
+  ret value
+
+fn __zero_std_math_gcd_u32 u32 a0 u32 b0 u32
+  mut a a0
+  mut b b0
+  while != b 0
+    let next % a b
+    set a b
+    set b next
+  ret a
+
+fn __zero_std_math_lcm_u32 u32 left u32 right u32
+  if || (== left 0) (== right 0)
+    ret 0
+  ret * (/ left (__zero_std_math_gcd_u32 left right)) right
+
+fn __zero_std_math_pow_u32 u32 base u32 exponent u32
+  mut result u32 1
+  mut current base
+  mut exp exponent
+  while > exp 0
+    if == (% exp 2) 1
+      set result * result current
+    set current * current current
+    set exp / exp 2
+  ret result
+
+fn __zero_std_math_mod_pow_u32 u32 base u32 exponent u32 modulus u32
+  if == modulus 0
+    ret 0
+  mut result u32 % 1 modulus
+  mut current % base modulus
+  mut exp exponent
+  while > exp 0
+    if == (% exp 2) 1
+      set result % (* result current) modulus
+    set current % (* current current) modulus
+    set exp / exp 2
+  ret result
+
+fn __zero_std_math_is_prime_u32 Bool value u32
+  if < value 2
+    ret false
+  if == value 2
+    ret true
+  if == (% value 2) 0
+    ret false
+  mut divisor u32 3
+  while <= divisor (/ value divisor)
+    if == (% value divisor) 0
+      ret false
+    set divisor + divisor 2
+  ret true
+
+fn __zero_std_math_divisor_count_u32 u32 value u32
+  if == value 0
+    ret 0
+  mut count u32 0
+  mut divisor u32 1
+  while <= divisor (/ value divisor)
+    if == (% value divisor) 0
+      let paired / value divisor
+      if == paired divisor
+        set count + count 1
+      else
+        set count + count 2
+    set divisor + divisor 1
+  ret count
+
+fn __zero_std_math_proper_divisor_sum_u32 u32 value u32
+  if <= value 1
+    ret 0
+  mut sum u32 1
+  mut divisor u32 2
+  while <= divisor (/ value divisor)
+    if == (% value divisor) 0
+      let paired / value divisor
+      set sum + sum divisor
+      if != paired divisor
+        set sum + sum paired
+    set divisor + divisor 1
+  ret sum

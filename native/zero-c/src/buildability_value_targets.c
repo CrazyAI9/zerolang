@@ -154,6 +154,7 @@ static bool build_check_binary_operator(const ZBuildability *ctx, const IrValue 
   bool supported = true;
   if (ctx->backend == Z_DIRECT_BACKEND_COFF_X64) {
     supported = value->binary_op == IR_BIN_ADD || value->binary_op == IR_BIN_SUB || value->binary_op == IR_BIN_MUL ||
+                value->binary_op == IR_BIN_DIV || value->binary_op == IR_BIN_MOD ||
                 value->binary_op == IR_BIN_AND || value->binary_op == IR_BIN_OR;
   }
   if (ctx->backend == Z_DIRECT_BACKEND_MACHO_X64 || ctx->backend == Z_DIRECT_BACKEND_MACHO64 || z_build_backend_is_aarch64_direct(ctx->backend)) {

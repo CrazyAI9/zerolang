@@ -170,6 +170,14 @@ export const docs: Doc[] = [
     section: "Modules",
   },
   {
+    slug: "module-math",
+    title: "std.math",
+    description: "Pure fixed-width integer helpers and small number-theory routines.",
+    path: "/modules/math",
+    sourcePath: "/articles/modules/math.md",
+    section: "Modules",
+  },
+  {
     slug: "module-path",
     title: "std.path",
     description: "Fixed-buffer path helpers with explicit storage and target-aware limits.",

@@ -38,6 +38,10 @@ static bool coff_diag_at(ZDiag *diag, const char *message, int line, int column,
 
 static bool coff_type_is_scalar32(IrTypeKind type) { return type == IR_TYPE_BOOL || type == IR_TYPE_U8 || type == IR_TYPE_U16 || type == IR_TYPE_I32 || type == IR_TYPE_U32 || type == IR_TYPE_USIZE; }
 
+static bool coff_type_is_unsigned(IrTypeKind type) {
+  return type == IR_TYPE_BOOL || type == IR_TYPE_U8 || type == IR_TYPE_U16 || type == IR_TYPE_U32 || type == IR_TYPE_USIZE;
+}
+
 static void coff_emit_cast_normalize_rax(ZBuf *text, IrTypeKind target) {
   switch (target) {
     case IR_TYPE_BOOL:
@@ -107,14 +111,14 @@ static void coff_emit_u8_array_bounds_check(ZBuf *text, const IrLocal *local) {
 
 static void coff_emit_epilogue(ZBuf *text) { z_x64_emit_epilogue(text); }
 
-static unsigned coff_setcc_opcode(IrCompareOp op) {
+static unsigned coff_setcc_opcode(IrCompareOp op, bool uns) {
   switch (op) {
     case IR_CMP_EQ: return 0x94;
     case IR_CMP_NE: return 0x95;
-    case IR_CMP_LT: return 0x9c;
-    case IR_CMP_LE: return 0x9e;
-    case IR_CMP_GT: return 0x9f;
-    case IR_CMP_GE: return 0x9d;
+    case IR_CMP_LT: return uns ? 0x92 : 0x9c;
+    case IR_CMP_LE: return uns ? 0x96 : 0x9e;
+    case IR_CMP_GT: return uns ? 0x97 : 0x9f;
+    case IR_CMP_GE: return uns ? 0x93 : 0x9d;
   }
   return 0x94;
 }
@@ -374,7 +378,8 @@ static bool coff_emit_binary_value(ZBuf *text, const IrFunction *fun, const IrVa
     z_x64_patch_rel32(text, right_true_end, text->len);
     return true;
   }
-  if (value->binary_op != IR_BIN_ADD && value->binary_op != IR_BIN_SUB && value->binary_op != IR_BIN_MUL) {
+  if (value->binary_op != IR_BIN_ADD && value->binary_op != IR_BIN_SUB && value->binary_op != IR_BIN_MUL &&
+      value->binary_op != IR_BIN_DIV && value->binary_op != IR_BIN_MOD) {
     return coff_diag_at(diag, "direct COFF binary operator is unsupported", value->line, value->column, "unsupported operator");
   }
   if (!coff_emit_value(text, fun, value->left, ctx, diag)) return false;
@@ -385,6 +390,7 @@ static bool coff_emit_binary_value(ZBuf *text, const IrFunction *fun, const IrVa
   if (value->binary_op == IR_BIN_ADD) z_x64_emit_add_rax_rcx(text, false);
   else if (value->binary_op == IR_BIN_SUB) z_x64_emit_sub_rax_rcx(text, false);
   else if (value->binary_op == IR_BIN_MUL) z_x64_emit_imul_rax_rcx(text, false);
+  else z_x64_emit_div_rax_rcx(text, false, coff_type_is_unsigned(value->type), value->binary_op == IR_BIN_MOD);
   return true;
 }
 
@@ -395,7 +401,7 @@ static bool coff_emit_compare_value(ZBuf *text, const IrFunction *fun, const IrV
   if (!coff_emit_value(text, fun, value->right, ctx, diag)) return false;
   z_x64_emit_mov_rcx_from_rax(text, false);
   z_x64_emit_pop_rax(text);
-  z_x64_emit_cmp_rax_rcx_to_bool(text, coff_setcc_opcode(value->compare_op), false);
+  z_x64_emit_cmp_rax_rcx_to_bool(text, coff_setcc_opcode(value->compare_op, coff_type_is_unsigned(value->left ? value->left->type : value->type)), false);
   return true;
 }
 

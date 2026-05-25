@@ -71,6 +71,7 @@ Build JSON reports `profileSemantics` and `profileBudget`. Size JSON adds `sizeB
 
 | Example | What it teaches | Try it |
 | --- | --- | --- |
+| `std-math.0` | pure fixed-width integer helpers and number-theory routines | `bin/zero check examples/std-math.0` |
 | `codec-varint.0` | `use std.codec`, varint length, CRC-32 | `bin/zero check examples/codec-varint.0` |
 | `parse-cursor.0` | `use std.parse`, scanner predicates | `bin/zero check examples/parse-cursor.0` |
 | `std-path-io.0` | `std.path` fixed-buffer path helpers and `std.io` caller-owned buffers | `bin/zero check examples/std-path-io.0` |

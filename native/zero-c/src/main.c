@@ -6812,6 +6812,7 @@ static const char *helper_module_name(const ZStdHelperInfo *helper) {
   const char *name = helper && helper->name ? helper->name : "";
   if (strncmp(name, "std.args.", strlen("std.args.")) == 0) return "std.args";
   if (strncmp(name, "std.env.", strlen("std.env.")) == 0) return "std.env";
+  if (strncmp(name, "std.math.", strlen("std.math.")) == 0) return "std.math";
   if (strncmp(name, "std.path.", strlen("std.path.")) == 0) return "std.path";
   if (strncmp(name, "std.str.", strlen("std.str.")) == 0) return "std.str";
   if (strncmp(name, "std.io.", strlen("std.io.")) == 0) return "std.io";
@@ -6855,6 +6856,7 @@ static const char *helper_example_path(const ZStdHelperInfo *helper) {
   const char *module = helper_module_name(helper);
   if (strcmp(module, "std.mem") == 0) return "examples/memory-primitives.0";
   if (helper && helper->name && strncmp(helper->name, "std.str.", strlen("std.str.")) == 0) return "examples/std-str.0";
+  if (helper && helper->name && strncmp(helper->name, "std.math.", strlen("std.math.")) == 0) return "examples/std-math.0";
   if (strcmp(module, "std.io") == 0 || strcmp(module, "std.path") == 0) return "examples/std-path-io.0";
   if (strcmp(module, "std.args") == 0 || strcmp(module, "std.env") == 0) return "examples/cli-file.0";
   if (strcmp(module, "std.fs") == 0) return "examples/zero-hash/";
