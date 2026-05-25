@@ -925,6 +925,39 @@ static bool elf_emit_core_value(ZBuf *code, const IrFunction *fun, const IrValue
       elf_emit_cast_normalize_rax(code, value->left ? value->left->type : IR_TYPE_UNSUPPORTED, value->type);
       return true;
     case IR_VALUE_BINARY: {
+      if (value->binary_op == IR_BIN_AND) {
+        if (!elf_emit_value(code, fun, value->left, ctx, diag)) return false;
+        z_x64_emit_test_rax_rax(code, false);
+        size_t left_false = z_x64_emit_jcc32_placeholder(code, 0x84);
+        if (!elf_emit_value(code, fun, value->right, ctx, diag)) return false;
+        z_x64_emit_test_rax_rax(code, false);
+        size_t right_false = z_x64_emit_jcc32_placeholder(code, 0x84);
+        z_x64_emit_mov_eax_u32(code, 1);
+        size_t end_patch = z_x64_emit_jmp32_placeholder(code, 0xe9);
+        z_x64_patch_rel32(code, left_false, code->len);
+        z_x64_patch_rel32(code, right_false, code->len);
+        z_x64_emit_mov_eax_u32(code, 0);
+        z_x64_patch_rel32(code, end_patch, code->len);
+        return true;
+      }
+      if (value->binary_op == IR_BIN_OR) {
+        if (!elf_emit_value(code, fun, value->left, ctx, diag)) return false;
+        z_x64_emit_test_rax_rax(code, false);
+        size_t eval_right = z_x64_emit_jcc32_placeholder(code, 0x84);
+        z_x64_emit_mov_eax_u32(code, 1);
+        size_t left_true_end = z_x64_emit_jmp32_placeholder(code, 0xe9);
+        z_x64_patch_rel32(code, eval_right, code->len);
+        if (!elf_emit_value(code, fun, value->right, ctx, diag)) return false;
+        z_x64_emit_test_rax_rax(code, false);
+        size_t right_false = z_x64_emit_jcc32_placeholder(code, 0x84);
+        z_x64_emit_mov_eax_u32(code, 1);
+        size_t right_true_end = z_x64_emit_jmp32_placeholder(code, 0xe9);
+        z_x64_patch_rel32(code, right_false, code->len);
+        z_x64_emit_mov_eax_u32(code, 0);
+        z_x64_patch_rel32(code, left_true_end, code->len);
+        z_x64_patch_rel32(code, right_true_end, code->len);
+        return true;
+      }
       bool wide = elf_type_is_i64(value->type);
       if (!elf_emit_value(code, fun, value->left, ctx, diag)) return false;
       z_x64_emit_push_rax(code);
@@ -937,10 +970,6 @@ static bool elf_emit_core_value(ZBuf *code, const IrFunction *fun, const IrValue
         z_x64_emit_sub_rax_rcx(code, wide);
       } else if (value->binary_op == IR_BIN_MUL) {
         z_x64_emit_imul_rax_rcx(code, wide);
-      } else if (value->binary_op == IR_BIN_AND) {
-        z_x64_emit_and_rax_rcx(code, wide);
-      } else if (value->binary_op == IR_BIN_OR) {
-        z_x64_emit_or_rax_rcx(code, wide);
       } else if (value->binary_op == IR_BIN_DIV) {
         z_x64_emit_div_rax_rcx(code, wide, elf_type_is_unsigned(value->type), false);
       } else if (value->binary_op == IR_BIN_MOD) {

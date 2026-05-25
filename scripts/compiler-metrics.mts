@@ -17,8 +17,8 @@ type CScanState = {
 const fileBudgets = {
   "native/zero-c/include/zero.h": { maxLines: 980, maxStrcmpCalls: 0 },
   "native/zero-c/include/zero_runtime.h": { maxLines: 100, maxStrcmpCalls: 0 },
-  "native/zero-c/src/checker.c": { maxLines: 9450, maxStrcmpCalls: 279 },
-  "native/zero-c/src/main.c": { maxLines: 9950, maxStrcmpCalls: 441 },
+  "native/zero-c/src/checker.c": { maxLines: 9465, maxStrcmpCalls: 279 },
+  "native/zero-c/src/main.c": { maxLines: 9970, maxStrcmpCalls: 442 },
   "native/zero-c/src/ir.c": { maxLines: 3750, maxStrcmpCalls: 226 },
   "native/zero-c/src/row_syntax.c": { maxLines: 2150, maxStrcmpCalls: 11 },
   "native/zero-c/src/ast.c": { maxLines: 250, maxStrcmpCalls: 0 },
@@ -47,12 +47,12 @@ const fileBudgets = {
   "native/zero-c/src/aarch64_emit.c": { maxLines: 380, maxStrcmpCalls: 0 },
   "native/zero-c/src/aarch64_emit.h": { maxLines: 80, maxStrcmpCalls: 0 },
   "native/zero-c/src/emit_macho64.c": { maxLines: 1685, maxStrcmpCalls: 2 },
-  "native/zero-c/src/emit_macho_x64.c": { maxLines: 1275, maxStrcmpCalls: 1 },
+  "native/zero-c/src/emit_macho_x64.c": { maxLines: 1310, maxStrcmpCalls: 1 },
   "native/zero-c/src/macho_emit_state.c": { maxLines: 210, maxStrcmpCalls: 0 },
   "native/zero-c/src/macho_emit_state.h": { maxLines: 90, maxStrcmpCalls: 0 },
-  "native/zero-c/src/emit_elf64.c": { maxLines: 2180, maxStrcmpCalls: 3 },
+  "native/zero-c/src/emit_elf64.c": { maxLines: 2195, maxStrcmpCalls: 3 },
   "native/zero-c/src/emit_elf_aarch64.c": { maxLines: 330, maxStrcmpCalls: 1 },
-  "native/zero-c/src/emit_coff.c": { maxLines: 1160, maxStrcmpCalls: 1 },
+  "native/zero-c/src/emit_coff.c": { maxLines: 1195, maxStrcmpCalls: 1 },
   "native/zero-c/src/emit_coff_aarch64.c": { maxLines: 380, maxStrcmpCalls: 0 },
   "native/zero-c/src/fs.c": { maxLines: 1250, maxStrcmpCalls: 32 },
   "native/zero-c/src/mir_verify.c": { maxLines: 1300, maxStrcmpCalls: 0 },
@@ -79,7 +79,7 @@ const knownLargeFunctionLimits = new Map([
   ["native/zero-c/src/main.c|int main(int argc, char **argv) {", 924],
   ["native/zero-c/src/main.c|static void append_graph_json(ZBuf *buf, SourceInput *input, Program *program, const ZTargetInfo *target, const Command *command) {", 374],
   ["native/zero-c/src/checker.c|static bool check_stmt(CheckContext *ctx, const Program *program, const Function *fun, const Stmt *stmt, Scope *scope, ZDiag *diag, int loop_depth) {", 259],
-  ["native/zero-c/src/checker.c|bool z_check_program(const Program *program, ZDiag *diag) {", 213],
+  ["native/zero-c/src/checker.c|static bool check_program_internal(const Program *program, bool require_entrypoint, ZDiag *diag) {", 213],
   ["native/zero-c/src/checker.c|static const char *expr_type(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope) {", 205],
   ["native/zero-c/src/checker.c|static bool collect_return_value_provenance_from_stmt_vec(CheckContext *ctx, const Program *program, const Function *fun, const StmtVec *body, Scope *scope, GenericBinding *bindings, size_t binding_len, ValueProvenance *out, bool *may_return, bool *complete) {", 192],
   ["native/zero-c/src/ir.c|static bool ir_lower_stmt_to_vec(const Program *program, IrProgram *ir, IrFunction *mir_fun, const Stmt *stmt, IrInstr **out_items, size_t *out_len, size_t *out_cap, bool *saw_return) {", 172],
@@ -1337,8 +1337,6 @@ const backendFormats = {
       /\bz_x64_emit_add_rax_rcx\s*\(/.test(coffX64Source) &&
       /\bz_x64_emit_sub_rax_rcx\s*\(/.test(coffX64Source) &&
       /\bz_x64_emit_imul_rax_rcx\s*\(/.test(coffX64Source) &&
-      /\bz_x64_emit_and_rax_rcx\s*\(/.test(coffX64Source) &&
-      /\bz_x64_emit_or_rax_rcx\s*\(/.test(coffX64Source) &&
       /\bz_x64_emit_add_rdx_rcx\s*\(/.test(coffX64Source) &&
       /\bz_x64_emit_test_rax_rax\s*\(/.test(coffX64Source) &&
       /\bz_x64_emit_cmp_rax_rcx\s*\(/.test(coffX64Source) &&
@@ -1358,8 +1356,6 @@ const backendFormats = {
       /\bz_x64_emit_add_rax_rcx\s*\(/.test(machoX64Source) &&
       /\bz_x64_emit_sub_rax_rcx\s*\(/.test(machoX64Source) &&
       /\bz_x64_emit_imul_rax_rcx\s*\(/.test(machoX64Source) &&
-      /\bz_x64_emit_and_rax_rcx\s*\(/.test(machoX64Source) &&
-      /\bz_x64_emit_or_rax_rcx\s*\(/.test(machoX64Source) &&
       /\bz_x64_emit_div_rax_rcx\s*\(/.test(machoX64Source) &&
       /\bz_x64_emit_cmp_rax_rcx_to_bool\s*\(/.test(machoX64Source) &&
       /\bz_x64_emit_call32_placeholder\s*\(/.test(machoX64Source) &&

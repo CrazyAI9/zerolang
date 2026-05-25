@@ -9235,7 +9235,7 @@ static bool validate_c_imports(const Program *program, ZDiag *diag) {
   return true;
 }
 
-bool z_check_program(const Program *program, ZDiag *diag) {
+static bool check_program_internal(const Program *program, bool require_entrypoint, ZDiag *diag) {
   meta_cache_free(&default_meta_cache);
   DiagSink diag_sink = {.diag = diag};
   CheckContext check_ctx = {.program = program, .target = check_context_target(NULL), .meta_cache = &default_meta_cache, .diags = &diag_sink};
@@ -9400,7 +9400,7 @@ bool z_check_program(const Program *program, ZDiag *diag) {
     if (!validate_function_error_set(fun, diag)) return false;
     if (!validate_export_c_function(fun, diag)) return false;
   }
-  if (!main_fun && !has_test) return set_diag_detail(diag, 2001, "missing main function", 1, 1, "function named main", "no main function", "add `pub fn main Void`");
+  if (require_entrypoint && !main_fun && !has_test) return set_diag_detail(diag, 2001, "missing main function", 1, 1, "function named main", "no main function", "add `pub fn main Void`");
   for (size_t i = 0; i < program->functions.len; i++) {
     const Function *fun = &program->functions.items[i];
     Scope scope = {0};
@@ -9447,4 +9447,12 @@ bool z_check_program(const Program *program, ZDiag *diag) {
     if (!ok) return false;
   }
   return true;
+}
+
+bool z_check_program(const Program *program, ZDiag *diag) {
+  return check_program_internal(program, true, diag);
+}
+
+bool z_check_program_library(const Program *program, ZDiag *diag) {
+  return check_program_internal(program, false, diag);
 }

@@ -418,9 +418,41 @@ static bool machx64_emit_local_value(ZBuf *text, const IrFunction *fun, const Ir
 }
 
 static bool machx64_emit_binary_value(ZBuf *text, const IrFunction *fun, const IrValue *value, MachOEmitContext *ctx, ZDiag *diag) {
+  if (value->binary_op == IR_BIN_AND) {
+    if (!machx64_emit_value(text, fun, value->left, ctx, diag)) return false;
+    z_x64_emit_test_rax_rax(text, false);
+    size_t left_false = z_x64_emit_jcc32_placeholder(text, 0x84);
+    if (!machx64_emit_value(text, fun, value->right, ctx, diag)) return false;
+    z_x64_emit_test_rax_rax(text, false);
+    size_t right_false = z_x64_emit_jcc32_placeholder(text, 0x84);
+    z_x64_emit_mov_eax_u32(text, 1);
+    size_t end_patch = z_x64_emit_jmp32_placeholder(text, 0xe9);
+    z_x64_patch_rel32(text, left_false, text->len);
+    z_x64_patch_rel32(text, right_false, text->len);
+    z_x64_emit_mov_eax_u32(text, 0);
+    z_x64_patch_rel32(text, end_patch, text->len);
+    return true;
+  }
+  if (value->binary_op == IR_BIN_OR) {
+    if (!machx64_emit_value(text, fun, value->left, ctx, diag)) return false;
+    z_x64_emit_test_rax_rax(text, false);
+    size_t eval_right = z_x64_emit_jcc32_placeholder(text, 0x84);
+    z_x64_emit_mov_eax_u32(text, 1);
+    size_t left_true_end = z_x64_emit_jmp32_placeholder(text, 0xe9);
+    z_x64_patch_rel32(text, eval_right, text->len);
+    if (!machx64_emit_value(text, fun, value->right, ctx, diag)) return false;
+    z_x64_emit_test_rax_rax(text, false);
+    size_t right_false = z_x64_emit_jcc32_placeholder(text, 0x84);
+    z_x64_emit_mov_eax_u32(text, 1);
+    size_t right_true_end = z_x64_emit_jmp32_placeholder(text, 0xe9);
+    z_x64_patch_rel32(text, right_false, text->len);
+    z_x64_emit_mov_eax_u32(text, 0);
+    z_x64_patch_rel32(text, left_true_end, text->len);
+    z_x64_patch_rel32(text, right_true_end, text->len);
+    return true;
+  }
   if (value->binary_op != IR_BIN_ADD && value->binary_op != IR_BIN_SUB && value->binary_op != IR_BIN_MUL &&
-      value->binary_op != IR_BIN_DIV && value->binary_op != IR_BIN_MOD && value->binary_op != IR_BIN_AND &&
-      value->binary_op != IR_BIN_OR) {
+      value->binary_op != IR_BIN_DIV && value->binary_op != IR_BIN_MOD) {
     return machx64_diag_at(diag, "direct x86_64 Mach-O binary operator is unsupported", value->line, value->column, "unsupported operator");
   }
   if (!machx64_emit_value(text, fun, value->left, ctx, diag)) return false;
@@ -432,8 +464,6 @@ static bool machx64_emit_binary_value(ZBuf *text, const IrFunction *fun, const I
   if (value->binary_op == IR_BIN_ADD) z_x64_emit_add_rax_rcx(text, wide);
   else if (value->binary_op == IR_BIN_SUB) z_x64_emit_sub_rax_rcx(text, wide);
   else if (value->binary_op == IR_BIN_MUL) z_x64_emit_imul_rax_rcx(text, wide);
-  else if (value->binary_op == IR_BIN_AND) z_x64_emit_and_rax_rcx(text, wide);
-  else if (value->binary_op == IR_BIN_OR) z_x64_emit_or_rax_rcx(text, wide);
   else z_x64_emit_div_rax_rcx(text, wide, machx64_type_is_unsigned(value->type), value->binary_op == IR_BIN_MOD);
   return true;
 }

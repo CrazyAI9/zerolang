@@ -3635,6 +3635,32 @@ static bool direct_row_reserved_internal_symbol(const char *name) {
   return name && strncmp(name, "__zero_", strlen("__zero_")) == 0;
 }
 
+static bool direct_row_path_has_module_suffix(const char *path, const char *module_path) {
+  if (!path || !module_path) return false;
+  size_t path_len = strlen(path);
+  size_t module_len = strlen(module_path);
+  if (path_len < module_len) return false;
+  const char *suffix = path + path_len - module_len;
+  for (size_t i = 0; i < module_len; i++) {
+    char have = suffix[i];
+    char want = module_path[i];
+    if ((have == '/' || have == '\\') && (want == '/' || want == '\\')) continue;
+    if (have != want) return false;
+  }
+  if (path_len == module_len) return true;
+  char before = path[path_len - module_len - 1];
+  return before == '/' || before == '\\';
+}
+
+static bool direct_row_is_embedded_std_source_file(const char *path, const char *source) {
+  const ZStdSourceModule *module = z_std_source_module_for_name("std.path");
+  if (!module || !direct_row_path_has_module_suffix(path, module->path)) return false;
+  char *embedded = z_std_source_module_copy_source(module);
+  bool ok = embedded && strcmp(source ? source : "", embedded) == 0;
+  free(embedded);
+  return ok;
+}
+
 static bool direct_input_add_row_symbols(SourceInput *input, const ZRowTokenVec *tokens, const ZRowTree *tree, const char *module, bool allow_internal_names, ZDiag *diag) {
   for (size_t i = 0; input && tokens && tree && i < tree->len; i++) {
     const ZRowNode *node = &tree->items[i];
@@ -3998,7 +4024,9 @@ static bool direct_row_resolve_file(const char *path, const char *root, SourceIn
   if (diag->code == 0) {
     direct_input_push_string(&input->source_files, &input->source_file_count, path);
     direct_input_push_module(input, module, path);
-    if (direct_input_add_row_symbols(input, &tokens, &tree, module, false, diag)) {
+    bool allow_internal_names = direct_row_is_embedded_std_source_file(path, source);
+    if (allow_internal_names && input->source_file && strcmp(input->source_file, path) == 0) input->allow_missing_main = true;
+    if (direct_input_add_row_symbols(input, &tokens, &tree, module, allow_internal_names, diag)) {
       direct_row_append_source(input, combined, path, source);
     } else if (!diag->path) {
       diag->path = z_strdup(path);
@@ -4144,7 +4172,8 @@ static bool check_row_input(const ZTargetInfo *target, SourceInput *input, Progr
   input->specialization_cache_hit = compiler_cache_touch("specialization", compile_cache_key(input, target, "release", "specialization"));
   z_set_check_target(target);
   phase_started = now_ms();
-  if (!z_check_program(program, diag)) {
+  bool checked = input->allow_missing_main ? z_check_program_library(program, diag) : z_check_program(program, diag);
+  if (!checked) {
     z_map_source_diag(input, diag);
     return false;
   }

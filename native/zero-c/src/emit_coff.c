@@ -341,8 +341,40 @@ static bool coff_emit_local_value(ZBuf *text, const IrFunction *fun, const IrVal
 }
 
 static bool coff_emit_binary_value(ZBuf *text, const IrFunction *fun, const IrValue *value, CoffEmitContext *ctx, ZDiag *diag) {
-  if (value->binary_op != IR_BIN_ADD && value->binary_op != IR_BIN_SUB && value->binary_op != IR_BIN_MUL &&
-      value->binary_op != IR_BIN_AND && value->binary_op != IR_BIN_OR) {
+  if (value->binary_op == IR_BIN_AND) {
+    if (!coff_emit_value(text, fun, value->left, ctx, diag)) return false;
+    z_x64_emit_test_rax_rax(text, false);
+    size_t left_false = z_x64_emit_jcc32_placeholder(text, 0x84);
+    if (!coff_emit_value(text, fun, value->right, ctx, diag)) return false;
+    z_x64_emit_test_rax_rax(text, false);
+    size_t right_false = z_x64_emit_jcc32_placeholder(text, 0x84);
+    z_x64_emit_mov_eax_u32(text, 1);
+    size_t end_patch = z_x64_emit_jmp32_placeholder(text, 0xe9);
+    z_x64_patch_rel32(text, left_false, text->len);
+    z_x64_patch_rel32(text, right_false, text->len);
+    z_x64_emit_mov_eax_u32(text, 0);
+    z_x64_patch_rel32(text, end_patch, text->len);
+    return true;
+  }
+  if (value->binary_op == IR_BIN_OR) {
+    if (!coff_emit_value(text, fun, value->left, ctx, diag)) return false;
+    z_x64_emit_test_rax_rax(text, false);
+    size_t eval_right = z_x64_emit_jcc32_placeholder(text, 0x84);
+    z_x64_emit_mov_eax_u32(text, 1);
+    size_t left_true_end = z_x64_emit_jmp32_placeholder(text, 0xe9);
+    z_x64_patch_rel32(text, eval_right, text->len);
+    if (!coff_emit_value(text, fun, value->right, ctx, diag)) return false;
+    z_x64_emit_test_rax_rax(text, false);
+    size_t right_false = z_x64_emit_jcc32_placeholder(text, 0x84);
+    z_x64_emit_mov_eax_u32(text, 1);
+    size_t right_true_end = z_x64_emit_jmp32_placeholder(text, 0xe9);
+    z_x64_patch_rel32(text, right_false, text->len);
+    z_x64_emit_mov_eax_u32(text, 0);
+    z_x64_patch_rel32(text, left_true_end, text->len);
+    z_x64_patch_rel32(text, right_true_end, text->len);
+    return true;
+  }
+  if (value->binary_op != IR_BIN_ADD && value->binary_op != IR_BIN_SUB && value->binary_op != IR_BIN_MUL) {
     return coff_diag_at(diag, "direct COFF binary operator is unsupported", value->line, value->column, "unsupported operator");
   }
   if (!coff_emit_value(text, fun, value->left, ctx, diag)) return false;
@@ -353,8 +385,6 @@ static bool coff_emit_binary_value(ZBuf *text, const IrFunction *fun, const IrVa
   if (value->binary_op == IR_BIN_ADD) z_x64_emit_add_rax_rcx(text, false);
   else if (value->binary_op == IR_BIN_SUB) z_x64_emit_sub_rax_rcx(text, false);
   else if (value->binary_op == IR_BIN_MUL) z_x64_emit_imul_rax_rcx(text, false);
-  else if (value->binary_op == IR_BIN_AND) z_x64_emit_and_rax_rcx(text, false);
-  else z_x64_emit_or_rax_rcx(text, false);
   return true;
 }
 
