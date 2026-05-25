@@ -1356,7 +1356,76 @@ writeFileSync(directStdPathSource, `export c fn main u8
   let fallback std.path.relative fallback_buf "other" "src/main.0"
   mut small [3]u8 [0, 0, 0]
   let overflow std.path.normalize small "abcd"
-  if && (&& (&& (&& (&& normalized.has parent_normalized.has) (&& joined.has relative.has)) fallback.has) (== overflow.has false)) (&& (&& (std.mem.eql normalized.value "src/main.0") (std.mem.eql parent_normalized.value "src/main.0")) (&& (std.mem.eql joined.value "src/main.0") (&& (std.mem.eql relative.value "main.0") (&& (std.mem.eql fallback.value "src/main.0") (&& (std.mem.eql (std.path.basename normalized.value) "main.0") (&& (std.mem.eql (std.path.dirname normalized.value) "src") (std.mem.eql (std.path.extension normalized.value) "0")))))))
+  mut root [32]u8 [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  let root_normalized std.path.normalize root "/src//./main.0/"
+  mut root_parent_buf [32]u8 [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  let root_parent std.path.normalize root_parent_buf "/../src"
+  mut leading_parent_buf [32]u8 [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  let leading_parent std.path.normalize leading_parent_buf "../src"
+  mut nested_parent_buf [32]u8 [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  let nested_parent std.path.normalize nested_parent_buf "a/../../b"
+  mut trim_fit_buf [1]u8 [0]
+  let trim_fit std.path.normalize trim_fit_buf "a/"
+  mut ok Bool true
+  if == normalized.has false
+    set ok false
+  if normalized.has
+    if == (std.mem.eql normalized.value "src/main.0") false
+      set ok false
+  if == parent_normalized.has false
+    set ok false
+  if parent_normalized.has
+    if == (std.mem.eql parent_normalized.value "src/main.0") false
+      set ok false
+  if == joined.has false
+    set ok false
+  if joined.has
+    if == (std.mem.eql joined.value "src/main.0") false
+      set ok false
+  if == relative.has false
+    set ok false
+  if relative.has
+    if == (std.mem.eql relative.value "main.0") false
+      set ok false
+  if == fallback.has false
+    set ok false
+  if fallback.has
+    if == (std.mem.eql fallback.value "src/main.0") false
+      set ok false
+  if overflow.has
+    set ok false
+  if == root_normalized.has false
+    set ok false
+  if root_normalized.has
+    if == (std.mem.eql root_normalized.value "/src/main.0") false
+      set ok false
+  if == root_parent.has false
+    set ok false
+  if root_parent.has
+    if == (std.mem.eql root_parent.value "/src") false
+      set ok false
+  if == leading_parent.has false
+    set ok false
+  if leading_parent.has
+    if == (std.mem.eql leading_parent.value "../src") false
+      set ok false
+  if == nested_parent.has false
+    set ok false
+  if nested_parent.has
+    if == (std.mem.eql nested_parent.value "../b") false
+      set ok false
+  if == trim_fit.has false
+    set ok false
+  if trim_fit.has
+    if == (std.mem.eql trim_fit.value "a") false
+      set ok false
+  if == (std.mem.eql (std.path.basename normalized.value) "main.0") false
+    set ok false
+  if == (std.mem.eql (std.path.dirname normalized.value) "src") false
+    set ok false
+  if == (std.mem.eql (std.path.extension normalized.value) "0") false
+    set ok false
+  if ok
     ret 1_u8
   ret 0_u8
 `);

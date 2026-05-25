@@ -11,6 +11,16 @@ pub fn main Void world World !
   let fallback_relative std.path.relative fallback_buf "other" "src/main.0"
   mut small_buf [3]u8 [0, 0, 0]
   let overflow std.path.normalize small_buf "abcd"
+  mut root_buf [32]u8 [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  let root_normalized std.path.normalize root_buf "/src//./main.0/"
+  mut root_parent_buf [32]u8 [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  let root_parent std.path.normalize root_parent_buf "/../src"
+  mut leading_parent_buf [32]u8 [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  let leading_parent std.path.normalize leading_parent_buf "../src"
+  mut nested_parent_buf [32]u8 [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  let nested_parent std.path.normalize nested_parent_buf "a/../../b"
+  mut trim_fit_buf [1]u8 [0]
+  let trim_fit std.path.normalize trim_fit_buf "a/"
   mut copy_dst [4]u8 [0, 0, 0, 0]
   mut reader_buf [8]u8 [0, 0, 0, 0, 0, 0, 0, 0]
   mut writer_buf [8]u8 [0, 0, 0, 0, 0, 0, 0, 0]
@@ -45,6 +55,31 @@ pub fn main Void world World !
       set ok false
   if overflow.has
     set ok false
+  if == root_normalized.has false
+    set ok false
+  if root_normalized.has
+    if == (std.mem.eql root_normalized.value "/src/main.0") false
+      set ok false
+  if == root_parent.has false
+    set ok false
+  if root_parent.has
+    if == (std.mem.eql root_parent.value "/src") false
+      set ok false
+  if == leading_parent.has false
+    set ok false
+  if leading_parent.has
+    if == (std.mem.eql leading_parent.value "../src") false
+      set ok false
+  if == nested_parent.has false
+    set ok false
+  if nested_parent.has
+    if == (std.mem.eql nested_parent.value "../b") false
+      set ok false
+  if == trim_fit.has false
+    set ok false
+  if trim_fit.has
+    if == (std.mem.eql trim_fit.value "a") false
+      set ok false
   if == (std.mem.eql (std.path.basename "src/main.0") "main.0") false
     set ok false
   if == (std.mem.eql (std.path.dirname "src/main.0") "src") false

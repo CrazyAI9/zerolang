@@ -939,6 +939,54 @@ await assertMachOObjectBuildabilityBlocked(
   "macho-open-byte-slice.o",
   /byte-view length/,
 );
+
+async function assertAArch64ObjectBuildabilityBlocked(target, backend, outName, expectedMessage) {
+  const fixture = "conformance/native/pass/macho-nested-call-scratch-blocked.0";
+  const readiness = await execFileAsync(zero, [
+    "check",
+    "--json",
+    "--emit",
+    "obj",
+    "--target",
+    target,
+    fixture,
+  ]);
+  const readinessBody = JSON.parse(readiness.stdout);
+  assert.equal(readinessBody.ok, true);
+  assert.equal(readinessBody.diagnostics.length, 0);
+  assert.equal(readinessBody.targetReadiness.ok, false);
+  assert.equal(readinessBody.targetReadiness.buildable, false);
+  assert.equal(readinessBody.targetReadiness.languageOk, true);
+  assert.equal(readinessBody.targetReadiness.emit, "obj");
+  assert.equal(readinessBody.targetReadiness.target, target);
+  assert.equal(readinessBody.targetReadiness.diagnostics[0].code, "BLD004");
+  assert.equal(readinessBody.targetReadiness.diagnostics[0].backendBlocker.backend, backend);
+  assert.equal(readinessBody.targetReadiness.diagnostics[0].backendBlocker.stage, "buildability");
+  assert.match(readinessBody.targetReadiness.diagnostics[0].message, expectedMessage);
+  const build = await execFileAsync(zero, [
+    "build",
+    "--json",
+    "--emit",
+    "obj",
+    "--target",
+    target,
+    fixture,
+    "--out",
+    `${outDir}/${outName}`,
+  ]).catch((error) => error);
+  assert.notEqual(build.code, 0);
+  const buildBody = JSON.parse(build.stdout);
+  const readinessDiag = readinessBody.targetReadiness.diagnostics[0];
+  const buildDiag = buildBody.diagnostics[0];
+  for (const key of ["code", "path", "line", "column", "length", "expected", "actual", "help"]) {
+    assert.equal(buildDiag[key], readinessDiag[key]);
+  }
+  assert.equal(buildDiag.backendBlocker.backend, backend);
+  assert.equal(buildDiag.backendBlocker.stage, "buildability");
+}
+
+await assertAArch64ObjectBuildabilityBlocked("linux-arm64", "zero-elf-aarch64", "elf-aarch64-nested-call-scratch.o", /scratch spill capacity/);
+await assertAArch64ObjectBuildabilityBlocked("win32-arm64.exe", "zero-coff-aarch64", "coff-aarch64-nested-call-scratch.obj", /scratch spill capacity/);
 const machoBoolArraysBuild = await execFileAsync(zero, [
   "build",
   "--json",

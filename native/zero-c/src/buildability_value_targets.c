@@ -199,6 +199,9 @@ static bool build_check_call_shape(const ZBuildability *ctx, const IrValue *valu
   if (ctx->backend == Z_DIRECT_BACKEND_MACHO64 && scratch_slot + abi_slots >= BUILD_MACHO_SCRATCH_SLOT_COUNT) {
     return z_build_diag(ctx, diag, "direct AArch64 Mach-O call argument nesting exceeds scratch spill capacity", value->line, value->column, "too many nested call arguments");
   }
+  if (z_build_backend_is_aarch64_direct(ctx->backend) && scratch_slot + abi_slots >= BUILD_AARCH64_SCRATCH_SLOT_COUNT) {
+    return z_build_diag(ctx, diag, "direct AArch64 call argument nesting exceeds scratch spill capacity", value->line, value->column, "too many nested call arguments");
+  }
   return true;
 }
 
