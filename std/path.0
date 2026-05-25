@@ -55,21 +55,27 @@ fn __zero_std_path_copy Maybe<String> buffer MutSpan<u8> source String
   ret buffer[..len]
 
 fn __zero_std_path_join Maybe<String> buffer MutSpan<u8> left String right String
-  let left_end usize __zero_std_path_trim_end left
+  mut left_end usize __zero_std_path_trim_end left
+  if && (== left_end 0) (&& (> (std.mem.len left) 0) (__zero_std_path_is_sep left[0]))
+    set left_end 1
+  let left_is_root Bool && (== left_end 1) (__zero_std_path_is_sep left[0])
   mut right_start usize 0
   while && (< right_start (std.mem.len right)) (__zero_std_path_is_sep right[right_start])
     set right_start + right_start 1
   let right_len usize - (std.mem.len right) right_start
   mut total usize + left_end right_len
-  if && (> left_end 0) (> right_len 0)
+  if && (&& (> left_end 0) (> right_len 0)) (== left_is_root false)
     set total + total 1
   if > total (std.mem.len buffer)
     ret null
   mut out usize 0
   while < out left_end
-    set buffer[out] left[out]
+    if && left_is_root (== out 0)
+      set buffer[out] 47_u8
+    else
+      set buffer[out] left[out]
     set out + out 1
-  if && (> left_end 0) (> right_len 0)
+  if && (&& (> left_end 0) (> right_len 0)) (== left_is_root false)
     set buffer[out] 47_u8
     set out + out 1
   mut read usize right_start
