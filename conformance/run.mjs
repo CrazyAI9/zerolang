@@ -175,6 +175,21 @@ async function assertElfAarch64Object(path, exportedName) {
   assert(bytes.includes(Buffer.concat([Buffer.from(exportedName), Buffer.from([0])])));
 }
 
+function hasAarch64Instruction(bytes, expected) {
+  for (let offset = 0; offset + 4 <= bytes.length; offset++) {
+    if (bytes.readUInt32LE(offset) === expected) return true;
+  }
+  return false;
+}
+
+function hasAarch64CondBranch(bytes, cond) {
+  for (let offset = 0; offset + 4 <= bytes.length; offset++) {
+    const instruction = bytes.readUInt32LE(offset);
+    if ((instruction & 0xff000010) === 0x54000000 && (instruction & 0xf) === cond) return true;
+  }
+  return false;
+}
+
 async function assertElf64Executable(path) {
   const bytes = await readFile(path);
   assert.equal(bytes[0], 0x7f);
@@ -984,6 +999,108 @@ for (const key of ["code", "path", "line", "column", "length", "expected", "actu
 assert.equal(directCallArm64ObjBuildDiag.backendBlocker.backend, "zero-elf-aarch64");
 assert.equal(directCallArm64ObjBuildDiag.backendBlocker.stage, "buildability");
 
+let arm64NestedIndexExpr = "values[idx]";
+for (let i = 0; i < 32; i++) arm64NestedIndexExpr = `(+ 0_u32 ${arm64NestedIndexExpr})`;
+const arm64NestedIndexFixture = `${outDir}/aarch64-nested-index-scratch-blocked.0`;
+await writeFile(arm64NestedIndexFixture, `export c fn main u32
+  let values [1]u32 [7]
+  let idx u32 0_u32
+  ret ${arm64NestedIndexExpr}
+`);
+async function assertArm64NestedScratchBlocked(fixture, expectedMessage, outPrefix) {
+  for (const blocked of [["linux-arm64", "zero-elf-aarch64", "linux.o"], ["darwin-arm64", "zero-macho64", "macho.o"], ["win32-arm64.exe", "zero-coff-aarch64", "coff.obj"]]) {
+    const readiness = await execFileAsync(zero, ["check", "--json", "--emit", "obj", "--target", blocked[0], fixture]);
+    const readinessBody = JSON.parse(readiness.stdout);
+    assert.equal(readinessBody.ok, true);
+    assert.equal(readinessBody.targetReadiness.ok, false);
+    assert.equal(readinessBody.targetReadiness.diagnostics[0].code, "BLD004");
+    assert.equal(readinessBody.targetReadiness.diagnostics[0].backendBlocker.backend, blocked[1]);
+    assert.equal(readinessBody.targetReadiness.diagnostics[0].backendBlocker.stage, "buildability");
+    assert.match(readinessBody.targetReadiness.diagnostics[0].message, expectedMessage);
+    const build = await execFileAsync(zero, ["build", "--json", "--emit", "obj", "--target", blocked[0], fixture, "--out", `${outDir}/${outPrefix}-${blocked[2]}`]).catch((error) => error);
+    assert.notEqual(build.code, 0);
+    assert.equal(JSON.parse(build.stdout).diagnostics[0].backendBlocker.stage, "buildability");
+  }
+}
+await assertArm64NestedScratchBlocked(arm64NestedIndexFixture, /indexed load exceeds scratch register spill capacity/, "aarch64-nested-index");
+let arm64NestedLenExpr = "((std.mem.len text[start..end]) as u32)";
+for (let i = 0; i < 32; i++) arm64NestedLenExpr = `(+ 0_u32 ${arm64NestedLenExpr})`;
+const arm64NestedLenFixture = `${outDir}/aarch64-nested-len-scratch-blocked.0`;
+await writeFile(arm64NestedLenFixture, `export c fn main u32
+  let text String "abcdef"
+  let start usize 1
+  let end usize 4
+  ret ${arm64NestedLenExpr}
+`);
+await assertArm64NestedScratchBlocked(arm64NestedLenFixture, /byte-view length exceeds scratch register spill capacity/, "aarch64-nested-len");
+let arm64NestedDynamicStartLenExpr = "((std.mem.len text[(+ start 0_usize)..end]) as u32)";
+for (let i = 0; i < 31; i++) arm64NestedDynamicStartLenExpr = `(+ 0_u32 ${arm64NestedDynamicStartLenExpr})`;
+const arm64NestedDynamicStartLenFixture = `${outDir}/aarch64-nested-dynamic-start-len-scratch-blocked.0`;
+await writeFile(arm64NestedDynamicStartLenFixture, `export c fn main u32
+  let text String "abcdef"
+  let start usize 1
+  let end usize 4
+  ret ${arm64NestedDynamicStartLenExpr}
+`);
+await assertArm64NestedScratchBlocked(arm64NestedDynamicStartLenFixture, /expression nesting exceeds scratch register spill capacity/, "aarch64-nested-dynamic-start-len");
+let arm64NestedEndLenExpr = "((std.mem.len text[1..(+ end 0_usize)]) as u32)";
+for (let i = 0; i < 32; i++) arm64NestedEndLenExpr = `(+ 0_u32 ${arm64NestedEndLenExpr})`;
+const arm64NestedEndLenFixture = `${outDir}/aarch64-nested-end-len-scratch-blocked.0`;
+await writeFile(arm64NestedEndLenFixture, `export c fn main u32
+  let text String "abcdef"
+  let end usize 4
+  ret ${arm64NestedEndLenExpr}
+`);
+await assertArm64NestedScratchBlocked(arm64NestedEndLenFixture, /byte-view length exceeds scratch register spill capacity/, "aarch64-nested-end-len");
+let arm64NestedDynamicEqlExpr = "(std.mem.eqlBytes text[(+ start (+ 0_usize 0_usize))..end] text[(+ start (+ 0_usize 0_usize))..end])";
+for (let i = 0; i < 29; i++) arm64NestedDynamicEqlExpr = `(== true ${arm64NestedDynamicEqlExpr})`;
+const arm64NestedDynamicEqlFixture = `${outDir}/aarch64-nested-dynamic-eql-scratch-blocked.0`;
+await writeFile(arm64NestedDynamicEqlFixture, `export c fn main Bool
+  let text String "abcdef"
+  let start usize 1
+  let end usize 4
+  ret ${arm64NestedDynamicEqlExpr}
+`);
+await assertArm64NestedScratchBlocked(arm64NestedDynamicEqlFixture, /byte-view equality exceeds scratch register spill capacity/, "aarch64-nested-dynamic-eql");
+
+let arm64WorldWriteSliceStart = "(+ start 0_usize)";
+for (let i = 0; i < 31; i++) arm64WorldWriteSliceStart = `(+ 0_usize ${arm64WorldWriteSliceStart})`;
+const arm64WorldWriteFixture = `${outDir}/aarch64-world-write-dynamic-slice-scratch-blocked.0`;
+await writeFile(arm64WorldWriteFixture, `pub fn main Void world World !
+  let text String "abcdef"
+  let start usize 1
+  check world.out.write text[${arm64WorldWriteSliceStart}..6]
+`);
+async function assertArm64WorldWriteScratchBlocked(fixture, expectedMessage, outPrefix) {
+  for (const blocked of [["linux-musl-arm64", "zero-elf-aarch64-exe", "linux"], ["win32-arm64.exe", "zero-coff-aarch64-exe", "coff.exe"]]) {
+    const readiness = await execFileAsync(zero, ["check", "--json", "--emit", "exe", "--target", blocked[0], fixture]);
+    const readinessBody = JSON.parse(readiness.stdout);
+    assert.equal(readinessBody.ok, true);
+    assert.equal(readinessBody.targetReadiness.ok, false);
+    assert.equal(readinessBody.targetReadiness.diagnostics[0].code, "BLD004");
+    assert.equal(readinessBody.targetReadiness.diagnostics[0].backendBlocker.backend, blocked[1]);
+    assert.equal(readinessBody.targetReadiness.diagnostics[0].backendBlocker.stage, "buildability");
+    assert.match(readinessBody.targetReadiness.diagnostics[0].message, expectedMessage);
+    const build = await execFileAsync(zero, ["build", "--json", "--emit", "exe", "--target", blocked[0], fixture, "--out", `${outDir}/${outPrefix}-${blocked[2]}`]).catch((error) => error);
+    assert.notEqual(build.code, 0);
+    const buildDiag = JSON.parse(build.stdout).diagnostics[0];
+    assert.equal(buildDiag.backendBlocker.backend, blocked[1]);
+    assert.equal(buildDiag.backendBlocker.stage, "buildability");
+    assert.match(buildDiag.message, expectedMessage);
+  }
+}
+await assertArm64WorldWriteScratchBlocked(arm64WorldWriteFixture, /expression nesting exceeds scratch register spill capacity/, "aarch64-world-write-dynamic-slice");
+
+let arm64WorldWriteSliceEnd = "(+ end 0_usize)";
+for (let i = 0; i < 32; i++) arm64WorldWriteSliceEnd = `(+ 0_usize ${arm64WorldWriteSliceEnd})`;
+const arm64WorldWriteEndFixture = `${outDir}/aarch64-world-write-dynamic-end-scratch-blocked.0`;
+await writeFile(arm64WorldWriteEndFixture, `pub fn main Void world World !
+  let text String "abcdef"
+  let end usize 6
+  check world.out.write text[1..${arm64WorldWriteSliceEnd}]
+`);
+await assertArm64WorldWriteScratchBlocked(arm64WorldWriteEndFixture, /expression nesting exceeds scratch register spill capacity/, "aarch64-world-write-dynamic-end");
+
 const arm64PrivateHelperObj = `${outDir}/aarch64-private-helper-ignored.o`;
 await execFileAsync(zero, [
   "build",
@@ -998,6 +1115,35 @@ await execFileAsync(zero, [
 ]);
 await assertElfAarch64Object(arm64PrivateHelperObj, "main");
 
+const arm64CompareSource = `${outDir}/aarch64-typed-compare.0`;
+const arm64CompareObj = `${outDir}/aarch64-typed-compare.o`;
+await writeFile(arm64CompareSource, `export c fn main u32
+  let large u32 4294967295
+  if > large 0_u32
+    ret 7
+  ret 3
+
+export c fn wide_guard u32
+  let wide u64 4294967296
+  if != wide 0_u64
+    ret 9
+  ret 4
+`);
+await execFileAsync(zero, [
+  "build",
+  "--json",
+  "--emit",
+  "obj",
+  "--target",
+  "linux-arm64",
+  arm64CompareSource,
+  "--out",
+  arm64CompareObj,
+]);
+const arm64CompareBytes = await readFile(arm64CompareObj);
+assert(hasAarch64CondBranch(arm64CompareBytes, 9));
+assert(hasAarch64Instruction(arm64CompareBytes, 0xeb09011f));
+
 const memoryPackageMachOReadiness = await execFileAsync(zero, [
   "check",
   "--json",
@@ -1010,11 +1156,27 @@ const memoryPackageMachOReadiness = await execFileAsync(zero, [
 const memoryPackageMachOReadinessBody = JSON.parse(memoryPackageMachOReadiness.stdout);
 assert.equal(memoryPackageMachOReadinessBody.ok, true);
 assert.equal(memoryPackageMachOReadinessBody.diagnostics.length, 0);
-assert.equal(memoryPackageMachOReadinessBody.targetReadiness.ok, false);
-assert.equal(memoryPackageMachOReadinessBody.targetReadiness.buildable, false);
-assert.equal(memoryPackageMachOReadinessBody.targetReadiness.diagnostics[0].code, "BLD004");
-assert.equal(memoryPackageMachOReadinessBody.targetReadiness.diagnostics[0].backendBlocker.backend, "zero-macho64");
-assert.equal(memoryPackageMachOReadinessBody.targetReadiness.diagnostics[0].backendBlocker.stage, "buildability");
+assert.equal(memoryPackageMachOReadinessBody.targetReadiness.ok, true);
+assert.equal(memoryPackageMachOReadinessBody.targetReadiness.buildable, true);
+assert.equal(memoryPackageMachOReadinessBody.targetReadiness.backend, "zero-macho64");
+assert.equal(memoryPackageMachOReadinessBody.targetReadiness.diagnostics.length, 0);
+const memoryPackageMachOObj = `${outDir}/memory-package-macho.o`;
+const memoryPackageMachOBuild = await execFileAsync(zero, [
+  "build",
+  "--json",
+  "--emit",
+  "obj",
+  "--target",
+  "darwin-arm64",
+  "examples/memory-package",
+  "--out",
+  memoryPackageMachOObj,
+]);
+const memoryPackageMachOBuildBody = JSON.parse(memoryPackageMachOBuild.stdout);
+assert.equal(memoryPackageMachOBuildBody.compiler, "zero-macho64");
+assert.equal(memoryPackageMachOBuildBody.generatedCBytes, 0);
+assert.equal(memoryPackageMachOBuildBody.objectBackend.objectEmission.path, "direct-macho64-object");
+await assertMachOArm64Object(memoryPackageMachOObj, "main");
 
 async function assertAgentSurfaceOwnedDropUnsupported(target, emit, outName, expectedPattern, expectedObjectFormat, expectedBackend, options = {}) {
   const extraArgs = options.extraArgs ?? [];
