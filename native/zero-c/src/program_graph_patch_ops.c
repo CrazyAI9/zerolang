@@ -567,7 +567,7 @@ static bool patch_edge_target_removed_by_delete(const ZProgramGraph *graph, cons
 static bool patch_delete_external_reference_allowed(const ZProgramGraph *graph, const ZProgramGraphEdge *edge, const bool *marked, const char *root_id) {
   size_t source = patch_node_index(graph, edge->from);
   if (source != (size_t)-1 && marked[source]) return true;
-  return edge->target == Z_PROGRAM_GRAPH_EDGE_TARGET_NODE && patch_text_eq(edge->to, root_id);
+  return patch_edge_owns_child_node(edge) && patch_text_eq(edge->to, root_id);
 }
 
 static bool patch_apply_delete(ZProgramGraph *graph, ZProgramGraphPatchResult *result, ZProgramGraphPatchOpResult *op) {

@@ -339,6 +339,7 @@ const graphPatchDeletePath = join(outDir, "hello.delete.program-graph.patch");
 const graphDeletedPath = join(outDir, "hello.delete.program-graph");
 const graphPatchDeleteNodeFactPath = join(outDir, "hello.delete-node-fact.program-graph.patch");
 const graphDeletedNodeFactPath = join(outDir, "hello.delete-node-fact.program-graph");
+const graphPatchDeleteExternalRootRefPath = join(outDir, "hello.delete-external-root-ref.program-graph.patch");
 const graphPatchReplacePath = join(outDir, "hello.replace.program-graph.patch");
 const graphReplacedPath = join(outDir, "hello.replace.program-graph");
 const graphPatchStaleReplacePath = join(outDir, "hello.stale-replace.program-graph.patch");
@@ -389,6 +390,7 @@ rmSync(graphPatchDeletePath, { force: true });
 rmSync(graphDeletedPath, { force: true });
 rmSync(graphPatchDeleteNodeFactPath, { force: true });
 rmSync(graphDeletedNodeFactPath, { force: true });
+rmSync(graphPatchDeleteExternalRootRefPath, { force: true });
 rmSync(graphPatchReplacePath, { force: true });
 rmSync(graphReplacedPath, { force: true });
 rmSync(graphPatchStaleReplacePath, { force: true });
@@ -565,6 +567,23 @@ assert.equal(graphDeleteNodeFactPatchJson.operations[1].op, "insertEdge");
 assert.equal(graphDeleteNodeFactPatchJson.operations[1].target, "node");
 assert.equal(graphDeleteNodeFactPatchJson.operations[2].op, "delete");
 assert.equal(readFileSync(graphDeletedNodeFactPath, "utf8"), graphDump);
+writeFileSync(graphPatchDeleteExternalRootRefPath, [
+  "zero-program-graph-patch v1",
+  `expect graphHash "${graphDumpJson.graphHash}"`,
+  `insert node="node:patch_external_root_ref" kind="Check" parent="node:000007" edge="statement" order="1"`,
+  `insertEdge from="node:000001" to="node:patch_external_root_ref" edge="backlink" target="node" order="0"`,
+  `delete node="node:patch_external_root_ref"`,
+  "",
+].join("\n"));
+const graphDeleteExternalRootRefPatchJson = json(["graph", "patch", "--json", graphDumpPath, graphPatchDeleteExternalRootRefPath], { allowFailure: true });
+assert.notEqual(graphDeleteExternalRootRefPatchJson.code, 0);
+assert.equal(graphDeleteExternalRootRefPatchJson.body.ok, false);
+assert.equal(graphDeleteExternalRootRefPatchJson.body.operations[0].ok, true);
+assert.equal(graphDeleteExternalRootRefPatchJson.body.operations[1].ok, true);
+assert.equal(graphDeleteExternalRootRefPatchJson.body.operations[2].ok, false);
+assert.equal(graphDeleteExternalRootRefPatchJson.body.operations[2].code, "GPH005");
+assert.equal(graphDeleteExternalRootRefPatchJson.body.operations[2].actual, "node:patch_external_root_ref");
+assert.equal(graphDeleteExternalRootRefPatchJson.body.saved, null);
 const graphLiteralNode = graphDumpJson.nodes.find((node) => node.kind === "Literal" && node.type === "String");
 assert(graphLiteralNode);
 writeFileSync(graphPatchReplacePath, [
