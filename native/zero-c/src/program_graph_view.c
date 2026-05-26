@@ -8,6 +8,12 @@ static bool view_text_eq(const char *left, const char *right) {
   return strcmp(left ? left : "", right ? right : "") == 0;
 }
 
+static bool view_text_starts_with(const char *text, const char *prefix) {
+  if (!text || !prefix) return false;
+  size_t len = strlen(prefix);
+  return strncmp(text, prefix, len) == 0;
+}
+
 static const ZProgramGraphNode *view_find_node(const ZProgramGraph *graph, const char *id) {
   for (size_t i = 0; graph && id && i < graph->node_len; i++) {
     if (view_text_eq(graph->nodes[i].id, id)) return &graph->nodes[i];
@@ -58,7 +64,11 @@ static bool view_literal_is_raw(const char *value) {
       p++;
       continue;
     }
-    if (*p == '_' || *p == '.' || *p == 'x' || *p == 'X' || *p == 'u' || *p == 'U' || *p == 'i' || *p == 'I') {
+    if (*p == '_' || *p == '.' || isalpha((unsigned char)*p)) {
+      p++;
+      continue;
+    }
+    if ((*p == '-' || *p == '+') && p > value && (*(p - 1) == 'e' || *(p - 1) == 'E')) {
       p++;
       continue;
     }
@@ -107,6 +117,14 @@ static void view_append_name(ZBuf *buf, const char *name) {
   zbuf_append(buf, name && name[0] ? name : "__unnamed");
 }
 
+static bool view_node_is_test(const ZProgramGraphNode *node) {
+  return node && node->kind == Z_PROGRAM_GRAPH_NODE_FUNCTION && view_text_starts_with(node->name, "__zero_test_");
+}
+
+static bool view_module_is_stdlib(const ZProgramGraphNode *node) {
+  return node && node->kind == Z_PROGRAM_GRAPH_NODE_MODULE && view_text_starts_with(node->path, "std/");
+}
+
 static bool view_expr_needs_group(const ZProgramGraphNode *node) {
   if (!node) return false;
   switch (node->kind) {
@@ -115,6 +133,9 @@ static bool view_expr_needs_group(const ZProgramGraphNode *node) {
     case Z_PROGRAM_GRAPH_NODE_CHECK:
     case Z_PROGRAM_GRAPH_NODE_RESCUE:
     case Z_PROGRAM_GRAPH_NODE_CAST:
+    case Z_PROGRAM_GRAPH_NODE_META:
+    case Z_PROGRAM_GRAPH_NODE_SHAPE_LITERAL:
+    case Z_PROGRAM_GRAPH_NODE_ARRAY_LITERAL:
       return true;
     default:
       return false;
@@ -140,6 +161,11 @@ static void view_append_type_args(ZBuf *buf, const ZProgramGraph *graph, const Z
     view_append_name(buf, type->type);
   }
   zbuf_append_char(buf, '>');
+}
+
+static void view_append_identifier(ZBuf *buf, const ZProgramGraph *graph, const ZProgramGraphNode *node) {
+  view_append_name(buf, node ? node->name : NULL);
+  view_append_type_args(buf, graph, node);
 }
 
 static void view_append_call_like(ZBuf *buf, const ZProgramGraph *graph, const ZProgramGraphNode *node, bool paren_args) {
@@ -194,10 +220,11 @@ static void view_append_expr(ZBuf *buf, const ZProgramGraph *graph, const ZProgr
   }
   switch (node->kind) {
     case Z_PROGRAM_GRAPH_NODE_IDENTIFIER:
-      view_append_name(buf, node->name);
+      view_append_identifier(buf, graph, node);
       break;
     case Z_PROGRAM_GRAPH_NODE_LITERAL:
-      if (view_text_eq(node->type, "char")) view_append_char_literal(buf, node->value);
+      if (view_text_eq(node->type, "String")) view_append_string(buf, node->value);
+      else if (view_text_eq(node->type, "char")) view_append_char_literal(buf, node->value);
       else if (view_literal_is_raw(node->value)) zbuf_append(buf, node->value);
       else view_append_string(buf, node->value);
       break;
@@ -244,18 +271,26 @@ static void view_append_expr(ZBuf *buf, const ZProgramGraph *graph, const ZProgr
         zbuf_append_char(buf, ' ');
         view_append_name(buf, field->name);
         zbuf_append_char(buf, ' ');
-        view_append_expr(buf, graph, view_ordered_node(graph, field->id, "value", 0));
+        view_append_expr_arg(buf, graph, view_ordered_node(graph, field->id, "value", 0));
       }
       break;
     case Z_PROGRAM_GRAPH_NODE_ARRAY_LITERAL:
-      zbuf_append(buf, "([");
-      for (size_t order = 0;; order++) {
-        const ZProgramGraphNode *item = view_ordered_node(graph, node->id, "arg", order);
-        if (!item) break;
-        if (order > 0) zbuf_append(buf, ", ");
-        view_append_expr(buf, graph, item);
+      if (view_text_eq(node->value, "repeat")) {
+        zbuf_append_char(buf, '[');
+        view_append_expr(buf, graph, view_ordered_node(graph, node->id, "arg", 0));
+        zbuf_append_char(buf, ';');
+        view_append_expr(buf, graph, view_ordered_node(graph, node->id, "arg", 1));
+        zbuf_append_char(buf, ']');
+      } else {
+        zbuf_append(buf, "([");
+        for (size_t order = 0;; order++) {
+          const ZProgramGraphNode *item = view_ordered_node(graph, node->id, "arg", order);
+          if (!item) break;
+          if (order > 0) zbuf_append(buf, ", ");
+          view_append_expr(buf, graph, item);
+        }
+        zbuf_append(buf, "])");
       }
-      zbuf_append(buf, "])");
       break;
     case Z_PROGRAM_GRAPH_NODE_BORROW:
       zbuf_append(buf, node->is_mutable ? "&mut " : "&");
@@ -480,6 +515,13 @@ static void view_append_effects(ZBuf *buf, const ZProgramGraph *graph, const ZPr
 
 static void view_append_function(ZBuf *buf, const ZProgramGraph *graph, const ZProgramGraphNode *fun, unsigned indent) {
   view_append_indent(buf, indent);
+  if (view_node_is_test(fun)) {
+    zbuf_append(buf, "test ");
+    view_append_string(buf, fun->value ? fun->value : "");
+    zbuf_append_char(buf, '\n');
+    view_append_block(buf, graph, view_ordered_node(graph, fun->id, "body", 0), indent + 1);
+    return;
+  }
   if (fun->is_public) zbuf_append(buf, "pub ");
   zbuf_append(buf, "fn ");
   view_append_name(buf, fun->name);
@@ -596,9 +638,12 @@ static void view_append_decl(ZBuf *buf, const ZProgramGraph *graph, const ZProgr
 }
 
 static void view_append_top_level(ZBuf *buf, const ZProgramGraph *graph, const ZProgramGraphNode *module, const char *edge_kind) {
-  for (size_t order = 0;; order++) {
+  size_t total = view_edge_count(graph, module ? module->id : NULL, edge_kind);
+  size_t seen = 0;
+  for (size_t order = 0; seen < total; order++) {
     const ZProgramGraphNode *node = view_ordered_node(graph, module->id, edge_kind, order);
-    if (!node) break;
+    if (!node) continue;
+    seen++;
     view_append_decl(buf, graph, node);
   }
 }
@@ -626,13 +671,17 @@ void z_program_graph_append_view(ZBuf *buf, const ZProgramGraph *graph) {
   zbuf_append(buf, "\n");
   zbuf_append(buf, "# canonicalSource false\n\n");
   size_t modules = 0;
+  size_t renderable_modules = 0;
   for (size_t i = 0; graph && i < graph->node_len; i++) {
-    if (graph->nodes[i].kind == Z_PROGRAM_GRAPH_NODE_MODULE) modules++;
+    if (graph->nodes[i].kind != Z_PROGRAM_GRAPH_NODE_MODULE) continue;
+    modules++;
+    if (!view_module_is_stdlib(&graph->nodes[i])) renderable_modules++;
   }
   bool first = true;
   for (size_t i = 0; graph && i < graph->node_len; i++) {
     const ZProgramGraphNode *node = &graph->nodes[i];
     if (node->kind != Z_PROGRAM_GRAPH_NODE_MODULE) continue;
+    if (renderable_modules > 0 && view_module_is_stdlib(node)) continue;
     if (!first) zbuf_append_char(buf, '\n');
     view_append_module(buf, graph, node, modules > 1);
     first = false;

@@ -124,6 +124,7 @@ static const char *graph_expr_value(const Expr *expr) {
   if (!expr) return NULL;
   if (expr->kind == EXPR_BOOL) return expr->bool_value ? "true" : "false";
   if (expr->kind == EXPR_NULL) return "null";
+  if (expr->kind == EXPR_ARRAY_LITERAL && expr->array_repeat) return "repeat";
   if (expr->kind == EXPR_STRING || expr->kind == EXPR_CHAR || expr->kind == EXPR_NUMBER) return expr->text;
   return NULL;
 }
@@ -131,6 +132,7 @@ static const char *graph_expr_value(const Expr *expr) {
 static const char *graph_expr_type(const Expr *expr) {
   if (!expr) return NULL;
   if (expr->resolved_type && expr->resolved_type[0]) return expr->resolved_type;
+  if (expr->kind == EXPR_STRING) return "String";
   return expr->kind == EXPR_CHAR ? "char" : NULL;
 }
 

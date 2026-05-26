@@ -2626,6 +2626,33 @@ await execFileAsync(zero, ["graph", "dump", "--out", programGraphCharPath, "conf
 await execFileAsync(zero, ["graph", "view", "--out", programGraphCharViewPath, programGraphCharPath]);
 const programGraphCharView = await readFile(programGraphCharViewPath, "utf8");
 await execFileAsync(zero, ["check", programGraphCharViewPath]);
+const programGraphViewCoverage = [
+  ["compile-time-v1", "examples/compile-time-v1.0", [/field_type "i32"/, /readGate<enabled, selected> &gate/]],
+  ["array-repeat-literal", "conformance/native/pass/array-repeat-literal.0", [/\[7_u8;8\]/, /\[0_u8;16\]/]],
+  ["explicit-casts", "conformance/native/pass/explicit-casts.0", [/byte \(big as u8\)/, /signed \(small as isize\)/]],
+  ["generic-multi-specialization", "conformance/native/pass/generic-multi-specialization.0", [/first<i32, u8> 21 7/, /second<i32, u8> a 6/]],
+  ["generic-shape-nested-defaults-alias", "conformance/native/pass/generic-shape-nested-defaults-alias.0", [/left \(Box \. value 42\) right \(Slot \. item 7_u8\)/]],
+  ["float-primitives", "conformance/native/pass/float-primitives.0", [/let precise f64 1\.0e-3/]],
+  ["meta-typed-target-type", "conformance/native/pass/meta-typed-target-type.0", [/const computed usize \+ \(meta 2\) 2/]],
+  ["nested-lvalues", "conformance/native/pass/nested-lvalues.0", [/start \(Point \. x 3 y 4\) end \(Point \. x 5 y 6\)/]],
+  ["radix-suffix-literals", "conformance/native/pass/radix-suffix-literals.0", [/ret 0x20_usize/, /1_024_usize/, /0x2a_u8/]],
+  ["test-blocks", "conformance/native/pass/test-blocks.0", [/test "addition works"/]],
+  ["type-alias-basic", "conformance/native/pass/type-alias-basic.0", [/let count ByteCount 4_usize/]],
+  ["std-math", "examples/std-math.0", [/pub fn main Void world World !/, /std\.math\.minU32 8 3/]],
+];
+for (const [name, fixture, patterns] of programGraphViewCoverage) {
+  const graphPath = `${outDir}/${name}.program-graph`;
+  const viewPath = `${outDir}/${name}.program-graph.0`;
+  await rm(graphPath, { force: true });
+  await rm(viewPath, { force: true });
+  await execFileAsync(zero, ["graph", "dump", "--out", graphPath, fixture]);
+  await execFileAsync(zero, ["graph", "view", "--out", viewPath, graphPath]);
+  const view = await readFile(viewPath, "utf8");
+  await execFileAsync(zero, ["check", viewPath]);
+  for (const pattern of patterns) assert.match(view, pattern);
+  assert.doesNotMatch(view, /fn __zero_test_/);
+  if (name === "std-math") assert.doesNotMatch(view, /fn __zero_std_/);
+}
 assert.equal(programGraphBody.schemaVersion, 1);
 assert.equal(programGraphBody.canonicalSource, false);
 assert.equal(programGraphBody.moduleIdentity, "module:hello");
