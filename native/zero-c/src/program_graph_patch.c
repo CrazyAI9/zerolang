@@ -1,4 +1,5 @@
 #include "program_graph_patch.h"
+#include "type_core.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -334,6 +335,73 @@ static bool patch_parse_bool(const char *text, bool *out) {
   return false;
 }
 
+static bool patch_name_operator_valid(const char *text) {
+  static const char *operators[] = {
+    "+", "-", "*", "/", "%", "&&", "||", "==", "!=", "<", "<=", ">", ">=", "+%", "+|", NULL,
+  };
+  for (size_t i = 0; operators[i]; i++) {
+    if (patch_text_eq(text, operators[i])) return true;
+  }
+  return false;
+}
+
+static bool patch_name_segment_char(char ch) {
+  return isalnum((unsigned char)ch) || ch == '_';
+}
+
+static bool patch_name_value_valid(const char *text) {
+  if (!text || !text[0]) return true;
+  if (patch_name_operator_valid(text)) return true;
+  const char *cursor = text;
+  while (*cursor) {
+    if (!(isalpha((unsigned char)*cursor) || *cursor == '_')) return false;
+    cursor++;
+    while (patch_name_segment_char(*cursor)) cursor++;
+    if (*cursor == '.') {
+      cursor++;
+      if (!*cursor) return false;
+      continue;
+    }
+    return *cursor == '\0';
+  }
+  return true;
+}
+
+static bool patch_text_has_control(const char *text) {
+  for (const unsigned char *cursor = (const unsigned char *)(text ? text : ""); *cursor; cursor++) {
+    if (*cursor < 0x20 || *cursor == 0x7f) return true;
+  }
+  return false;
+}
+
+static bool patch_type_value_valid(const char *text) {
+  if (!text || !text[0]) return true;
+  if (patch_text_has_control(text)) return false;
+  ZTypeArena arena;
+  z_type_arena_init(&arena);
+  ZTypeId type = Z_TYPE_ID_INVALID;
+  ZTypeParseError error = {0};
+  bool ok = z_type_parse(&arena, text, &type, &error);
+  z_type_arena_free(&arena);
+  return ok;
+}
+
+static bool patch_validate_text_value(const ZProgramGraphNode *node, ZProgramGraphPatchResult *result, ZProgramGraphPatchOpResult *op) {
+  if (patch_text_eq(op->field, "name") && !patch_name_value_valid(op->value)) {
+    patch_op_fail(result, op, "GPH003", "patch name value must be a Zero identifier path or operator", "identifier path or operator", op->value);
+    return false;
+  }
+  if (patch_text_eq(op->field, "type") && !patch_type_value_valid(op->value)) {
+    patch_op_fail(result, op, "GPH003", "patch type value must be valid Zero type syntax", "Zero type syntax", op->value);
+    return false;
+  }
+  if (node && node->kind == Z_PROGRAM_GRAPH_NODE_MATCH_ARM && patch_text_eq(op->field, "value") && !patch_name_value_valid(op->value)) {
+    patch_op_fail(result, op, "GPH003", "patch match payload value must be a Zero identifier path or operator", "identifier path or operator", op->value);
+    return false;
+  }
+  return true;
+}
+
 static bool patch_apply_operation(ZProgramGraph *graph, ZProgramGraphPatchResult *result, ZProgramGraphPatchOpResult *op) {
   ZProgramGraphNode *node = patch_find_node(graph, op->node);
   if (!node) {
@@ -348,6 +416,7 @@ static bool patch_apply_operation(ZProgramGraph *graph, ZProgramGraphPatchResult
       patch_op_fail(result, op, "GPH005", "patch field precondition failed", op->expected, op->actual);
       return false;
     }
+    if (!patch_validate_text_value(node, result, op)) return false;
     patch_replace_text(text_slot, op->value);
     op->ok = true;
     return true;

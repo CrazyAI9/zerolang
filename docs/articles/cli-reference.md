@@ -114,8 +114,10 @@ value differs.
 
 Editable fields are `name`, `type`, `value`, `public`, `mutable`, `static`,
 `fallible`, and `exportC`. Boolean fields accept only `true` or `false`.
-Strings support `\\`, `\"`, `\n`, `\r`, `\t`, and `\u00XX` escapes for
-non-NUL bytes. NUL bytes are not valid ProgramGraph patch text.
+`name` values must be identifier paths or supported operator tokens. `type`
+values must be valid Zero type syntax. Strings support `\\`, `\"`, `\n`,
+`\r`, `\t`, and `\u00XX` escapes for non-NUL bytes. NUL bytes are not valid
+ProgramGraph patch text.
 
 ## Build Outputs
 

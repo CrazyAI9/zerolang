@@ -180,6 +180,40 @@ static void print_diag(const char *path, const ZDiag *diag) {
   fprintf(stderr, "  explain: zero explain %s\n", diag_code(diag->code));
 }
 
+static bool json_utf8_continuation(unsigned char ch) {
+  return (ch & 0xc0u) == 0x80u;
+}
+
+static size_t json_valid_utf8_len(const unsigned char *cursor) {
+  unsigned char ch = cursor ? cursor[0] : 0;
+  if (ch < 0x80) return ch ? 1 : 0;
+  if (ch >= 0xc2 && ch <= 0xdf) {
+    return cursor[1] && json_utf8_continuation(cursor[1]) ? 2 : 0;
+  }
+  if (ch == 0xe0) {
+    return cursor[1] >= 0xa0 && cursor[1] <= 0xbf && cursor[2] && json_utf8_continuation(cursor[2]) ? 3 : 0;
+  }
+  if (ch >= 0xe1 && ch <= 0xec) {
+    return cursor[1] && json_utf8_continuation(cursor[1]) && cursor[2] && json_utf8_continuation(cursor[2]) ? 3 : 0;
+  }
+  if (ch == 0xed) {
+    return cursor[1] >= 0x80 && cursor[1] <= 0x9f && cursor[2] && json_utf8_continuation(cursor[2]) ? 3 : 0;
+  }
+  if (ch >= 0xee && ch <= 0xef) {
+    return cursor[1] && json_utf8_continuation(cursor[1]) && cursor[2] && json_utf8_continuation(cursor[2]) ? 3 : 0;
+  }
+  if (ch == 0xf0) {
+    return cursor[1] >= 0x90 && cursor[1] <= 0xbf && cursor[2] && json_utf8_continuation(cursor[2]) && cursor[3] && json_utf8_continuation(cursor[3]) ? 4 : 0;
+  }
+  if (ch >= 0xf1 && ch <= 0xf3) {
+    return cursor[1] && json_utf8_continuation(cursor[1]) && cursor[2] && json_utf8_continuation(cursor[2]) && cursor[3] && json_utf8_continuation(cursor[3]) ? 4 : 0;
+  }
+  if (ch == 0xf4) {
+    return cursor[1] >= 0x80 && cursor[1] <= 0x8f && cursor[2] && json_utf8_continuation(cursor[2]) && cursor[3] && json_utf8_continuation(cursor[3]) ? 4 : 0;
+  }
+  return 0;
+}
+
 static void append_json_string(ZBuf *buf, const char *value) {
   zbuf_append_char(buf, '"');
   for (const char *cursor = value ? value : ""; *cursor; cursor++) {
@@ -190,6 +224,15 @@ static void append_json_string(ZBuf *buf, const char *value) {
     else if (ch == '\r') zbuf_append(buf, "\\r");
     else if (ch == '\t') zbuf_append(buf, "\\t");
     else if (ch < 0x20) zbuf_appendf(buf, "\\u%04x", (unsigned)ch);
+    else if (ch >= 0x80) {
+      size_t utf8_len = json_valid_utf8_len((const unsigned char *)cursor);
+      if (utf8_len == 0) {
+        zbuf_appendf(buf, "\\u%04x", (unsigned)ch);
+      } else {
+        for (size_t i = 0; i < utf8_len; i++) zbuf_append_char(buf, cursor[i]);
+        cursor += utf8_len - 1;
+      }
+    }
     else zbuf_append_char(buf, (char)ch);
   }
   zbuf_append_char(buf, '"');
