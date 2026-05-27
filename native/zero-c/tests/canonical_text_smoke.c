@@ -288,6 +288,44 @@ static void parses_generic_calls_and_array_repeats(void) {
   expect_accepts(source, "generic calls and array repeats");
 }
 
+static void parses_error_members_and_prefix_not(void) {
+  const char *source =
+    "fn main(world: World, ok: Bool) -> Void raises {\n"
+    "    if !ok {\n"
+    "        check world.err.write(\"bad\\n\")\n"
+    "    }\n"
+    "}\n";
+  expect_accepts(source, "error member and prefix not");
+}
+
+static void parses_generic_interfaces(void) {
+  const char *source =
+    "interface Reader<T> {\n"
+    "    fn read(self: Self) -> T\n"
+    "}\n";
+  expect_accepts(source, "generic interface");
+}
+
+static void parses_choice_payload_match_patterns(void) {
+  const char *source =
+    "choice Result {\n"
+    "    ok: i32,\n"
+    "    err: String,\n"
+    "}\n"
+    "\n"
+    "fn handle(result: Result) -> Void {\n"
+    "    match result {\n"
+    "        ok value {\n"
+    "            return\n"
+    "        }\n"
+    "        err message {\n"
+    "            return\n"
+    "        }\n"
+    "    }\n"
+    "}\n";
+  expect_accepts(source, "choice payload match patterns");
+}
+
 static void parses_empty_return_but_not_empty_checks(void) {
   expect_accepts("fn ok() -> Void {\n    return\n}\n", "empty return");
   expect_rejects("fn bad() -> Void {\n    check\n}\n", "empty check");
@@ -357,6 +395,9 @@ int main(int argc, char **argv) {
   parses_public_declarations_and_extern_types();
   parses_character_literals();
   parses_generic_calls_and_array_repeats();
+  parses_error_members_and_prefix_not();
+  parses_generic_interfaces();
+  parses_choice_payload_match_patterns();
   parses_empty_return_but_not_empty_checks();
   rejects_noncanonical_spellings();
   for (int i = 1; i + 1 < argc; i += 2) parse_file_arg(argv[i], argv[i + 1]);
