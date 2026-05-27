@@ -221,10 +221,10 @@ static void records_node_token_spans(void) {
     "\n"
     "fn main(result: Result) -> Void {\n"
     "    match result {\n"
-    "        ok value {\n"
+    "        .ok(value) {\n"
     "            return\n"
     "        }\n"
-    "        err message {\n"
+    "        .err(message) {\n"
     "            return\n"
     "        }\n"
     "    }\n"
@@ -277,6 +277,45 @@ static void parses_public_declarations_and_extern_types(void) {
   expect(facts.declaration_count == 5, "expected public declarations");
   expect(facts.type_count == 1, "expected public concrete type declaration");
   expect(facts.interface_count == 1, "expected public interface declaration");
+}
+
+static void parses_layout_enum_choice_and_const_type_forms(void) {
+  const char *source =
+    "extern type CPoint {\n"
+    "    x: i32,\n"
+    "    y: i32,\n"
+    "}\n"
+    "\n"
+    "pub packed type Header {\n"
+    "    tag: u8,\n"
+    "    len: u16,\n"
+    "}\n"
+    "\n"
+    "enum Color: u8 {\n"
+    "    red,\n"
+    "    blue,\n"
+    "}\n"
+    "\n"
+    "enum Status: u8 {\n"
+    "    ready,\n"
+    "    failed,\n"
+    "}\n"
+    "\n"
+    "choice Result {\n"
+    "    ok: Void,\n"
+    "    err: String,\n"
+    "}\n"
+    "\n"
+    "type Wrapper {\n"
+    "    value: const i32,\n"
+    "}\n"
+    "\n"
+    "fn ops(left: u8, right: u8) -> Void {\n"
+    "    let wrapped: u8 = left +% right\n"
+    "    let saturated: u8 = left +| right\n"
+    "    let wrapper: Wrapper = Wrapper { value: 1 }\n"
+    "}\n";
+  expect_accepts(source, "layout, enum, choice, const type, and overflow operators");
 }
 
 static void parses_character_literals(void) {
@@ -335,10 +374,10 @@ static void parses_choice_payload_match_patterns(void) {
     "\n"
     "fn handle(result: Result) -> Void {\n"
     "    match result {\n"
-    "        ok value {\n"
+    "        .ok(value) {\n"
     "            return\n"
     "        }\n"
-    "        err message {\n"
+    "        .err(message) {\n"
     "            return\n"
     "        }\n"
     "    }\n"
@@ -375,10 +414,10 @@ static void parses_assignment_statements(void) {
     "\n"
     "fn mutate(items: MutSpan<i32>, point: Point) -> Void {\n"
     "    var count: i32 = 0\n"
-    "    set count = count + 1\n"
-    "    set point.x = count\n"
-    "    set items[0] = point.x\n"
-    "    set items[count + 1] = items[0]\n"
+    "    count = count + 1\n"
+    "    point.x = count\n"
+    "    items[0] = point.x\n"
+    "    items[count + 1] = items[0]\n"
     "}\n";
   expect_accepts(source, "assignment statements");
 }
@@ -444,6 +483,7 @@ static void rejects_noncanonical_spellings(void) {
   expect_rejects("fn bad() -> Void {\n    let value: char = 'ab'\n}\n", "wide character literal");
   expect_rejects("fn bad() -> Void {\n    let value: char = '\\q'\n}\n", "invalid character escape");
   expect_rejects("fn bad() -> Void {\n    let text: String = \"hello\\\x0aworld\"\n}\n", "escaped string newline");
+  expect_rejects("fn bad() -> Void {\n    let text: String = \"hello\rworld\"\n}\n", "raw carriage return string newline");
   expect_rejects("fn bad() -> Void {\n    let text: String = \"hello\\xZZ\"\n}\n", "malformed hex string escape");
   expect_rejects("fn bad() -> Void {\n    let value: i32 = 123abc\n}\n", "malformed number literal");
   expect_rejects("fn bad() -> Void {\n    let value: i32 = 0b102\n}\n", "malformed radix number literal");
@@ -473,6 +513,7 @@ static void rejects_noncanonical_spellings(void) {
   expect_rejects("use std.mem()\n", "call use import");
   expect_rejects("use std.\n", "trailing use import separator");
   expect_rejects("fn bad() -> Void {\n    set value value + 1\n}\n", "assignment missing equals");
+  expect_rejects("fn bad() -> Void {\n    set value = value + 1\n}\n", "set assignment");
   expect_rejects("fn bad() -> Void {\n    set 1 = value\n}\n", "numeric assignment target");
   expect_rejects("fn bad() -> Void {\n    set items [] = value\n}\n", "spaced assignment index");
   expect_rejects("fn bad() -> Void {\n    set items[] = value\n}\n", "empty assignment index");
@@ -480,6 +521,9 @@ static void rejects_noncanonical_spellings(void) {
   expect_rejects("fn bad() -> Void {\n    let value: i32 = meta\n}\n", "empty meta expression");
   expect_rejects("fn bad() -> Void {\n    let value: i32 = rescue maybe_value()\n}\n", "rescue missing err fallback");
   expect_rejects("fn bad() -> Void {\n    let value: i32 = maybe_value() err 1\n}\n", "err without rescue");
+  expect_rejects("enum Bad u8 {\n    one,\n}\n", "enum storage type without colon");
+  expect_rejects("choice Bad {\n    ok,\n}\n", "choice variant without explicit type");
+  expect_rejects("choice Result {\n    ok: i32,\n}\n\nfn bad(result: Result) -> Void {\n    match result {\n        ok value {\n            return\n        }\n    }\n}\n", "choice match pattern without dot payload syntax");
 }
 
 static void parse_file_arg(const char *mode, const char *path) {
@@ -500,6 +544,7 @@ int main(int argc, char **argv) {
   records_block_open_locations();
   records_node_token_spans();
   parses_public_declarations_and_extern_types();
+  parses_layout_enum_choice_and_const_type_forms();
   parses_character_literals();
   parses_generic_calls_and_array_repeats();
   parses_error_members_and_prefix_not();
