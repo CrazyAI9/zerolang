@@ -2679,9 +2679,20 @@ for (const [name, fixture, patterns] of programGraphViewCoverage) {
 for (const fixture of [
   "conformance/native/pass/open-ended-slices.0",
   "conformance/native/pass/float-char-casts.0",
+  "conformance/check/pass/call-resolution-edge-cases.0",
+  "conformance/native/pass/match-payload-binding.0",
+  "conformance/native/pass/match-scalar-guards.0",
+  "conformance/native/pass/rescue-check.0",
+  "examples/result-choice.0",
+  "examples/compile-time-v1.0",
+  "examples/config-shape.0",
+  "examples/direct-enum-match.0",
   "conformance/native/pass/test-blocks.0",
   "examples/std-math.0",
   "examples/systems-package",
+  "std/math.0",
+  "std/path.0",
+  "std/str.0",
 ]) {
   const roundtrip = JSON.parse((await execFileAsync(zero, ["graph", "roundtrip", "--json", fixture])).stdout);
   assert.equal(roundtrip.ok, true);

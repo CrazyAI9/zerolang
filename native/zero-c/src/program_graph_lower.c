@@ -240,11 +240,10 @@ static bool lower_embedded_std_module(const ZProgramGraphNode *module) {
   if (!module || module->kind != Z_PROGRAM_GRAPH_NODE_MODULE) return false;
   for (size_t i = 0; i < z_std_source_module_count(); i++) {
     const ZStdSourceModule *std_module = z_std_source_module_at(i);
-    if (std_module &&
-        lower_text_eq(module->name, std_module->module) &&
-        lower_text_eq(module->path, std_module->path)) {
-      return true;
-    }
+    if (!std_module || !lower_text_eq(module->path, std_module->path)) continue;
+    const char *short_name = strrchr(std_module->module, '.');
+    const char *module_name = short_name ? short_name + 1 : std_module->module;
+    if (lower_text_eq(module->name, std_module->module) || lower_text_eq(module->name, module_name)) return true;
   }
   return false;
 }
@@ -327,9 +326,7 @@ static bool lower_module_name_valid(const char *text) {
   }
 }
 
-static bool lower_module_is_stdlib(const char *module) {
-  return module && strncmp(module, "std.", 4) == 0;
-}
+static bool lower_module_is_stdlib(const char *module) { return module && strncmp(module, "std.", 4) == 0; }
 
 static const ZProgramGraphNode *lower_find_module_named(const ZProgramGraph *graph, const char *name) {
   for (size_t i = 0; graph && name && i < graph->node_len; i++) {
@@ -365,6 +362,7 @@ static Stmt *lower_new_stmt(GraphLower *lower, StmtKind kind, const ZProgramGrap
   stmt->kind = kind;
   stmt->line = lower_line(lower, node);
   stmt->column = node && node->column > 0 ? node->column : 1;
+  if (lower && lower->preserve_graph_types && node && node->type && node->type[0]) stmt->resolved_type = z_strdup(node->type);
   return stmt;
 }
 
@@ -555,6 +553,7 @@ static Expr *lower_expr(GraphLower *lower, const ZProgramGraphNode *node) {
       return expr;
     case Z_PROGRAM_GRAPH_NODE_META:
       expr = lower_new_expr(lower, EXPR_META, node);
+      expr->text = z_strdup(node->name && node->name[0] ? node->name : "");
       expr->left = lower_required_expr(lower, node, "left", 0, "meta expression");
       return expr;
     case Z_PROGRAM_GRAPH_NODE_SHAPE_LITERAL:
