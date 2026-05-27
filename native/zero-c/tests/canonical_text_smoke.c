@@ -141,6 +141,19 @@ static void parses_fallibility_choices_and_interfaces(void) {
   expect(facts.function_count == 1, "expected concrete function");
 }
 
+static void parses_nested_generic_type_commas(void) {
+  const char *source =
+    "type Pair<T, U> {\n"
+    "    left: T,\n"
+    "    right: U,\n"
+    "}\n"
+    "\n"
+    "fn takes_pair(pair: Pair<i32, u8>) -> Void {\n"
+    "    return\n"
+    "}\n";
+  expect_accepts(source, "nested generic type commas");
+}
+
 static void rejects_noncanonical_spellings(void) {
   expect_rejects("fun main() -> Void {}\n", "fun keyword");
   expect_rejects("shape Point {\n    x: i32,\n}\n", "shape keyword");
@@ -151,6 +164,7 @@ static void rejects_noncanonical_spellings(void) {
   expect_rejects("fn load() -> Void raises { IoError } {}\n", "brace errors");
   expect_rejects("pub fn main(world: World) -> Void raises {\n    check world.out.write \"bad\\n\"\n}\n", "space call");
   expect_rejects("pub fn main(world: World) -> Void raises {\n    let ok: Bool = 1 < 2 < 3\n}\n", "chained comparison");
+  expect_rejects("fn missing_initializer() -> Void {\n    let value: i32 = // missing\n}\n", "comment-only initializer");
 }
 
 static void parse_file_arg(const char *mode, const char *path) {
@@ -164,6 +178,7 @@ static void parse_file_arg(const char *mode, const char *path) {
 int main(int argc, char **argv) {
   parses_declarations_and_blocks();
   parses_fallibility_choices_and_interfaces();
+  parses_nested_generic_type_commas();
   rejects_noncanonical_spellings();
   for (int i = 1; i + 1 < argc; i += 2) parse_file_arg(argv[i], argv[i + 1]);
   printf("canonical text smoke ok\n");

@@ -232,18 +232,23 @@ static bool canon_expect_word_token(CanonParser *parser, const char *message) {
   return canon_fail(parser->diag, token, message, "identifier", token ? token->text : "end of file");
 }
 
-static bool canon_parse_until(CanonParser *parser, const char *stop_a, const char *stop_b, bool allow_empty) {
+static bool canon_parse_until(CanonParser *parser, const char *stop_a, const char *stop_b, bool allow_empty, bool balance_angles) {
   size_t start = parser->pos;
-  int paren = 0, bracket = 0, brace = 0;
+  int paren = 0, bracket = 0, brace = 0, angle = 0;
   while (canon_peek(parser) && canon_peek(parser)->kind != Z_CANON_TOKEN_EOF) {
     const ZCanonicalToken *token = canon_peek(parser);
-    if (paren == 0 && bracket == 0 && brace == 0) {
+    if (paren == 0 && bracket == 0 && brace == 0 && angle == 0) {
+      if (token->kind == Z_CANON_TOKEN_COMMENT) break;
       if ((stop_a && canon_is_symbol_text(token, stop_a)) || (stop_b && canon_is_symbol_text(token, stop_b))) break;
       if ((stop_a && canon_is_word_text(token, stop_a)) || (stop_b && canon_is_word_text(token, stop_b))) break;
       if ((stop_a || stop_b) && canon_is_symbol_text(token, "!")) break;
       if (token->kind == Z_CANON_TOKEN_NEWLINE && !stop_a && !stop_b) break;
     }
-    if (canon_is_symbol_text(token, "(")) paren++;
+    if (balance_angles && canon_is_symbol_text(token, "<")) angle++;
+    else if (balance_angles && canon_is_symbol_text(token, ">")) {
+      if (angle == 0) break;
+      angle--;
+    } else if (canon_is_symbol_text(token, "(")) paren++;
     else if (canon_is_symbol_text(token, ")")) {
       if (paren == 0) break;
       paren--;
@@ -259,7 +264,7 @@ static bool canon_parse_until(CanonParser *parser, const char *stop_a, const cha
     parser->pos++;
   }
   if (!allow_empty && parser->pos == start) return canon_fail(parser->diag, canon_peek(parser), "expected expression", "expression", "empty");
-  if (paren || bracket || brace) return canon_fail(parser->diag, canon_peek(parser), "unbalanced expression delimiters", "balanced delimiters", "unbalanced");
+  if (paren || bracket || brace || angle) return canon_fail(parser->diag, canon_peek(parser), "unbalanced expression delimiters", "balanced delimiters", "unbalanced");
   return true;
 }
 
@@ -299,12 +304,12 @@ static bool canon_validate_expr(CanonParser *parser, size_t start, size_t end) {
 
 static bool canon_parse_expr_line(CanonParser *parser, bool allow_empty) {
   size_t start = parser->pos;
-  if (!canon_parse_until(parser, NULL, NULL, allow_empty)) return false;
+  if (!canon_parse_until(parser, NULL, NULL, allow_empty, false)) return false;
   return canon_validate_expr(parser, start, parser->pos);
 }
 
 static bool canon_parse_type_until(CanonParser *parser, const char *stop_a, const char *stop_b) {
-  return canon_parse_until(parser, stop_a, stop_b, false);
+  return canon_parse_until(parser, stop_a, stop_b, false, true);
 }
 
 static bool canon_parse_type_params(CanonParser *parser) {
@@ -392,7 +397,7 @@ static bool canon_parse_let_or_var(CanonParser *parser) {
 
 static bool canon_parse_if(CanonParser *parser, size_t depth) {
   size_t start = parser->pos;
-  if (!canon_parse_until(parser, "{", NULL, false)) return false;
+  if (!canon_parse_until(parser, "{", NULL, false, false)) return false;
   if (!canon_validate_expr(parser, start, parser->pos)) return false;
   if (!canon_parse_block(parser, depth)) return false;
   canon_skip_newlines(parser);
@@ -402,7 +407,7 @@ static bool canon_parse_if(CanonParser *parser, size_t depth) {
 
 static bool canon_parse_match(CanonParser *parser, size_t depth) {
   size_t expr_start = parser->pos;
-  if (!canon_parse_until(parser, "{", NULL, false)) return false;
+  if (!canon_parse_until(parser, "{", NULL, false, false)) return false;
   if (!canon_validate_expr(parser, expr_start, parser->pos)) return false;
   if (!canon_expect_symbol(parser, "{", "expected match body")) return false;
   canon_push_node(parser->tree, (ZCanonicalNode){Z_CANON_NODE_BLOCK, parser->pos - 1, 1, depth, canon_peek(parser)->line, canon_peek(parser)->column});
@@ -413,7 +418,7 @@ static bool canon_parse_match(CanonParser *parser, size_t depth) {
   canon_skip_newlines(parser);
   while (canon_peek(parser) && !canon_is_symbol_text(canon_peek(parser), "}") && canon_peek(parser)->kind != Z_CANON_TOKEN_EOF) {
     size_t pattern_start = parser->pos;
-    if (!canon_parse_until(parser, "{", NULL, false)) return false;
+    if (!canon_parse_until(parser, "{", NULL, false, false)) return false;
     if (!canon_validate_expr(parser, pattern_start, parser->pos)) return false;
     if (!canon_parse_block(parser, depth + 1)) return false;
     canon_skip_newlines(parser);
@@ -434,14 +439,14 @@ static bool canon_parse_statement(CanonParser *parser, size_t depth) {
   if (canon_accept_word(parser, "if")) return canon_parse_if(parser, depth);
   if (canon_accept_word(parser, "while")) {
     size_t expr_start = parser->pos;
-    if (!canon_parse_until(parser, "{", NULL, false)) return false;
+    if (!canon_parse_until(parser, "{", NULL, false, false)) return false;
     if (!canon_validate_expr(parser, expr_start, parser->pos)) return false;
     return canon_parse_block(parser, depth);
   }
   if (canon_accept_word(parser, "for")) {
     if (!canon_expect_word_token(parser, "expected loop binding")) return false;
     if (!canon_accept_word(parser, "in")) return canon_fail(parser->diag, canon_peek(parser), "expected for range", "in", canon_peek(parser)->text);
-    if (!canon_parse_until(parser, "{", NULL, false)) return false;
+    if (!canon_parse_until(parser, "{", NULL, false, false)) return false;
     return canon_parse_block(parser, depth);
   }
   if (canon_accept_word(parser, "match")) return canon_parse_match(parser, depth);
