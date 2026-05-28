@@ -215,8 +215,12 @@ describe("docs registry", () => {
     }
     const homePage = await readFile(join(docsSiteRoot, "app/page.tsx"), "utf8");
     assert.match(homePage, /The programming language\s+<br \/>\s+for agents/);
-    assert.match(homePage, /standard-library\s+first/);
-    assert.match(homePage, /Agent-readable tooling/);
+    assert.match(homePage, /Source is the artifact\.\s+<br \/>\s+The graph is the work surface\./);
+    assert.match(homePage, /Semantic navigation/);
+    assert.match(homePage, /Precise edits/);
+    assert.match(homePage, /Validated refactors/);
+    assert.match(homePage, /Shorter feedback loop/);
+    assert.match(homePage, /Token efficiency, low memory usage, fast startup, fast builds, low runtime latency, and zero dependencies/);
     assert.match(homePage, /InstallCopy/);
     const installCopy = await readFile(join(docsSiteRoot, "components/install-copy.tsx"), "utf8");
     assert.match(installCopy, /curl -fsSL https:\/\/zerolang\.ai\/install\.sh \| bash/);
