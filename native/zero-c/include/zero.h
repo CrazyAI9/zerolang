@@ -184,6 +184,7 @@ struct Expr {
   bool mutable_borrow;
   bool bool_value;
   bool array_repeat;
+  bool prefix_deref;
   Expr *left;
   Expr *right;
   ExprVec args;
@@ -325,6 +326,7 @@ typedef struct {
   char *name;
   char *type;
   ParamVec cases;
+  bool is_public;
   int line;
   int column;
 } EnumDecl;
@@ -338,6 +340,7 @@ typedef struct {
 typedef struct {
   char *name;
   ParamVec cases;
+  bool is_public;
   int line;
   int column;
 } Choice;

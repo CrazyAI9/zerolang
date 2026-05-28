@@ -529,6 +529,7 @@ static Expr *lower_expr(GraphLower *lower, const ZProgramGraphNode *node) {
         expr->left->text = z_strdup(node->name);
       }
       if (!expr->left) lower_fail(lower, node, "program graph call is missing callee", "left edge or callee name", "missing callee", NULL);
+      expr->prefix_deref = lower_text_eq(node->value, "prefix-deref");
       lower_type_args(lower, node, &expr->type_args);
       lower_args(lower, node, &expr->args);
       return expr;
@@ -871,6 +872,7 @@ static void lower_enum(GraphLower *lower, Program *program, const ZProgramGraphN
   EnumDecl item = {
     .name = z_strdup(node->name && node->name[0] ? node->name : ""),
     .type = node->type && node->type[0] ? z_strdup(node->type) : NULL,
+    .is_public = node->is_public,
     .line = lower_line(lower, node),
     .column = node->column > 0 ? node->column : 1,
   };
@@ -882,6 +884,7 @@ static void lower_choice(GraphLower *lower, Program *program, const ZProgramGrap
   if (!lower_require_top_level_identifier(lower, node, "choice", "program graph choice name is not valid Zero identifier syntax", false)) return;
   Choice item = {
     .name = z_strdup(node->name && node->name[0] ? node->name : ""),
+    .is_public = node->is_public,
     .line = lower_line(lower, node),
     .column = node->column > 0 ? node->column : 1,
   };

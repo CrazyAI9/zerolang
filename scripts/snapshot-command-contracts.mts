@@ -1219,6 +1219,110 @@ assert.equal(graphSourcePatchJson.saved.path, graphSourcePatchPath);
 assert.match(readFileSync(graphSourcePatchPath, "utf8"), /hello source-backed\\n/);
 assert.equal(zero(["check", graphSourcePatchPath]).stdout, "ok\n");
 assert.equal(zero(["graph", "check", graphSourcePatchPath]).stdout, "program graph check ok\n");
+const graphUserDerefSourcePath = join(outDir, "deref-member.0");
+const graphUserDerefViewPath = join(outDir, "deref-member.view.0");
+const graphPrefixDerefSourcePath = join(outDir, "prefix-deref-member.0");
+const graphPublicSumsSourcePath = join(outDir, "public-sums.0");
+const graphCommentsSourcePath = join(outDir, "comments.0");
+const graphDerefMemberSource = [
+  "type Point {",
+  "    x: i32,",
+  "}",
+  "",
+  "type Wrapper {",
+  "    x: Point,",
+  "}",
+  "",
+  "fn deref(value: Wrapper) -> Point {",
+  "    return value.x",
+  "}",
+  "",
+  "pub fn main() -> i32 {",
+  "    let wrapped: Wrapper = Wrapper { x: Point { x: 7 } }",
+  "    return deref(wrapped).x",
+  "}",
+  "",
+].join("\n");
+writeFileSync(graphUserDerefSourcePath, graphDerefMemberSource);
+assert.equal(zero(["check", graphUserDerefSourcePath]).stdout, "ok\n");
+const graphUserDerefView = zero(["graph", "view", graphUserDerefSourcePath]).stdout;
+assert.match(graphUserDerefView, /return deref\(wrapped\)\.x/);
+assert.doesNotMatch(graphUserDerefView, /return \*wrapped\.x/);
+assert.equal(zero(["graph", "view", "--out", graphUserDerefViewPath, graphUserDerefSourcePath]).stdout, "");
+assert.equal(zero(["check", graphUserDerefViewPath]).stdout, "ok\n");
+writeFileSync(graphPrefixDerefSourcePath, graphDerefMemberSource.replace("return deref(wrapped).x", "return (*wrapped).x"));
+assert.equal(zero(["check", graphPrefixDerefSourcePath]).stdout, "ok\n");
+const graphPrefixDerefView = zero(["graph", "view", graphPrefixDerefSourcePath]).stdout;
+assert.match(graphPrefixDerefView, /return \(\*wrapped\)\.x/);
+assert.equal(zero(["check", graphPrefixDerefSourcePath]).stdout, "ok\n");
+writeFileSync(graphPublicSumsSourcePath, [
+  "pub enum Mode: u8 {",
+  "    ready,",
+  "}",
+  "",
+  "pub choice Result {",
+  "    ok: i32,",
+  "    err: String,",
+  "}",
+  "",
+  "pub fn main() -> i32 {",
+  "    return 1",
+  "}",
+  "",
+].join("\n"));
+const graphPublicSumsDumpJson = json(["graph", "dump", "--json", graphPublicSumsSourcePath]).body;
+const graphPublicEnumNode = graphPublicSumsDumpJson.nodes.find((node) => node.kind === "Enum" && node.name === "Mode");
+const graphPublicChoiceNode = graphPublicSumsDumpJson.nodes.find((node) => node.kind === "Choice" && node.name === "Result");
+const graphPublicLiteralNode = graphPublicSumsDumpJson.nodes.find((node) => node.kind === "Literal" && node.type === "i32" && node.value === "1");
+assert.equal(graphPublicEnumNode?.public, true);
+assert.equal(graphPublicChoiceNode?.public, true);
+assert(graphPublicLiteralNode);
+const graphPublicSumsPatchJson = json([
+  "graph",
+  "patch",
+  "--json",
+  graphPublicSumsSourcePath,
+  "--expect-graph-hash",
+  graphPublicSumsDumpJson.graphHash,
+  "--op",
+  `set node="${graphPublicLiteralNode.id}" field="value" expect="1" value="2"`,
+]).body;
+assert.equal(graphPublicSumsPatchJson.ok, true);
+assert.equal(graphPublicSumsPatchJson.canonicalSource, true);
+assert.equal(graphPublicSumsPatchJson.saved.path, graphPublicSumsSourcePath);
+const graphPublicSumsText = readFileSync(graphPublicSumsSourcePath, "utf8");
+assert.match(graphPublicSumsText, /^pub enum Mode/m);
+assert.match(graphPublicSumsText, /^pub choice Result/m);
+assert.match(graphPublicSumsText, /return 2/);
+assert.equal(zero(["check", graphPublicSumsSourcePath]).stdout, "ok\n");
+writeFileSync(graphCommentsSourcePath, [
+  "// module comment",
+  "",
+  "pub fn main() -> i32 {",
+  "    // keep this comment",
+  "    return 1",
+  "}",
+  "",
+].join("\n"));
+const graphCommentsOriginal = readFileSync(graphCommentsSourcePath, "utf8");
+const graphCommentsDumpJson = json(["graph", "dump", "--json", graphCommentsSourcePath]).body;
+const graphCommentsLiteralNode = graphCommentsDumpJson.nodes.find((node) => node.kind === "Literal" && node.type === "i32" && node.value === "1");
+assert(graphCommentsLiteralNode);
+const graphCommentsPatchJson = json([
+  "graph",
+  "patch",
+  "--json",
+  graphCommentsSourcePath,
+  "--expect-graph-hash",
+  graphCommentsDumpJson.graphHash,
+  "--op",
+  `set node="${graphCommentsLiteralNode.id}" field="value" expect="1" value="2"`,
+], { allowFailure: true });
+assert.notEqual(graphCommentsPatchJson.code, 0);
+assert.equal(graphCommentsPatchJson.body.ok, false);
+assert.equal(graphCommentsPatchJson.body.diagnostics[0].code, "BLD002");
+assert.equal(graphCommentsPatchJson.body.diagnostics[0].message, "source-backed graph patch cannot preserve comments");
+assert.equal(readFileSync(graphCommentsSourcePath, "utf8"), graphCommentsOriginal);
 const graphInlinePatchJson = json([
   "graph",
   "patch",

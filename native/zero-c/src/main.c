@@ -527,7 +527,7 @@ static void append_parse_json(ZBuf *buf, const char *source_file, const Program 
     zbuf_append(buf, i == 0 ? "\n    " : ",\n    ");
     zbuf_append(buf, "{\"kind\":\"enum\",\"name\":");
     append_json_string(buf, item->name);
-    zbuf_appendf(buf, ",\"caseCount\":%zu,\"line\":%d,\"column\":%d}", item->cases.len, item->line, item->column);
+    zbuf_appendf(buf, ",\"public\":%s,\"caseCount\":%zu,\"line\":%d,\"column\":%d}", item->is_public ? "true" : "false", item->cases.len, item->line, item->column);
   }
   zbuf_append(buf, program && program->enums.len ? "\n  ],\n" : "],\n");
   zbuf_append(buf, "  \"choices\": [");
@@ -536,7 +536,7 @@ static void append_parse_json(ZBuf *buf, const char *source_file, const Program 
     zbuf_append(buf, i == 0 ? "\n    " : ",\n    ");
     zbuf_append(buf, "{\"kind\":\"choice\",\"name\":");
     append_json_string(buf, item->name);
-    zbuf_appendf(buf, ",\"caseCount\":%zu,\"line\":%d,\"column\":%d}", item->cases.len, item->line, item->column);
+    zbuf_appendf(buf, ",\"public\":%s,\"caseCount\":%zu,\"line\":%d,\"column\":%d}", item->is_public ? "true" : "false", item->cases.len, item->line, item->column);
   }
   zbuf_append(buf, program && program->choices.len ? "\n  ],\n" : "],\n");
   zbuf_append(buf, "  \"functions\": [");
@@ -9471,7 +9471,7 @@ static void append_graph_json(ZBuf *buf, SourceInput *input, Program *program, c
   for (size_t i = 0; i < program->enums.len; i++) {
     EnumDecl *item = &program->enums.items[i];
     if (i > 0) zbuf_append(buf, ", ");
-    zbuf_appendf(buf, "{\"name\":\"%s\",\"cases\":[", item->name);
+    zbuf_appendf(buf, "{\"name\":\"%s\",\"public\":%s,\"cases\":[", item->name, item->is_public ? "true" : "false");
     for (size_t case_index = 0; case_index < item->cases.len; case_index++) {
       if (case_index > 0) zbuf_append(buf, ", ");
       zbuf_appendf(buf, "\"%s\"", item->cases.items[case_index].name);
@@ -9482,7 +9482,7 @@ static void append_graph_json(ZBuf *buf, SourceInput *input, Program *program, c
   for (size_t i = 0; i < program->choices.len; i++) {
     Choice *item = &program->choices.items[i];
     if (i > 0) zbuf_append(buf, ", ");
-    zbuf_appendf(buf, "{\"name\":\"%s\",\"cases\":[", item->name);
+    zbuf_appendf(buf, "{\"name\":\"%s\",\"public\":%s,\"cases\":[", item->name, item->is_public ? "true" : "false");
     for (size_t case_index = 0; case_index < item->cases.len; case_index++) {
       if (case_index > 0) zbuf_append(buf, ", ");
       zbuf_appendf(buf, "{\"name\":\"%s\",\"type\":", item->cases.items[case_index].name);
@@ -9734,7 +9734,35 @@ static bool load_graph_input_for_patch(const Command *command, SourceInput *inpu
   return true;
 }
 
-static bool write_source_backed_graph(const Command *command, const ZProgramGraph *graph, ZDiag *diag) {
+static bool canonical_source_contains_comment(const SourceInput *input, ZDiag *diag) {
+  if (!input || !input->source) return false;
+  ZCanonicalTokenVec tokens = z_canonical_text_tokenize(input->source, diag);
+  if (diag && diag->code != 0) {
+    z_free_canonical_text_tokens(&tokens);
+    return true;
+  }
+  for (size_t i = 0; i < tokens.len; i++) {
+    if (tokens.items[i].kind != Z_CANON_TOKEN_COMMENT) continue;
+    if (diag) {
+      diag->code = 2002;
+      diag->path = input->source_file;
+      diag->line = tokens.items[i].line;
+      diag->column = tokens.items[i].column;
+      diag->length = tokens.items[i].length > 0 ? (int)tokens.items[i].length : 1;
+      snprintf(diag->message, sizeof(diag->message), "source-backed graph patch cannot preserve comments");
+      snprintf(diag->expected, sizeof(diag->expected), "canonical source without comments");
+      snprintf(diag->actual, sizeof(diag->actual), "comment token");
+      snprintf(diag->help, sizeof(diag->help), "remove comments before source-backed patching or patch a ProgramGraph artifact and apply the accepted source change manually");
+    }
+    z_free_canonical_text_tokens(&tokens);
+    return true;
+  }
+  z_free_canonical_text_tokens(&tokens);
+  return false;
+}
+
+static bool write_source_backed_graph(const Command *command, const ZProgramGraph *graph, const SourceInput *input, ZDiag *diag) {
+  if (canonical_source_contains_comment(input, diag)) return false;
   ZBuf source;
   zbuf_init(&source);
   bool ok = z_program_graph_append_view(&source, graph, command->input, diag);
@@ -10203,7 +10231,7 @@ static bool apply_graph_patch_source(const Command *command, bool has_file, bool
   return *inline_text && z_program_graph_apply_patch_text("<inline>", *inline_text, strlen(*inline_text), graph, result, diag);
 }
 
-static bool save_graph_patch_output(const Command *command, ZProgramGraph *graph, bool source_backed, const char **saved_path, ZDiag *diag) {
+static bool save_graph_patch_output(const Command *command, ZProgramGraph *graph, bool source_backed, const SourceInput *input, const char **saved_path, ZDiag *diag) {
   *saved_path = NULL;
   if (source_backed) {
     if (command->out) {
@@ -10218,7 +10246,7 @@ static bool save_graph_patch_output(const Command *command, ZProgramGraph *graph
       snprintf(diag->help, sizeof(diag->help), "omit --out when patching canonical source");
       return false;
     }
-    if (!write_source_backed_graph(command, graph, diag)) return false;
+    if (!write_source_backed_graph(command, graph, input, diag)) return false;
     *saved_path = command->input;
     return true;
   }
@@ -10281,7 +10309,7 @@ static int run_graph_patch_command(const Command *command, ZDiag *diag) {
     return 1;
   }
   const char *saved_path = NULL;
-  if (ok && !save_graph_patch_output(command, &graph, source_backed, &saved_path, diag)) {
+  if (ok && !save_graph_patch_output(command, &graph, source_backed, &input, &saved_path, diag)) {
     if (command->json) print_diag_json(diag->path ? diag->path : (command->out ? command->out : command->input), diag);
     else print_diag(diag->path ? diag->path : (command->out ? command->out : command->input), diag);
     free_graph_patch_state(inline_text, &result, original_hash, &program, &input, &graph);

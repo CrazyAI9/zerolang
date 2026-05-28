@@ -46,7 +46,7 @@ zero graph size --json .zero/out/hello.program-graph
 zero graph build --json --emit obj --target linux-musl-x64 --out .zero/out/hello.o .zero/out/hello.program-graph
 zero graph run .zero/out/hello.program-graph
 zero graph test --json .zero/out/hello.program-graph
-zero graph patch examples/hello.0 --expect-graph-hash graph:f76987e99677f1b3 --op 'set node="#610c78bf" field="value" expect="hello\n" value="hello patched\n"'
+zero graph patch .zero/out/hello.view.0 --expect-graph-hash graph:f76987e99677f1b3 --op 'set node="#610c78bf" field="value" expect="hello from zero\n" value="hello patched\n"'
 zero graph roundtrip examples/hello.0
 zero graph roundtrip .zero/out/hello.program-graph
 zero size --json examples/point.0
@@ -119,13 +119,15 @@ debug and interchange files.
 ## ProgramGraph Patches
 
 `zero graph patch` applies checked edits to a graph. When the input is
-canonical `.0` source, the command rewrites that source after lowering,
-formatting, re-parsing, and semantic graph comparison succeeds. For small edits,
-pass one or more operations inline:
+canonical `.0` source without comments, the command rewrites that source after
+lowering, formatting, re-parsing, and semantic graph comparison succeeds. Row
+syntax sources such as `examples/hello.0` should be rendered to a canonical view
+or patched as ProgramGraph artifacts. For small edits, pass one or more
+operations inline:
 
 ```sh
 zero graph patch \
-  examples/hello.0 \
+  .zero/out/hello.view.0 \
   --expect-graph-hash graph:f76987e99677f1b3 \
   --op 'set node="#610c78bf" field="value" expect="hello from zero\n" value="hello patched\n"'
 ```

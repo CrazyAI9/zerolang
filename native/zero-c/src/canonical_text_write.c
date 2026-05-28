@@ -94,7 +94,7 @@ static bool cw_bool_is_false(const Expr *expr) {
 }
 
 static bool cw_call_is_deref(const Expr *expr) {
-  return expr && expr->kind == EXPR_CALL && expr->left && expr->left->kind == EXPR_IDENT &&
+  return expr && expr->prefix_deref && expr->kind == EXPR_CALL && expr->left && expr->left->kind == EXPR_IDENT &&
          cw_text_eq(expr->left->text, "deref") && expr->args.len == 1;
 }
 
@@ -163,16 +163,14 @@ static void cw_append_expr_prec(CanonWriter *writer, const Expr *expr, int paren
     cw_append_expr_prec(writer, expr->left, 8, false);
     return;
   }
-  if (cw_call_is_deref(expr)) {
-    zbuf_append_char(writer->buf, '*');
-    cw_append_expr_prec(writer, expr->args.items[0], 8, false);
-    return;
-  }
-
-  int prec = cw_expr_precedence(expr);
+  bool prefix_deref = cw_call_is_deref(expr);
+  int prec = prefix_deref ? 8 : cw_expr_precedence(expr);
   bool grouped = prec > 0 && (prec < parent_prec || (right_assoc && prec == parent_prec));
   if (grouped) zbuf_append_char(writer->buf, '(');
-  switch (expr->kind) {
+  if (prefix_deref) {
+    zbuf_append_char(writer->buf, '*');
+    cw_append_expr_prec(writer, expr->args.items[0], prec, false);
+  } else switch (expr->kind) {
     case EXPR_IDENT:
       cw_append_name(writer, expr->text);
       cw_append_type_args(writer, &expr->type_args);
@@ -525,6 +523,7 @@ static void cw_append_interface(CanonWriter *writer, const InterfaceDecl *item) 
 }
 
 static void cw_append_enum(CanonWriter *writer, const EnumDecl *item) {
+  if (item->is_public) zbuf_append(writer->buf, "pub ");
   zbuf_append(writer->buf, "enum ");
   cw_append_name(writer, item->name);
   if (item->type && item->type[0]) {
@@ -541,6 +540,7 @@ static void cw_append_enum(CanonWriter *writer, const EnumDecl *item) {
 }
 
 static void cw_append_choice(CanonWriter *writer, const Choice *item) {
+  if (item->is_public) zbuf_append(writer->buf, "pub ");
   zbuf_append(writer->buf, "choice ");
   cw_append_name(writer, item->name);
   zbuf_append(writer->buf, " {\n");
