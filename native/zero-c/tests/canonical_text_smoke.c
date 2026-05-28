@@ -1094,8 +1094,8 @@ static void rejects_noncanonical_spellings(void) {
   expect_rejects("fn bad() -> Void {\n    let text: String = \"hello\\\x0aworld\"\n}\n", "escaped string newline");
   expect_rejects("fn bad() -> Void {\n    let text: String = \"hello\rworld\"\n}\n", "raw carriage return string newline");
   expect_rejects("fn bad() -> Void {\n    let text: String = \"hello\\xZZ\"\n}\n", "malformed hex string escape");
-  expect_rejects("fn bad() -> Void {\n    let value: i32 = 123abc\n}\n", "malformed number literal");
-  expect_rejects("fn bad() -> Void {\n    let value: i32 = 0b102\n}\n", "malformed radix number literal");
+  expect_accepts("fn bad() -> Void {\n    let value: i32 = 123abc\n}\n", "malformed number literal reaches typed diagnostics");
+  expect_accepts("fn bad() -> Void {\n    let value: i32 = 0b102\n}\n", "malformed radix number literal reaches typed diagnostics");
   expect_rejects("type Point {\n    x: i32,\n}\n\nfn bad() -> Void {\n    let point: Point = Point { 1: 2 }\n}\n", "numeric object field");
   expect_rejects("type Point {\n    x: i32,\n}\n\nfn bad() -> Void {\n    let point: Point = Point { x }\n}\n", "object field without value");
   expect_rejects("type Point {\n    x: i32,\n    y: i32,\n}\n\nfn bad() -> Void {\n    let point: Point = Point { x, y: 1 }\n}\n", "object field without value before comma");

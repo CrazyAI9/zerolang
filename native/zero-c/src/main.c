@@ -459,6 +459,20 @@ static const char *row_token_kind_name(ZRowTokenKind kind) {
   return "unknown";
 }
 
+static const char *canonical_token_kind_name(ZCanonicalTokenKind kind) {
+  switch (kind) {
+    case Z_CANON_TOKEN_WORD: return "word";
+    case Z_CANON_TOKEN_STRING: return "string";
+    case Z_CANON_TOKEN_CHAR: return "char";
+    case Z_CANON_TOKEN_NUMBER: return "number";
+    case Z_CANON_TOKEN_SYMBOL: return "symbol";
+    case Z_CANON_TOKEN_COMMENT: return "comment";
+    case Z_CANON_TOKEN_NEWLINE: return "newline";
+    case Z_CANON_TOKEN_EOF: return "eof";
+  }
+  return "unknown";
+}
+
 static void append_row_tokens_json(ZBuf *buf, const char *source_file, const ZRowTokenVec *tokens) {
   zbuf_append(buf, "{\n  \"schemaVersion\": 1,\n  \"sourceFile\": ");
   append_json_string(buf, source_file);
@@ -467,6 +481,29 @@ static void append_row_tokens_json(ZBuf *buf, const char *source_file, const ZRo
     const ZRowToken *token = &tokens->items[i];
     zbuf_append(buf, "    {\"kind\": ");
     append_json_string(buf, row_token_kind_name(token->kind));
+    zbuf_append(buf, ", \"text\": ");
+    append_json_string(buf, token->text);
+    zbuf_appendf(
+      buf,
+      ", \"line\": %d, \"column\": %d, \"offset\": %zu, \"length\": %zu}%s\n",
+      token->line,
+      token->column,
+      token->offset,
+      token->length,
+      i + 1 < tokens->len ? "," : ""
+    );
+  }
+  zbuf_append(buf, "  ]\n}\n");
+}
+
+static void append_canonical_tokens_json(ZBuf *buf, const char *source_file, const ZCanonicalTokenVec *tokens) {
+  zbuf_append(buf, "{\n  \"schemaVersion\": 1,\n  \"sourceFile\": ");
+  append_json_string(buf, source_file);
+  zbuf_append(buf, ",\n  \"syntax\": \"canonical\",\n  \"tokens\": [\n");
+  for (size_t i = 0; tokens && i < tokens->len; i++) {
+    const ZCanonicalToken *token = &tokens->items[i];
+    zbuf_append(buf, "    {\"kind\": ");
+    append_json_string(buf, canonical_token_kind_name(token->kind));
     zbuf_append(buf, ", \"text\": ");
     append_json_string(buf, token->text);
     zbuf_appendf(
@@ -2605,18 +2642,18 @@ static const char *diag_repair_id(int code) {
 static const char *diag_repair_summary(int code) {
   switch (code) {
     case 100: return "Repair the syntax at the reported parser span, then rerun zero check.";
-    case 1001: return "Add `!` or an explicit error set to the function signature, or handle the fallible expression with rescue.";
-    case 1002: return "Add the missing error name to the `![...]` set or rescue the call locally.";
+    case 1001: return "Add `raises` or an explicit error set to the function signature, or handle the fallible expression with rescue.";
+    case 1002: return "Add the missing error name to the `raises [...]` set or rescue the call locally.";
     case 1003: return "Wrap the fallible call in check or rescue so error flow is explicit.";
     case 7001: return "Change the import to a package-local module path that resolves under src/.";
     case 7002: return "Break the import cycle by moving shared declarations into a third module or removing one import edge.";
     case 3003: return "Declare the referenced symbol, import the module that provides it, or correct the identifier spelling.";
     case 3007: return "Change the returned expression or the function return annotation so both types agree.";
-    case 3010: return "Change the root binding to `mut` before passing it to a mutable API.";
+    case 3010: return "Change the root binding to `var` before passing it to a mutable API.";
     case 3011: return "Use one of the supported std helpers or add compiler support for the new helper.";
     case 3012: return "Pass the expected stdlib argument type, such as MutSpan<u8> for writable byte APIs.";
     case 3013: return "Stop using the moved binding, or keep ownership in the original binding until the final use.";
-    case 3014: return "Use the canonical non-raising drop signature: `fn drop Void self mutref<Self>`.";
+    case 3014: return "Use the canonical non-raising drop signature: `fn drop(self: mutref<Self>) -> Void`.";
     case 3015: return "Add the missing type argument, for example Maybe<u8> or Span<const u8>.";
     case 3029: return "End the active lexical borrow before taking a conflicting borrow or assigning to the borrowed root.";
     case 3030: return "Return an owned value, or keep references to local bindings inside the current function.";
@@ -2738,9 +2775,9 @@ static const ExplainInfo explain_infos[] = {
     "Mutable storage required",
     "A mutable API was given storage rooted in an immutable binding.",
     "`MutSpan<T>` and `mutref<T>` must come from storage that the source explicitly marks mutable.",
-    "Change the root binding to `mut`, or pass a writable `MutSpan<T>`/`mutref<T>` from another mutable owner.",
-    "let dst [4]u8 [0, 0, 0, 0]\nlet _copied std.mem.copy dst src",
-    "mut dst [4]u8 [0, 0, 0, 0]\nlet _copied std.mem.copy dst src",
+    "Change the root binding to `var`, or pass a writable `MutSpan<T>`/`mutref<T>` from another mutable owner.",
+    "let dst: [4]u8 = [0, 0, 0, 0]\nlet _copied: usize = std.mem.copy(dst, src)",
+    "var dst: [4]u8 = [0, 0, 0, 0]\nlet _copied: usize = std.mem.copy(dst, src)",
   },
   {
     "ERR002",
@@ -2748,9 +2785,9 @@ static const ExplainInfo explain_infos[] = {
     "Error set mismatch",
     "A caller with an explicit `![...]` set checked a callee that may raise an unlisted error.",
     "Public and explicit error sets are part of the function contract, so propagation must keep the set complete.",
-    "Add the missing error name to the caller's `![...]` set or handle the call locally with `rescue`.",
-    "pub fn main Void world World ![NotFound]\n  check std.fs.createOrRaise fs path",
-    "pub fn main Void world World ![NotFound TooLarge Io]\n  check std.fs.createOrRaise fs path",
+    "Add the missing error name to the caller's `raises [...]` set or handle the call locally with `rescue`.",
+    "pub fn main(world: World) -> Void raises [NotFound] {\n    check std.fs.createOrRaise(fs, path)\n}",
+    "pub fn main(world: World) -> Void raises [NotFound, TooLarge, Io] {\n    check std.fs.createOrRaise(fs, path)\n}",
   },
   {
     "ERR003",
@@ -2759,8 +2796,8 @@ static const ExplainInfo explain_infos[] = {
     "A fallible function or named-error stdlib helper was called without `check` or `rescue`.",
     "Zero keeps error flow visible in source and in function signatures.",
     "Wrap the call in `check`, or handle it locally with `rescue`.",
-    "let file std.fs.createOrRaise fs path",
-    "let file check std.fs.createOrRaise fs path",
+    "let file: owned<File> = std.fs.createOrRaise(fs, path)",
+    "let file: owned<File> = check std.fs.createOrRaise(fs, path)",
   },
   {
     "STD003",
@@ -3200,13 +3237,13 @@ static bool find_make_binding_mutable_edit(const char *source, int *line_out, ch
     size_t line_len = (size_t)(line_end - line_start);
     char *line_text = z_strndup(line_start, line_len);
     char *let_pos = strstr(line_text, "let ");
-    if (let_pos && !strstr(line_text, "mut ") && strchr(line_text, '[')) {
+    if (let_pos && !strstr(line_text, "var ") && strchr(line_text, '[')) {
       ZBuf replacement;
       zbuf_init(&replacement);
       size_t prefix_len = (size_t)(let_pos - line_text);
       char *prefix = z_strndup(line_text, prefix_len);
       zbuf_append(&replacement, prefix);
-      zbuf_append(&replacement, "mut ");
+      zbuf_append(&replacement, "var ");
       zbuf_append(&replacement, let_pos + strlen("let "));
       free(prefix);
       *line_out = line;
@@ -3679,6 +3716,8 @@ static const char *emit_kind_name(EmitKind emit) {
 
 static long long now_ms(void);
 static bool has_suffix(const char *path, const char *suffix);
+static bool direct_row_reserved_word(const char *text);
+static void direct_row_append_source(SourceInput *input, ZBuf *combined, const char *path, const char *source);
 
 static bool is_row_source_path(const char *path) {
   return path && (has_suffix(path, ".0") || has_suffix(path, ".row"));
@@ -3814,6 +3853,7 @@ static bool load_direct_row_source(const char *path, SourceInput *input, ZDiag *
   input->source_file = z_strdup(path);
   input->source = z_read_file(path, diag);
   if (!input->source) return false;
+  input->canonical_text_source = has_suffix(path, ".0");
   direct_input_add_source_metadata(input);
   return true;
 }
@@ -3950,6 +3990,168 @@ static bool direct_input_add_row_symbols(SourceInput *input, const ZRowTokenVec 
     if (!direct_input_push_symbol(input, module, kind, tokens->items[name_index].text, is_public, diag)) return false;
   }
   return !diag || diag->code == 0;
+}
+
+static bool direct_input_add_program_symbol(SourceInput *input, const char *module, const char *kind, const char *name, bool is_public, bool allow_internal_names, int line, int column, ZDiag *diag) {
+  if (!name || !name[0]) return true;
+  if (!allow_internal_names && direct_row_reserved_internal_symbol(name)) {
+    diag->code = 3008;
+    diag->line = line > 0 ? line : 1;
+    diag->column = column > 0 ? column : 1;
+    diag->length = (int)strlen(name);
+    if (diag->length <= 0) diag->length = 1;
+    snprintf(diag->message, sizeof(diag->message), "reserved compiler-internal symbol name");
+    snprintf(diag->expected, sizeof(diag->expected), "top-level %s name without the __zero_ prefix", kind);
+    snprintf(diag->actual, sizeof(diag->actual), "%s", name);
+    snprintf(diag->help, sizeof(diag->help), "rename the symbol; __zero_ names are reserved for compiler-provided helpers");
+    return false;
+  }
+  return direct_input_push_symbol(input, module, kind, name, is_public, diag);
+}
+
+static bool direct_input_add_program_symbols(SourceInput *input, const Program *program, const char *module, bool allow_internal_names, ZDiag *diag) {
+  for (size_t i = 0; program && i < program->aliases.len; i++) {
+    TypeAlias *item = &program->aliases.items[i];
+    if (!direct_input_add_program_symbol(input, module, "type-alias", item->name, item->is_public, allow_internal_names, item->line, item->column, diag)) return false;
+  }
+  for (size_t i = 0; program && i < program->consts.len; i++) {
+    ConstDecl *item = &program->consts.items[i];
+    if (!direct_input_add_program_symbol(input, module, "const", item->name, item->is_public, allow_internal_names, item->line, item->column, diag)) return false;
+  }
+  for (size_t i = 0; program && i < program->interfaces.len; i++) {
+    InterfaceDecl *item = &program->interfaces.items[i];
+    if (!direct_input_add_program_symbol(input, module, "interface", item->name, item->is_public, allow_internal_names, item->line, item->column, diag)) return false;
+  }
+  for (size_t i = 0; program && i < program->shapes.len; i++) {
+    Shape *item = &program->shapes.items[i];
+    if (!direct_input_add_program_symbol(input, module, "shape", item->name, item->is_public, allow_internal_names, item->line, item->column, diag)) return false;
+  }
+  for (size_t i = 0; program && i < program->enums.len; i++) {
+    EnumDecl *item = &program->enums.items[i];
+    if (!direct_input_add_program_symbol(input, module, "enum", item->name, item->is_public, allow_internal_names, item->line, item->column, diag)) return false;
+  }
+  for (size_t i = 0; program && i < program->choices.len; i++) {
+    Choice *item = &program->choices.items[i];
+    if (!direct_input_add_program_symbol(input, module, "choice", item->name, item->is_public, allow_internal_names, item->line, item->column, diag)) return false;
+  }
+  for (size_t i = 0; program && i < program->functions.len; i++) {
+    Function *item = &program->functions.items[i];
+    if (item->is_test) continue;
+    if (!direct_input_add_program_symbol(input, module, "function", item->name, item->is_public, allow_internal_names, item->line, item->column, diag)) return false;
+  }
+  return !diag || diag->code == 0;
+}
+
+static bool direct_canonical_token_text(const ZCanonicalTokenVec *tokens, size_t index, const char *text) {
+  return tokens && index < tokens->len && tokens->items[index].text && strcmp(tokens->items[index].text, text) == 0;
+}
+
+static bool direct_canonical_references_std_module(const ZCanonicalTokenVec *tokens, const char *name) {
+  for (size_t i = 0; tokens && name && i + 2 < tokens->len; i++) {
+    if (!direct_canonical_token_text(tokens, i, "std")) continue;
+    if (!direct_canonical_token_text(tokens, i + 1, ".")) continue;
+    if (direct_canonical_token_text(tokens, i + 2, name)) return true;
+  }
+  return false;
+}
+
+static bool direct_canonical_append_std_source(SourceInput *input, ZBuf *combined, const ZStdSourceModule *module, ZDiag *diag) {
+  if (!module) return true;
+  if (direct_input_has_file(input, module->path)) return true;
+  char *source = z_std_source_module_copy_source(module);
+  Program program = {0};
+  if (!z_parse_canonical_text_program_source(source, &program, diag)) {
+    if (!diag->path) diag->path = z_strdup(module->path);
+    z_free_program(&program);
+    free(source);
+    return false;
+  }
+  direct_input_push_string(&input->source_files, &input->source_file_count, module->path);
+  direct_input_push_module(input, module->module, module->path);
+  bool ok = direct_input_add_program_symbols(input, &program, module->module, true, diag);
+  if (ok) direct_row_append_source(input, combined, module->path, source);
+  z_free_program(&program);
+  free(source);
+  return ok && (!diag || diag->code == 0);
+}
+
+static bool direct_canonical_append_referenced_std_sources(SourceInput *input, ZBuf *combined, const ZCanonicalTokenVec *tokens, ZDiag *diag) {
+  for (size_t i = 0; i < z_std_source_module_count(); i++) {
+    const ZStdSourceModule *module = z_std_source_module_at(i);
+    if (!module || strncmp(module->module, "std.", strlen("std.")) != 0) continue;
+    const char *name = module->module + strlen("std.");
+    if (direct_canonical_references_std_module(tokens, name) && !direct_canonical_append_std_source(input, combined, module, diag)) return false;
+  }
+  return !diag || diag->code == 0;
+}
+
+static char *direct_canonical_module_path(const char *root, const char *module) {
+  ZBuf relative;
+  zbuf_init(&relative);
+  for (const char *cursor = module ? module : ""; *cursor; cursor++) {
+    zbuf_append_char(&relative, *cursor == '.' ? '/' : *cursor);
+  }
+  zbuf_append(&relative, ".0");
+  char *file_path = direct_join_path(root, relative.data);
+  if (direct_file_exists(file_path)) {
+    zbuf_free(&relative);
+    return file_path;
+  }
+  free(file_path);
+  if (relative.len >= 2 && strcmp(relative.data + relative.len - 2, ".0") == 0) {
+    relative.data[relative.len - 2] = 0;
+    relative.len -= 2;
+  }
+  char *dir_path = direct_join_path(root, relative.data);
+  char *mod_path = direct_join_path(dir_path, "mod.0");
+  free(dir_path);
+  zbuf_free(&relative);
+  if (direct_file_exists(mod_path)) return mod_path;
+  free(mod_path);
+  return NULL;
+}
+
+static bool direct_canonical_identifier_text(const char *text) {
+  if (!text || !text[0]) return false;
+  if (!(isalpha((unsigned char)text[0]) || text[0] == '_')) return false;
+  for (size_t i = 1; text[i]; i++) {
+    if (!(isalnum((unsigned char)text[i]) || text[i] == '_')) return false;
+  }
+  return !direct_row_reserved_word(text);
+}
+
+static bool direct_canonical_validate_import_module(const UseImport *item, ZDiag *diag) {
+  const char *module = item ? item->module : NULL;
+  if (!module || !module[0]) {
+    diag->code = 100;
+    diag->line = item && item->line > 0 ? item->line : 1;
+    diag->column = item && item->column > 0 ? item->column : 1;
+    diag->length = 1;
+    snprintf(diag->message, sizeof(diag->message), "expected import module name");
+    snprintf(diag->expected, sizeof(diag->expected), "import module name");
+    return false;
+  }
+
+  size_t segment_start = 0;
+  for (size_t i = 0;; i++) {
+    if (module[i] != '.' && module[i] != 0) continue;
+    size_t segment_len = i - segment_start;
+    char *segment = z_strndup(module + segment_start, segment_len);
+    bool ok = direct_canonical_identifier_text(segment);
+    free(segment);
+    if (!ok) {
+      diag->code = 100;
+      diag->line = item->line > 0 ? item->line : 1;
+      diag->column = item->column > 0 ? item->column : 1;
+      diag->length = item->end_column > item->column ? item->end_column - item->column : 1;
+      snprintf(diag->message, sizeof(diag->message), segment_start == 0 ? "expected import module name" : "expected import module segment");
+      snprintf(diag->expected, sizeof(diag->expected), segment_start == 0 ? "import module name" : "import module segment");
+      return false;
+    }
+    if (module[i] == 0) break;
+    segment_start = i + 1;
+  }
+  return true;
 }
 
 static bool parse_row_source_text(const char *source, Program *program, ZDiag *diag) {
@@ -4200,6 +4402,110 @@ static bool direct_row_append_referenced_std_sources(SourceInput *input, ZBuf *c
   return !diag || diag->code == 0;
 }
 
+static bool direct_canonical_resolve_file(const char *path, const char *root, SourceInput *input, ZBuf *combined, ZDiag *diag, char ***stack, size_t *stack_len) {
+  if (direct_input_has_file(input, path)) return true;
+  if (direct_row_stack_contains(*stack, *stack_len, path)) {
+    direct_row_set_cycle_diag(diag, root, *stack, *stack_len, path, path, 1, 1, 1);
+    return false;
+  }
+
+  char *source = z_read_file(path, diag);
+  if (!source) return false;
+  char *module = direct_row_module_name_from_path(root, path);
+  *stack = z_checked_reallocarray(*stack, *stack_len + 1, sizeof(char *));
+  (*stack)[(*stack_len)++] = z_strdup(path);
+
+  ZCanonicalTokenVec tokens = z_canonical_text_tokenize(source, diag);
+  Program program = {0};
+  if (diag->code == 0) program = z_parse_canonical_text_program(&tokens, diag);
+  if (diag->code != 0) {
+    if (!diag->path) diag->path = z_strdup(path);
+    z_free_program(&program);
+    z_free_canonical_text_tokens(&tokens);
+    free((*stack)[--(*stack_len)]);
+    free(module);
+    free(source);
+    return false;
+  }
+
+  if (!direct_canonical_append_referenced_std_sources(input, combined, &tokens, diag)) {
+    if (!diag->path) diag->path = z_strdup(path);
+  }
+
+  for (size_t i = 0; i < program.use_imports.len && diag->code == 0; i++) {
+    const UseImport *item = &program.use_imports.items[i];
+    if (!direct_canonical_validate_import_module(item, diag)) {
+      if (!diag->path) diag->path = z_strdup(path);
+      break;
+    }
+    if (strncmp(item->module, "std.", 4) == 0) continue;
+    direct_input_push_import(input, item->module);
+    char *import_path = direct_canonical_module_path(root, item->module);
+    if (!import_path) {
+      diag->code = 7001;
+      diag->path = z_strdup(path);
+      diag->line = item->line > 0 ? item->line : 1;
+      diag->column = item->column > 0 ? item->column : 1;
+      diag->length = item->end_column > item->column ? item->end_column - item->column : 1;
+      snprintf(diag->message, sizeof(diag->message), "unknown package-local import '%s'", item->module);
+      snprintf(diag->expected, sizeof(diag->expected), "%s.0 or %s/mod.0", item->module, item->module);
+      snprintf(diag->actual, sizeof(diag->actual), "missing source file");
+      snprintf(diag->help, sizeof(diag->help), "create the module source file or remove the import");
+      break;
+    }
+    int import_length = item->end_column > item->column ? item->end_column - item->column : 1;
+    if (direct_row_stack_contains(*stack, *stack_len, import_path)) {
+      direct_row_set_cycle_diag(diag, root, *stack, *stack_len, import_path, path, item->line, item->column, import_length);
+      free(import_path);
+      break;
+    }
+    direct_input_push_import_edge(input, module, item->module, import_path, path, item->line, item->column, import_length);
+    bool ok = direct_canonical_resolve_file(import_path, root, input, combined, diag, stack, stack_len);
+    free(import_path);
+    if (!ok) break;
+  }
+
+  if (diag->code == 0) {
+    direct_input_push_string(&input->source_files, &input->source_file_count, path);
+    direct_input_push_module(input, module, path);
+    bool allow_internal_names = direct_row_is_embedded_std_source_file(path, source);
+    if (allow_internal_names && input->source_file && strcmp(input->source_file, path) == 0) input->allow_missing_main = true;
+    if (direct_input_add_program_symbols(input, &program, module, allow_internal_names, diag)) {
+      direct_row_append_source(input, combined, path, source);
+    } else if (!diag->path) {
+      diag->path = z_strdup(path);
+    }
+  }
+
+  z_free_program(&program);
+  z_free_canonical_text_tokens(&tokens);
+  free((*stack)[--(*stack_len)]);
+  free(module);
+  free(source);
+  return diag->code == 0;
+}
+
+static bool resolve_direct_canonical_source_at_root(const char *path, const char *root, SourceInput *input, ZDiag *diag) {
+  input->source_file = z_strdup(path);
+  input->canonical_text_source = true;
+  ZBuf combined;
+  zbuf_init(&combined);
+  char **stack = NULL;
+  size_t stack_len = 0;
+  bool ok = direct_canonical_resolve_file(path, root, input, &combined, diag, &stack, &stack_len);
+  free(stack);
+  input->source = ok ? combined.data : NULL;
+  if (!ok) zbuf_free(&combined);
+  return ok;
+}
+
+static bool resolve_direct_canonical_source(const char *path, SourceInput *input, ZDiag *diag) {
+  char *root = direct_dirname_of(path);
+  bool ok = resolve_direct_canonical_source_at_root(path, root, input, diag);
+  free(root);
+  return ok;
+}
+
 static bool direct_row_resolve_file(const char *path, const char *root, SourceInput *input, ZBuf *combined, ZDiag *diag, char ***stack, size_t *stack_len) {
   if (direct_input_has_file(input, path)) return true;
   if (direct_row_stack_contains(*stack, *stack_len, path)) {
@@ -4371,7 +4677,11 @@ static bool resolve_direct_row_package_source(const char *input_path, SourceInpu
       ok = false;
     } else {
       char *src_root = direct_join_path(input->package_root, "src");
-      ok = resolve_direct_row_source_at_root(source_file, src_root, input, diag);
+      if (has_suffix(parsed_manifest.main_path, ".0")) {
+        ok = resolve_direct_canonical_source_at_root(source_file, src_root, input, diag);
+      } else {
+        ok = resolve_direct_row_source_at_root(source_file, src_root, input, diag);
+      }
       free(src_root);
     }
     free(source_file);
@@ -4455,6 +4765,12 @@ static bool compile_input(const char *input_path, const ZTargetInfo *target, Sou
   long long phase_started = now_ms();
   bool handled_row_package = false;
   if (resolve_direct_row_package_source(input_path, input, diag, &handled_row_package)) {
+    if (input->canonical_text_source) {
+      bool parsed_canonical = false;
+      if (try_check_canonical_text_input(target, input, program, diag, phase_started, &parsed_canonical)) return true;
+      if (!parsed_canonical) z_map_source_diag(input, diag);
+      return false;
+    }
     return check_row_input(target, input, program, diag, phase_started);
   }
   if (handled_row_package) return false;
@@ -4463,18 +4779,11 @@ static bool compile_input(const char *input_path, const ZTargetInfo *target, Sou
     if (has_suffix(input_path, ".0")) {
       ZDiag canonical_diag = {0};
       bool parsed_canonical = false;
-      if (!load_direct_row_source(input_path, input, diag)) return false;
+      if (!resolve_direct_canonical_source(input_path, input, diag)) return false;
       if (try_check_canonical_text_input(target, input, program, &canonical_diag, phase_started, &parsed_canonical)) return true;
-      if (parsed_canonical) {
-        if (diag) *diag = canonical_diag;
-        z_map_source_diag(input, diag);
-        return false;
-      }
-      z_free_program(program);
-      z_free_source(input);
-      memset(input, 0, sizeof(*input));
-      memset(program, 0, sizeof(*program));
-      memset(diag, 0, sizeof(*diag));
+      if (!parsed_canonical) z_map_source_diag(input, &canonical_diag);
+      if (diag) *diag = canonical_diag;
+      return false;
     }
     if (!resolve_direct_row_source(input_path, input, diag)) return false;
     return check_row_input(target, input, program, diag, phase_started);
@@ -6058,16 +6367,20 @@ static bool create_cli_template(const char *root, const char *name, ZDiag *diag)
   append_manifest(&manifest, name, "src/main.0");
   if (!write_project_buf(root, "zero.json", &manifest, diag)) return false;
   if (!write_project_file(root, "src/lib.0",
-    "pub fn greeting_code i32\n"
-    "  ret 42\n",
+    "pub fn greeting_code() -> i32 {\n"
+    "    return 42\n"
+    "}\n",
     diag)) return false;
   if (!write_project_file(root, "src/main.0",
     "use lib\n\n"
-    "pub fn main Void world World !\n"
-    "  if == greeting_code() 42\n"
-    "    check world.out.write \"hello from zero\\n\"\n\n"
-    "test \"greeting is stable\"\n"
-    "  expect (== greeting_code() 42)\n",
+    "pub fn main(world: World) -> Void raises {\n"
+    "    if greeting_code() == 42 {\n"
+    "        check world.out.write(\"hello from zero\\n\")\n"
+    "    }\n"
+    "}\n\n"
+    "test \"greeting is stable\" {\n"
+    "    expect greeting_code() == 42\n"
+    "}\n",
     diag)) return false;
   if (!write_project_file(root, "README.md",
     "# Zero CLI\n\n"
@@ -6092,10 +6405,12 @@ static bool create_lib_template(const char *root, const char *name, ZDiag *diag)
   append_manifest(&manifest, name, "src/lib.0");
   if (!write_project_buf(root, "zero.json", &manifest, diag)) return false;
   if (!write_project_file(root, "src/lib.0",
-    "pub fn add_one i32 value i32\n"
-    "  ret + value 1\n\n"
-    "test \"public api works\"\n"
-    "  expect (== (add_one 41) 42)\n",
+    "pub fn add_one(value: i32) -> i32 {\n"
+    "    return value + 1\n"
+    "}\n\n"
+    "test \"public api works\" {\n"
+    "    expect add_one(41) == 42\n"
+    "}\n",
     diag)) return false;
   if (!write_project_file(root, "README.md",
     "# Zero Library\n\n"
@@ -6118,25 +6433,31 @@ static bool create_package_template(const char *root, const char *name, ZDiag *d
   append_manifest(&manifest, name, "src/main.0");
   if (!write_project_buf(root, "zero.json", &manifest, diag)) return false;
   if (!write_project_file(root, "src/model.0",
-    "pub type Point\n"
-    "  value i32\n",
+    "pub type Point {\n"
+    "    value: i32,\n"
+    "}\n",
     diag)) return false;
   if (!write_project_file(root, "src/math.0",
-    "fn base i32 value i32\n"
-    "  ret value\n\n"
-    "pub fn add_one i32 value i32\n"
-    "  ret + (base value) 1\n",
+    "fn base(value: i32) -> i32 {\n"
+    "    return value\n"
+    "}\n\n"
+    "pub fn add_one(value: i32) -> i32 {\n"
+    "    return base(value) + 1\n"
+    "}\n",
     diag)) return false;
   if (!write_project_file(root, "src/main.0",
     "use math\n"
     "use model\n\n"
-    "pub fn main Void world World !\n"
-    "  let point Point . value (add_one 41)\n"
-    "  if == point.value 42\n"
-    "    check world.out.write \"package ok\\n\"\n\n"
-    "test \"package import works\"\n"
-    "  let point Point . value (add_one 41)\n"
-    "  expect (== point.value 42)\n",
+    "pub fn main(world: World) -> Void raises {\n"
+    "    let point: Point = Point { value: add_one(41) }\n"
+    "    if point.value == 42 {\n"
+    "        check world.out.write(\"package ok\\n\")\n"
+    "    }\n"
+    "}\n\n"
+    "test \"package import works\" {\n"
+    "    let point: Point = Point { value: add_one(41) }\n"
+    "    expect point.value == 42\n"
+    "}\n",
     diag)) return false;
   if (!write_project_file(root, "README.md",
     "# Zero Package\n\n"
@@ -10940,7 +11261,18 @@ int main(int argc, char **argv) {
       return 1;
     }
     diag.path = fmt_input.source_file;
-    char *formatted = format_row_source_text(fmt_input.source, &diag);
+    char *formatted = NULL;
+    if (fmt_input.canonical_text_source) {
+      ZBuf out;
+      zbuf_init(&out);
+      if (z_canonical_text_format_source(fmt_input.source, &out, &diag)) {
+        formatted = out.data;
+      } else {
+        zbuf_free(&out);
+      }
+    } else {
+      formatted = format_row_source_text(fmt_input.source, &diag);
+    }
     if (!formatted || diag.code != 0) {
       z_map_source_diag(&fmt_input, &diag);
       if (command.json) print_diag_json(diag.path ? diag.path : command.input, &diag);
@@ -10980,27 +11312,51 @@ int main(int argc, char **argv) {
       return 1;
     }
     diag.path = token_input.source_file;
-    ZRowTokenVec tokens = z_row_tokenize(token_input.source, &diag);
-    if (diag.code != 0) {
-      z_map_source_diag(&token_input, &diag);
-      if (command.json) print_diag_json(diag.path ? diag.path : command.input, &diag);
-      else print_diag(diag.path ? diag.path : command.input, &diag);
-      z_free_row_tokens(&tokens);
-      z_free_source(&token_input);
-      return 1;
-    }
-    if (command.json) {
-      ZBuf buf;
-      zbuf_init(&buf);
-      append_row_tokens_json(&buf, token_input.source_file, &tokens);
-      fputs(buf.data, stdout);
-      zbuf_free(&buf);
-    } else {
-      for (size_t i = 0; i < tokens.len; i++) {
-        printf("%s %s %d:%d\n", row_token_kind_name(tokens.items[i].kind), tokens.items[i].text, tokens.items[i].line, tokens.items[i].column);
+    if (token_input.canonical_text_source) {
+      ZCanonicalTokenVec tokens = z_canonical_text_tokenize(token_input.source, &diag);
+      if (diag.code != 0) {
+        z_map_source_diag(&token_input, &diag);
+        if (command.json) print_diag_json(diag.path ? diag.path : command.input, &diag);
+        else print_diag(diag.path ? diag.path : command.input, &diag);
+        z_free_canonical_text_tokens(&tokens);
+        z_free_source(&token_input);
+        return 1;
       }
+      if (command.json) {
+        ZBuf buf;
+        zbuf_init(&buf);
+        append_canonical_tokens_json(&buf, token_input.source_file, &tokens);
+        fputs(buf.data, stdout);
+        zbuf_free(&buf);
+      } else {
+        for (size_t i = 0; i < tokens.len; i++) {
+          printf("%s %s %d:%d\n", canonical_token_kind_name(tokens.items[i].kind), tokens.items[i].text, tokens.items[i].line, tokens.items[i].column);
+        }
+      }
+      z_free_canonical_text_tokens(&tokens);
+    } else {
+      ZRowTokenVec tokens = z_row_tokenize(token_input.source, &diag);
+      if (diag.code != 0) {
+        z_map_source_diag(&token_input, &diag);
+        if (command.json) print_diag_json(diag.path ? diag.path : command.input, &diag);
+        else print_diag(diag.path ? diag.path : command.input, &diag);
+        z_free_row_tokens(&tokens);
+        z_free_source(&token_input);
+        return 1;
+      }
+      if (command.json) {
+        ZBuf buf;
+        zbuf_init(&buf);
+        append_row_tokens_json(&buf, token_input.source_file, &tokens);
+        fputs(buf.data, stdout);
+        zbuf_free(&buf);
+      } else {
+        for (size_t i = 0; i < tokens.len; i++) {
+          printf("%s %s %d:%d\n", row_token_kind_name(tokens.items[i].kind), tokens.items[i].text, tokens.items[i].line, tokens.items[i].column);
+        }
+      }
+      z_free_row_tokens(&tokens);
     }
-    z_free_row_tokens(&tokens);
     z_free_source(&token_input);
     return 0;
   }
@@ -11020,7 +11376,11 @@ int main(int argc, char **argv) {
     }
     diag.path = parse_input.source_file;
     Program parsed = {0};
-    parse_row_source_text(parse_input.source, &parsed, &diag);
+    if (parse_input.canonical_text_source) {
+      z_parse_canonical_text_program_source(parse_input.source, &parsed, &diag);
+    } else {
+      parse_row_source_text(parse_input.source, &parsed, &diag);
+    }
     if (diag.code != 0) {
       z_map_source_diag(&parse_input, &diag);
       if (command.json) print_diag_json(diag.path ? diag.path : command.input, &diag);

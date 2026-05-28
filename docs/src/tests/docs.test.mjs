@@ -189,7 +189,7 @@ describe("docs registry", () => {
       assert.match(examples, new RegExp(releaseLoopTerm));
     }
     const learnZeroCleanup = await readDoc("learn-zero");
-    assert.match(learnZeroCleanup, /canonical non-raising `fn drop Void self mutref<Self>`/);
+    assert.match(learnZeroCleanup, /canonical non-raising `fn drop\(self: mutref<Self>\) -> Void`/);
     assert.doesNotMatch(learnZeroCleanup, /More advanced ownership and `?\.drop\(\)`? behavior is still implementation work/);
     assert.match(buildingFromSource, /Building From Source/);
     for (const demoTerm of ["--release tiny", "fixed-capacity", "vtables", "generic registries", "hello-linux-musl", "hello-win32", "target report", "artifact size"]) {

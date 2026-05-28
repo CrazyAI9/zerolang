@@ -19,8 +19,9 @@ writes it to `$HOME/.zero/bin/zero`.
 Create `hello.0`:
 
 ```zero
-pub fn main Void world World !
-  check world.out.write "hello from zero\n"
+pub fn main(world: World) -> Void raises {
+    check world.out.write("hello from zero\n")
+}
 ```
 
 Run the checker:
@@ -45,15 +46,18 @@ instead of reading a hidden global process object.
 Create `add.0`:
 
 ```zero
-fn answer i32
-  ret + 40 2
+fn answer() -> i32 {
+    return 40 + 2
+}
 
-pub fn main Void world World !
-  let value answer()
-  if == value 42
-    check world.out.write "math works\n"
-  else
-    check world.out.write "math broke\n"
+pub fn main(world: World) -> Void raises {
+    let value: i32 = answer()
+    if value == 42 {
+        check world.out.write("math works\n")
+    } else {
+        check world.out.write("math broke\n")
+    }
+}
 ```
 
 Run it:

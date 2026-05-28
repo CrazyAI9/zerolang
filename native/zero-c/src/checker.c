@@ -5652,7 +5652,7 @@ static bool check_stdlib_fs_read_call_expected(CheckContext *ctx, const Program 
 }
 
 static bool check_stdlib_fs_read_all_call_expected(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, ZCallResolution *resolution, const char *name, ZStdHelperKind kind) {
-  if (!check_stdlib_allocator_arg(ctx, program, expr, scope, diag, resolution, 0, "std.fs.readAll", "pass an explicit allocator; no global filesystem allocator is available", "store the fixed buffer allocator in a mut binding before reading")) return false;
+  if (!check_stdlib_allocator_arg(ctx, program, expr, scope, diag, resolution, 0, "std.fs.readAll", "pass an explicit allocator; no global filesystem allocator is available", "store the fixed buffer allocator in a var binding before reading")) return false;
   if (!check_stdlib_table_arg_range_expected(ctx, program, expr, scope, diag, name, 1, false, resolution)) return false;
   const char *return_type = kind == Z_STD_HELPER_KIND_FS_READ_ALL_OR_RAISE ? "owned<ByteBuf>" : "Maybe<owned<ByteBuf>>";
   set_expr_resolved_type(expr, return_type);
@@ -5661,7 +5661,7 @@ static bool check_stdlib_fs_read_all_call_expected(CheckContext *ctx, const Prog
 }
 
 static bool check_stdlib_json_parse_call_expected(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, ZCallResolution *resolution, const char *name, ZStdHelperKind kind) {
-  if (!check_stdlib_allocator_arg(ctx, program, expr, scope, diag, resolution, 0, name, "pass an explicit allocator; JSON parsing does not use a global allocator", "store the fixed buffer allocator in a mut binding before parsing JSON")) return false;
+  if (!check_stdlib_allocator_arg(ctx, program, expr, scope, diag, resolution, 0, name, "pass an explicit allocator; JSON parsing does not use a global allocator", "store the fixed buffer allocator in a var binding before parsing JSON")) return false;
   const char *expected = kind == Z_STD_HELPER_KIND_JSON_PARSE_BYTES ? "Span<u8>" : "String";
   if (!check_expr_expected(ctx, program, expr->args.items[1], scope, diag, expected)) return false;
   const char *actual = expr_type(ctx, program, expr->args.items[1], scope);
@@ -5692,9 +5692,9 @@ static bool check_stdlib_known_call_expected(CheckContext *ctx, const Program *p
     case Z_STD_HELPER_KIND_MEM_EQL_BYTES:
       return check_stdlib_mem_eql_bytes_call_expected(ctx, program, expr, scope, diag, resolution);
     case Z_STD_HELPER_KIND_MEM_ALLOC_BYTES:
-      return check_stdlib_allocator_len_call_expected(ctx, program, expr, scope, diag, resolution, name, "Maybe<MutSpan<u8>>", "allocation length must be an integer", "pass an integer byte count", "store the fixed buffer allocator in a mut binding before allocating");
+      return check_stdlib_allocator_len_call_expected(ctx, program, expr, scope, diag, resolution, name, "Maybe<MutSpan<u8>>", "allocation length must be an integer", "pass an integer byte count", "store the fixed buffer allocator in a var binding before allocating");
     case Z_STD_HELPER_KIND_MEM_BYTE_BUF:
-      return check_stdlib_allocator_len_call_expected(ctx, program, expr, scope, diag, resolution, name, "Maybe<owned<ByteBuf>>", "ByteBuf length must be an integer", "pass an integer byte count", "store the fixed buffer allocator in a mut binding before allocating a ByteBuf");
+      return check_stdlib_allocator_len_call_expected(ctx, program, expr, scope, diag, resolution, name, "Maybe<owned<ByteBuf>>", "ByteBuf length must be an integer", "pass an integer byte count", "store the fixed buffer allocator in a var binding before allocating a ByteBuf");
     case Z_STD_HELPER_KIND_FS_READ:
       return check_stdlib_fs_read_call_expected(ctx, program, expr, scope, diag, resolution);
     case Z_STD_HELPER_KIND_FS_READ_ALL:
@@ -5884,7 +5884,7 @@ static bool check_receiver_method_receiver_access(CheckContext *ctx, const Progr
   }
   if (receiver_requires_mut && !receiver_is_mutref) {
     if (!expr_is_addressable(receiver)) {
-      return set_diag_detail(diag, 3049, "receiver method requires an addressable mutable receiver", receiver->line, receiver->column, "mut record value", "temporary receiver", "store the value in a mut binding before calling the mutating method");
+      return set_diag_detail(diag, 3049, "receiver method requires an addressable mutable receiver", receiver->line, receiver->column, "var record value", "temporary receiver", "store the value in a var binding before calling the mutating method");
     }
     char root[128];
     if (expr_root_ident(receiver, root, sizeof(root)) && !scope_is_mutable(scope, root)) {
@@ -6163,7 +6163,7 @@ static bool check_expr_expected(CheckContext *ctx, const Program *program, const
         if (mutspan_element_text(expected, expected_element, sizeof(expected_element)) &&
             fixed_array_type_parts(actual, NULL, 0, actual_element, sizeof(actual_element))) {
           if (!scope_is_mutable(scope, expr->text)) {
-            return set_diag_detail(diag, 3010, "cannot create MutSpan from immutable array binding", expr->line, expr->column, "array binding declared with mut", "immutable array binding", "add mut to the array binding before creating a MutSpan");
+            return set_diag_detail(diag, 3010, "cannot create MutSpan from immutable array binding", expr->line, expr->column, "array binding declared with var", "immutable array binding", "change let to var before creating a MutSpan");
           }
           if (!types_compatible_in_scope(program, scope, expected_element, actual_element)) {
             return set_diag_detail(diag, 3006, "MutSpan element type does not match array element", expr->line, expr->column, expected_element, actual_element, "use a MutSpan with the same element type as the array");
@@ -6700,7 +6700,7 @@ static bool check_lvalue_target(CheckContext *ctx, const Program *program, const
         return set_diag_detail(diag, 3003, message, target->line, target->column, "visible mutable local", "no matching visible symbol", "declare the name before assigning it");
       }
       if (!scope_is_mutable(scope, target->text)) {
-        return set_diag_detail(diag, 3010, "cannot assign through immutable binding", target->line, target->column, "binding declared with mut", "immutable binding", "add mut to the root binding before assigning through it");
+        return set_diag_detail(diag, 3010, "cannot assign through immutable binding", target->line, target->column, "binding declared with var", "immutable binding", "change let to var before assigning through it");
       }
       const char *type = scope_type(scope, target->text);
       if (type_is_const(type)) {
