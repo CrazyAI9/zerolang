@@ -486,8 +486,8 @@ The native compiler validates explicit error flow:
 - A function with `raises [...]` may only raise listed errors.
 - Calling a fallible user function requires `check`.
 - Callers with explicit error sets must include every checked callee error.
-- `let value check fallible_call()` works for user fallible calls, `Maybe<T>`, and named-error `std.fs` helpers.
-- `let value rescue (expr) err fallback` works for the same simple cases and lowers to direct branches.
+- `let value: T = check fallible_call()` works for user fallible calls, `Maybe<T>`, and named-error `std.fs` helpers.
+- `let value: T = rescue expr err fallback` works for the same simple cases and lowers to direct branches.
 
 Zero does not use language-level exceptions.
 

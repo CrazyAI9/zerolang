@@ -2678,7 +2678,7 @@ static const char *diag_repair_summary(int code) {
     case 3046: return "Pass a concrete self value or explicit shape arguments so the method can specialize.";
     case 3047: return "Make every argument agree with the same generic shape instantiation.";
     case 3048: return "Call a declared receiver method, or use namespace syntax for static methods without self.";
-    case 3049: return "Store the receiver in an addressable binding and use `mut` for mutating methods.";
+    case 3049: return "Store the receiver in an addressable binding and declare it with `var` for mutating methods.";
     case 3102: return "Initialize the missing shape field or add a default to the shape declaration.";
     case 4004: return "Use zero targets --json to choose a direct-supported target, or request --emit obj when only object emission exists.";
     case 6002: return "Build for a target that provides the required capability, or move that capability behind a target-specific entry point.";
@@ -2806,8 +2806,8 @@ static const ExplainInfo explain_infos[] = {
     "A supported stdlib helper was called with an argument that does not match its implemented contract.",
     "The bootstrap stdlib surface is intentionally narrow, so helpers reject implicit conversions and unsupported capability shapes.",
     "Pass the exact expected argument type shown in the diagnostic, such as `MutSpan<u8>` for writable byte APIs.",
-    "std.mem.fill(bytes, 0_u8) // when bytes is immutable",
-    "mut bytes [4]u8 [0, 0, 0, 0]\nstd.mem.fill bytes 0_u8",
+    "let bytes: [4]u8 = [0, 0, 0, 0]\nlet _filled: usize = std.mem.fill(bytes, 0_u8)",
+    "var bytes: [4]u8 = [0, 0, 0, 0]\nlet _filled: usize = std.mem.fill(bytes, 0_u8)",
   },
   {
     "TYP023",
@@ -2856,8 +2856,8 @@ static const ExplainInfo explain_infos[] = {
     "A type alias is duplicated, malformed, or cyclic.",
     "Aliases are graph metadata and compile-time spelling only; they must resolve to concrete existing type forms without introducing runtime identity.",
     "Rename the alias or point it at a concrete non-cyclic type.",
-    "type A = B\ntype B = A",
-    "type Bytes = Span<u8>",
+    "alias A = B\nalias B = A",
+    "alias Bytes = Span<u8>",
   },
   {
     "TYP027",
@@ -2876,8 +2876,8 @@ static const ExplainInfo explain_infos[] = {
     "A public declaration omitted a concrete type annotation.",
     "Public surfaces must stay explicit so docs, graph JSON, and agents can repair uses without whole-body inference.",
     "Add the missing public type annotation.",
-    "pub const answer 42",
-    "pub const answer i32 42",
+    "pub const answer = 42",
+    "pub const answer: i32 = 42",
   },
   {
     "IFC001",
@@ -2896,8 +2896,8 @@ static const ExplainInfo explain_infos[] = {
     "A concrete shape used for a constrained generic call is missing a required static method.",
     "Zero does not create runtime interface values or vtables; satisfying an interface means the concrete shape already has the matching static method.",
     "Add the missing static method to the shape.",
-    "type Person\n  name String",
-    "type Person\n  name String\n\n  fn describe String self ref<Self>\n    ret self.name",
+    "type Person {\n    name: String,\n}",
+    "type Person {\n    name: String,\n    fn describe(self: ref<Self>) -> String {\n        return self.name\n    }\n}",
   },
   {
     "IFC003",
@@ -2906,8 +2906,8 @@ static const ExplainInfo explain_infos[] = {
     "A concrete static method has a different parameter count from the interface requirement.",
     "Static method calls are monomorphized directly, so the required signature must match before emission.",
     "Make the shape method use the same parameter count as the interface method.",
-    "fn describe String",
-    "fn describe String self ref<Self>",
+    "fn describe() -> String",
+    "fn describe(self: ref<Self>) -> String",
   },
   {
     "IFC004",
@@ -2916,8 +2916,8 @@ static const ExplainInfo explain_infos[] = {
     "A concrete static method returns a type that does not match the interface requirement.",
     "Constrained generic bodies rely on the interface return type without runtime adaptation.",
     "Change the concrete method return type to match the interface.",
-    "fn describe i32 self ref<Self>",
-    "fn describe String self ref<Self>",
+    "fn describe(self: ref<Self>) -> i32",
+    "fn describe(self: ref<Self>) -> String",
   },
   {
     "IFC005",
@@ -2926,8 +2926,8 @@ static const ExplainInfo explain_infos[] = {
     "A concrete static method parameter does not match the interface requirement.",
     "Interface checks are compile-time signature checks over concrete static methods.",
     "Change the concrete method parameter type to match the interface.",
-    "fn describe String self i32",
-    "fn describe String self ref<Self>",
+    "fn describe(self: i32) -> String",
+    "fn describe(self: ref<Self>) -> String",
   },
 	  {
 	    "STC001",
@@ -2936,8 +2936,8 @@ static const ExplainInfo explain_infos[] = {
 	    "A static value parameter uses a type outside the concrete V1 set.",
 	    "Static values are erased by monomorphization, so only integer, Bool, and enum values are accepted.",
 	    "Change the static parameter type to a concrete integer, Bool, or enum type.",
-	    "type Buf<static N: String>\n  len usize",
-	    "type Buf<static N: usize>\n  len usize",
+	    "type Buf<static N: String> {\n    len: usize,\n}",
+	    "type Buf<static N: usize> {\n    len: usize,\n}",
 	  },
 	  {
 	    "STC002",
@@ -3005,9 +3005,9 @@ static const ExplainInfo explain_infos[] = {
     "Receiver is not addressable or mutable enough",
     "A receiver-style method call needs an addressable value, and mutating methods need a mutable receiver.",
     "The compiler lowers receiver calls by passing an explicit ref<Self> or mutref<Self> argument to a direct C function.",
-    "Store the receiver in a binding and use `mut` before calling mutating methods.",
-    "vec.push(1)",
-    "mut vec FixedVec<u8,4> FixedVec . len 0 items [0, 0, 0, 0]\nvec.push 1",
+    "Store the receiver in an addressable `var` binding before calling mutating methods.",
+    "let vec: FixedVec<u8, 4> = FixedVec { len: 0, items: [0, 0, 0, 0] }\ncheck vec.push(1_u8)",
+    "var vec: FixedVec<u8, 4> = FixedVec { len: 0, items: [0, 0, 0, 0] }\ncheck vec.push(1_u8)",
   },
   {"BLD004", "build", "Direct backend target not buildable", "The selected direct backend cannot build this source, target, object format, architecture, or artifact kind.", "Target-aware buildability runs before object or executable emission and reports ordinary direct-backend limitations with structured blocker facts.", "Choose a target whose `zero targets --json` directBackend facts advertise the requested artifact, or simplify the program to the backend-supported subset.", "zero check --json --emit obj --target linux-arm64 examples/direct-call-add.0", "zero check --json --emit obj --target linux-x64 examples/direct-call-add.0"},
   {"CGEN004", "codegen", "Direct code generation invariant failed", "A direct emitter reached an internal code generation invariant after target buildability accepted the program.", "Ordinary unsupported targets and source features should be reported before emission with BLD004.", "Report this compiler bug with the source program and target that produced it.", "zero build --json --emit obj --target linux-musl-x64 examples/direct-call-add.0", "zero build --json --emit obj --target linux-x64 examples/direct-call-add.0"},

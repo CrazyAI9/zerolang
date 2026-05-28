@@ -538,6 +538,28 @@ for (const [command, expected] of [
 ] as Array<[string[], RegExp]>) {
   assert.match(zero(command).stdout, expected);
 }
+
+for (const [code, goodExample, stalePattern] of [
+  ["STD003", "var bytes: [4]u8 = [0, 0, 0, 0]", /\bmut bytes\b|std\.mem\.fill bytes/],
+  ["TYP026", "alias Bytes = Span<u8>", /\btype [A-Z][A-Za-z0-9_]* =/],
+  ["PUB001", "pub const answer: i32 = 42", /pub const answer (42|i32 42)/],
+  ["IFC002", "fn describe(self: ref<Self>) -> String", /type Person\n|fn describe (String|i32)|ret self/],
+  ["IFC003", "fn describe(self: ref<Self>) -> String", /fn describe (String|i32)|ret self/],
+  ["IFC004", "fn describe(self: ref<Self>) -> String", /fn describe (String|i32)|ret self/],
+  ["IFC005", "fn describe(self: ref<Self>) -> String", /fn describe (String|i32)|ret self/],
+  ["STC001", "type Buf<static N: usize> {", /type Buf<static N: usize>\n|len usize/],
+  ["RCV002", "var vec: FixedVec<u8, 4>", /\bmut vec\b|vec\.push 1|use `mut`/],
+] as Array<[string, string, RegExp]>) {
+  const explanation = json(["explain", "--json", code]).body;
+  assert.equal(explanation.code, code);
+  assert(explanation.examples.good.includes(goodExample), `${code} explain good example should use canonical source`);
+  assert.doesNotMatch(
+    `${explanation.repair.summary}\n${explanation.examples.bad}\n${explanation.examples.good}`,
+    stalePattern,
+    `${code} explain examples should not use legacy row syntax`,
+  );
+}
+
 const graphHelp = zero(["graph", "--help"]).stdout;
 assert.match(graphHelp, /zero graph \[dump\|import\|validate\|roundtrip\] \[--json\] --out <program-graph-artifact> <input>/);
 assert.match(graphHelp, /zero graph view \[--json\] \[--out <file\.0>\] <program-graph-or-source>/);
