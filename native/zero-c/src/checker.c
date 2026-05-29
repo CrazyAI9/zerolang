@@ -170,6 +170,31 @@ static bool origin_path_equal(const char *left, const char *right) {
   return strcmp(origin_path_text(left), origin_path_text(right)) == 0;
 }
 
+static bool origin_path_contains_wildcard(const char *path) {
+  return strstr(origin_path_text(path), "[*]") != NULL;
+}
+
+static char *origin_path_generalize_indexes(const char *path) {
+  const char *source = origin_path_text(path);
+  char *out = z_checked_malloc(strlen(source) + 1);
+  size_t write = 0;
+  for (size_t read = 0; source[read]; read++) {
+    if (source[read] == '[') {
+      const char *close = strchr(source + read, ']');
+      if (close) {
+        out[write++] = '[';
+        out[write++] = '*';
+        out[write++] = ']';
+        read = (size_t)(close - source);
+        continue;
+      }
+    }
+    out[write++] = source[read];
+  }
+  out[write] = '\0';
+  return out;
+}
+
 static bool origin_path_segment_boundary(char ch) {
   return ch == '.' || ch == '[';
 }
@@ -682,6 +707,7 @@ static bool scope_is_param(Scope *scope, const char *name) {
 
 static bool scope_add_maybe_present(Scope *guard_scope, Scope *lookup_scope, const char *root, const char *path) {
   if (!guard_scope || !lookup_scope || !root || !root[0]) return false;
+  if (origin_path_contains_wildcard(path)) return false;
   Scope *root_scope = scope_binding_scope(lookup_scope, root);
   return place_vec_add(&guard_scope->maybe_present, root, root_scope, path);
 }
@@ -693,6 +719,7 @@ static void scope_add_maybe_present_all(Scope *target, Scope *source) {
 
 static bool scope_has_maybe_present(Scope *scope, const char *root, const char *path) {
   if (!scope || !root || !root[0]) return false;
+  if (origin_path_contains_wildcard(path)) return false;
   Scope *root_scope = scope_binding_scope(scope, root);
   for (Scope *cursor = scope; cursor; cursor = cursor->parent) {
     for (size_t i = 0; i < cursor->maybe_present.len; i++) {
@@ -1372,6 +1399,7 @@ static bool span_element_text(const char *type, char *out, size_t out_len);
 static bool fixed_array_type_parts(const char *type, char *length, size_t length_len, char *element, size_t element_len);
 static bool index_element_type(const char *base_type, char *out, size_t out_len);
 static bool types_compatible_in_scope(const Program *program, Scope *scope, const char *expected, const char *actual);
+static bool expr_addressable_storage_type(const Program *program, const Expr *expr, Scope *scope, char *out, size_t out_len);
 static bool place_storage_value_provenance_under_path(CheckContext *ctx, const Program *program, Scope *scope, const Place *place, const char *relative_path, ValueProvenance *out);
 static bool actual_storage_value_provenance_under_path(CheckContext *ctx, const Program *program, const Expr *actual, Scope *scope, const char *relative_path, ValueProvenance *out);
 static char *provenance_context_type_text(const CheckContext *ctx, const Program *program, const char *type, GenericBinding *bindings, size_t binding_len);
@@ -1394,6 +1422,15 @@ static bool reference_source_origin_is_local_storage(Scope *scope, const char *r
 
 static bool reference_place_origin_is_local_storage(Scope *scope, const char *root) {
   return !scope_is_param(scope, root);
+}
+
+static bool span_view_place_origin_is_local_storage(Scope *scope, const char *root) {
+  if (!scope_is_param(scope, root)) return true;
+  const char *root_type = scope_type(scope, root);
+  return !type_is_named_generic(root_type, "ref") &&
+         !type_is_named_generic(root_type, "mutref") &&
+         !type_is_named_generic(root_type, "Span") &&
+         !type_is_named_generic(root_type, "MutSpan");
 }
 
 static bool expr_value_provenance(const Expr *expr, Scope *scope, ValueProvenance *origins) {
@@ -1439,19 +1476,30 @@ static bool span_view_expr_provenance(CheckContext *ctx, const Program *program,
   char expected_element[128];
   if (!span_element_text(view_type, expected_element, sizeof(expected_element))) return false;
 
-  if (expr->kind == EXPR_IDENT && scope_has(scope, expr->text)) {
-    const char *actual = scope_type(scope, expr->text);
+  if (expr_is_addressable(expr)) {
+    char root[128];
+    char path[256];
+    const char *actual = expr_type(ctx, program, expr, scope);
     char actual_element[128];
-    if (fixed_array_type_parts(actual, NULL, 0, actual_element, sizeof(actual_element)) &&
-        types_compatible_in_scope(program, scope, expected_element, actual_element)) {
-      return value_provenance_add(origins, expr->text, scope_binding_scope(scope, expr->text), false, reference_source_origin_is_local_storage(scope, expr->text));
+    if (expr_binding_path(expr, root, sizeof(root), path, sizeof(path)) &&
+        scope_has(scope, root)) {
+      char storage_type[192];
+      const char *actual_storage = actual;
+      if (expr_addressable_storage_type(program, expr, scope, storage_type, sizeof(storage_type))) actual_storage = storage_type;
+      if (fixed_array_type_parts(actual_storage, NULL, 0, actual_element, sizeof(actual_element)) &&
+          types_compatible_in_scope(program, scope, expected_element, actual_element)) {
+        bool local_storage = path[0]
+          ? span_view_place_origin_is_local_storage(scope, root)
+          : reference_source_origin_is_local_storage(scope, root);
+        return value_provenance_add_full(origins, root, scope_binding_scope(scope, root), false, local_storage, NULL, path);
+      }
     }
-    if (scope_is_param(scope, expr->text) &&
+    if (expr->kind == EXPR_IDENT &&
+        scope_is_param(scope, expr->text) &&
         span_element_text(actual, actual_element, sizeof(actual_element)) &&
         types_compatible_in_scope(program, scope, expected_element, actual_element)) {
       return value_provenance_add(origins, expr->text, scope_binding_scope(scope, expr->text), false, false);
     }
-    return false;
   }
 
   if (expr->kind != EXPR_SLICE || !expr->left) return false;
@@ -1467,7 +1515,7 @@ static bool span_view_expr_provenance(CheckContext *ctx, const Program *program,
   char root[128];
   char path[256];
   if (!expr_binding_path(expr->left, root, sizeof(root), path, sizeof(path)) || !scope_has(scope, root)) return false;
-  bool local_storage = path[0] ? reference_place_origin_is_local_storage(scope, root) : reference_source_origin_is_local_storage(scope, root);
+  bool local_storage = path[0] ? span_view_place_origin_is_local_storage(scope, root) : reference_source_origin_is_local_storage(scope, root);
   return value_provenance_add_full(origins, root, scope_binding_scope(scope, root), false, local_storage, NULL, path);
 }
 
@@ -3573,6 +3621,56 @@ static const Param *find_shape_field(const Shape *shape, const char *name) {
     if (strcmp(shape->fields.items[i].name, name) == 0) return &shape->fields.items[i];
   }
   return NULL;
+}
+
+static bool expr_addressable_storage_type(const Program *program, const Expr *expr, Scope *scope, char *out, size_t out_len) {
+  if (!expr || !out || out_len == 0) return false;
+  switch (expr->kind) {
+    case EXPR_IDENT: {
+      const char *type = scope_type(scope, expr->text);
+      if (!type) return false;
+      snprintf(out, out_len, "%s", type);
+      return true;
+    }
+    case EXPR_MEMBER: {
+      if (!expr->left || !expr->text) return false;
+      char left_type_storage[192];
+      if (!expr_addressable_storage_type(program, expr->left, scope, left_type_storage, sizeof(left_type_storage))) return false;
+      const char *left_type = left_type_storage;
+      char owned_left[192];
+      char ref_left[192];
+      if (owned_inner_text(left_type, owned_left, sizeof(owned_left))) left_type = owned_left;
+      if (ref_inner_text(left_type, ref_left, sizeof(ref_left))) left_type = ref_left;
+      const char *maybe_inner = NULL;
+      size_t maybe_inner_len = 0;
+      if (type_has_generic_arg(left_type, "Maybe", &maybe_inner, &maybe_inner_len)) {
+        if (strcmp(expr->text, "has") == 0) {
+          snprintf(out, out_len, "Bool");
+          return true;
+        }
+        if (strcmp(expr->text, "value") == 0) {
+          snprintf(out, out_len, "%.*s", (int)maybe_inner_len, maybe_inner);
+          return true;
+        }
+      }
+      const Shape *shape = find_shape_for_type(program, left_type);
+      if (!shape) return false;
+      const Param *field = find_shape_field(shape, expr->text);
+      if (!field) return false;
+      char *field_type = shape_field_type_for_owner(program, shape, left_type, field);
+      snprintf(out, out_len, "%s", field_type ? field_type : "Unknown");
+      free(field_type);
+      return true;
+    }
+    case EXPR_INDEX: {
+      if (!expr->left) return false;
+      char base_type[192];
+      if (!expr_addressable_storage_type(program, expr->left, scope, base_type, sizeof(base_type))) return false;
+      return index_element_type(base_type, out, out_len);
+    }
+    default:
+      return false;
+  }
 }
 
 static void meta_cache_free(MetaCache *cache) {
@@ -8251,21 +8349,44 @@ static bool expr_reference_provenance(CheckContext *ctx, const Program *program,
   }
   if (expr->kind == EXPR_SHAPE_LITERAL) {
     bool added = false;
+    const char *owner_type = expr->resolved_type ? expr->resolved_type : expr->text;
+    char owned_owner[160];
+    if (owned_inner_text(owner_type, owned_owner, sizeof(owned_owner))) owner_type = owned_owner;
+    const Shape *shape = find_shape_for_type(program, type_strip_const(owner_type));
+    if (!shape) shape = find_shape(program, expr->text);
     for (size_t i = 0; i < expr->fields.len; i++) {
+      FieldInit *field_init = &expr->fields.items[i];
+      char *field_type = NULL;
+      if (shape) {
+        const Param *shape_field = find_shape_field(shape, field_init->name);
+        if (shape_field) field_type = shape_field_type_for_owner(program, shape, owner_type, shape_field);
+      }
       ValueProvenance field_origins = {0};
-      if (expr_reference_provenance(ctx, program, expr->fields.items[i].value, scope, &field_origins)) {
-        if (value_provenance_add_all_with_prefix(origins, &field_origins, expr->fields.items[i].name)) added = true;
+      bool collected = expr_reference_provenance(ctx, program, field_init->value, scope, &field_origins);
+      if (!collected && field_type) {
+        collected = span_view_expr_provenance(ctx, program, field_init->value, scope, field_type, &field_origins);
+      }
+      if (collected) {
+        if (value_provenance_add_all_with_prefix(origins, &field_origins, field_init->name)) added = true;
       }
       value_provenance_free(&field_origins);
+      free(field_type);
     }
     return added;
   }
   if (expr->kind == EXPR_ARRAY_LITERAL) {
     bool added = false;
+    char element_type[160];
+    bool has_element_type = expr->resolved_type &&
+      fixed_array_type_parts(expr->resolved_type, NULL, 0, element_type, sizeof(element_type));
     size_t element_count = expr->array_repeat ? (expr->args.len > 0 ? 1 : 0) : expr->args.len;
     for (size_t i = 0; i < element_count; i++) {
       ValueProvenance item_origins = {0};
-      if (expr_reference_provenance(ctx, program, expr->args.items[i], scope, &item_origins)) {
+      bool collected = expr_reference_provenance(ctx, program, expr->args.items[i], scope, &item_origins);
+      if (!collected && has_element_type) {
+        collected = span_view_expr_provenance(ctx, program, expr->args.items[i], scope, element_type, &item_origins);
+      }
+      if (collected) {
         char element_path[40];
         snprintf(element_path, sizeof(element_path), "[%zu]", i);
         if (value_provenance_add_all_with_prefix(origins, &item_origins, element_path)) added = true;
@@ -8302,16 +8423,26 @@ static bool collect_assignment_target_places(const Expr *target, Scope *scope, P
   if (!expr_binding_path(target, root, sizeof(root), path, sizeof(path)) || !scope_has(scope, root)) return false;
 
   const char *root_type = scope_type(scope, root);
-  bool root_ref_like = type_is_named_generic(root_type, "ref") || type_is_named_generic(root_type, "mutref");
+  char storage_type[192];
+  const char *target_storage_type = root_type;
+  bool root_ref_like = false;
+  if (named_ref_inner_text(root_type, "ref", storage_type, sizeof(storage_type)) ||
+      named_ref_inner_text(root_type, "mutref", storage_type, sizeof(storage_type))) {
+    root_ref_like = true;
+    target_storage_type = storage_type;
+  }
+  bool root_view_like = type_is_named_generic(target_storage_type, "Span") || type_is_named_generic(target_storage_type, "MutSpan");
   bool added = false;
-  if (root_ref_like && origin_path_text(path)[0]) {
+  if ((root_ref_like || root_view_like) && origin_path_text(path)[0]) {
     ValueProvenance root_origins = {0};
     if (scope_copy_value_provenance(scope, root, &root_origins)) {
       for (size_t i = 0; i < root_origins.len; i++) {
         ProvenanceEntry *entry = &root_origins.items[i];
         if (origin_path_text(entry->value_path)[0]) continue;
-        char *target_path = origin_path_join(entry->origin.path, path);
+        char *generalized_path = root_view_like ? origin_path_generalize_indexes(path) : NULL;
+        char *target_path = origin_path_join(entry->origin.path, generalized_path ? generalized_path : path);
         if (place_vec_add(places, entry->origin.root, entry->origin.root_scope, target_path)) added = true;
+        free(generalized_path);
         free(target_path);
       }
     }
@@ -9349,6 +9480,14 @@ static bool check_stmt(CheckContext *ctx, const Program *program, const Function
     if (expr_binding_path(target, assigned_root, sizeof(assigned_root), assigned_path, sizeof(assigned_path)) && scope_has(scope, assigned_root)) {
       scope_clear_maybe_present_for_place(scope, assigned_root, assigned_path);
     }
+    PlaceVec assigned_places = {0};
+    if (collect_assignment_target_places(target, scope, &assigned_places)) {
+      for (size_t i = 0; i < assigned_places.len; i++) {
+        Place *place = &assigned_places.items[i];
+        scope_clear_maybe_present_for_place(scope, place->root, place->path);
+      }
+    }
+    place_vec_free(&assigned_places);
     return true;
   }
   if (stmt->kind == STMT_CHECK) {
