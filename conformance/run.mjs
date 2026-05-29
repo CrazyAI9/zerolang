@@ -4031,6 +4031,7 @@ for (const [fixture, code] of [
   ["function-mutref-local-reference-escape.0", /BOR002/],
   ["function-mutref-local-shape-reference-escape.0", /BOR002/],
   ["function-mutref-local-array-reference-escape.0", /BOR002/],
+  ["function-mutspan-local-reference-escape.0", /BOR002/],
   ["function-mutref-stored-reference-copy-origin.0", /BOR001/],
   ["static-interface-mutref-reference-origin.0", /BOR001/],
   ["nested-generic-mutref-reference-origin.0", /BOR001/],

@@ -8028,7 +8028,8 @@ static bool type_value_provenance_from_place(
     return added;
   }
   char element_type[160];
-  if (fixed_array_type_parts(type, NULL, 0, element_type, sizeof(element_type))) {
+  if (fixed_array_type_parts(type, NULL, 0, element_type, sizeof(element_type)) ||
+      span_element_text(type, element_type, sizeof(element_type))) {
     char *next_value_path = origin_path_join(value_path, "[*]");
     char *next_root_path = origin_path_join(root_path, "[*]");
     bool added = type_value_provenance_from_place(program, element_type, scope, root, root_scope, next_root_path, next_value_path, origins, depth + 1);
@@ -8782,7 +8783,7 @@ static bool function_provenance_summary(CheckContext *ctx, const Program *progra
     if (param->name) {
       char *param_type = return_provenance_type_text(program, param->type, bindings, binding_len);
       scope_add_param_decl(&scope, param->name, param_type ? param_type : "Unknown", param->line, param->column);
-      if (type_is_named_generic(param_type, "mutref")) {
+      if (type_is_named_generic(param_type, "mutref") || type_is_named_generic(param_type, "MutSpan")) {
         seed_param_storage_value_provenance(program, &scope, param->name, param_type ? param_type : "Unknown");
       }
       free(param_type);
@@ -8799,9 +8800,9 @@ static bool function_provenance_summary(CheckContext *ctx, const Program *progra
     const Param *param = &fun->params.items[param_index];
     if (!param->name) continue;
     char *param_type = call_param_type_text(program, fun, param_index, bindings, binding_len);
-    bool mutref_param = type_is_named_generic(param_type, "mutref");
+    bool mutating_param = type_is_named_generic(param_type, "mutref") || type_is_named_generic(param_type, "MutSpan");
     free(param_type);
-    if (!mutref_param) continue;
+    if (!mutating_param) continue;
     ValueProvenance value = {0};
     if (scope_copy_value_provenance(&scope, param->name, &value)) {
       for (size_t i = 0; i < value.len; i++) {
@@ -9160,9 +9161,9 @@ static bool apply_provenance_call_storage_effects(CheckContext *ctx, const Progr
   if (!complete) {
     for (size_t i = 0; i < resolution->callee->params.len; i++) {
       char *param_type = resolved_call_param_type_text(program, resolved, i);
-      bool mutref_param = type_is_named_generic(param_type, "mutref");
+      bool mutating_param = type_is_named_generic(param_type, "mutref") || type_is_named_generic(param_type, "MutSpan");
       free(param_type);
-      if (!mutref_param) continue;
+      if (!mutating_param) continue;
       provenance_storage_effect_vec_free(&effects);
       return set_diag_detail(diag, 3030, "cannot verify provenance effects for mutable parameter call", resolution->call_expr->line, resolution->call_expr->column, "complete provenance summary", "recursive or incomplete mutable parameter summary", "simplify the call cycle or keep reference-storing mutable calls non-recursive");
     }
@@ -9433,8 +9434,16 @@ static bool check_scalar_match(CheckContext *ctx, const Program *program, const 
   for (size_t arm_index = 0; arm_index < stmt->match_arms.len; arm_index++) {
     provenance_scope_snapshot_restore(before);
     Scope arm_scope = {.parent = scope};
-    scope_add_maybe_guards_from_condition_true(ctx, program, stmt->match_arms.items[arm_index].guard, scope, &arm_scope);
-    bool ok = check_stmt_vec_with_loop(ctx, program, fun, &stmt->match_arms.items[arm_index].body, &arm_scope, diag, loop_depth);
+    MatchArm *arm = &stmt->match_arms.items[arm_index];
+    if (is_bool && !arm->range_end) {
+      if (strcmp(arm->case_name, "true") == 0) {
+        scope_add_maybe_guards_from_condition_true(ctx, program, stmt->expr, scope, &arm_scope);
+      } else if (strcmp(arm->case_name, "false") == 0) {
+        scope_add_maybe_guards_from_condition_false(ctx, program, stmt->expr, scope, &arm_scope);
+      }
+    }
+    scope_add_maybe_guards_from_condition_true(ctx, program, arm->guard, scope, &arm_scope);
+    bool ok = check_stmt_vec_with_loop(ctx, program, fun, &arm->body, &arm_scope, diag, loop_depth);
     scope_free(&arm_scope);
     if (!ok) {
       provenance_scope_snapshot_restore(before);
@@ -9445,7 +9454,7 @@ static bool check_scalar_match(CheckContext *ctx, const Program *program, const 
       return false;
     }
     arm_states[arm_index] = provenance_scope_snapshot_capture(scope);
-    arm_continues[arm_index] = !stmt_vec_guarantees_exit(&stmt->match_arms.items[arm_index].body, fun->raises);
+    arm_continues[arm_index] = !stmt_vec_guarantees_exit(&arm->body, fun->raises);
   }
   provenance_scope_snapshot_restore_union(before, arm_states, arm_continues, stmt->match_arms.len);
   for (size_t i = 0; i < stmt->match_arms.len; i++) provenance_scope_snapshot_free(arm_states[i]);

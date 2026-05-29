@@ -14,6 +14,20 @@ fn read(flag: Bool) -> u8 {
     }
 }
 
+fn readSubject() -> u8 {
+    let bytes: [1]u8 = [2]
+    let value: Maybe<u8> = std.mem.get(bytes, 0)
+    match value.has {
+        true {
+            return value.value
+        }
+        false {
+            return 0_u8
+        }
+    }
+}
+
 pub fn main() -> Void {
     let byte: u8 = read(true)
+    let subject: u8 = readSubject()
 }
