@@ -3664,6 +3664,7 @@ for (const fixture of [
   "owned-field-copy-use-after-move.0",
   "owned-aggregate-copy-use-after-move.0",
   "owned-aggregate-array-repeat.0",
+  "owned-aggregate-root-use-after-move.0",
 ]) {
   const result = await execFileAsync(zero, ["check", `conformance/native/fail/${fixture}`]).catch((error) => error);
   assert.notEqual(result.code, 0);
@@ -3981,6 +3982,8 @@ for (const [fixture, code] of [
   ["maybe-value-guard-invalidated-by-receiver-call.0", /MEM002/],
   ["maybe-value-dynamic-index-guard.0", /MEM002/],
   ["maybe-value-mutspan-alias-invalidated.0", /MEM002/],
+  ["maybe-value-mutspan-call-invalidated.0", /MEM002/],
+  ["maybe-value-mutspan-condition-call-invalidated.0", /MEM002/],
   ["read-while-mutably-borrowed.0", /BOR001/],
   ["array-reference-borrow-origin.0", /BOR001/],
   ["return-array-reference-escape.0", /BOR002/],
@@ -3993,6 +3996,7 @@ for (const [fixture, code] of [
   ["span-field-return-local-array.0", /BOR002/],
   ["span-field-return-param-array.0", /BOR002/],
   ["span-shape-literal-return-local-array.0", /BOR002/],
+  ["span-choice-return-local-array.0", /BOR002/],
   ["check-array-reference-origin.0", /BOR001/],
   ["check-maybe-reference-origin.0", /BOR001/],
   ["rescue-reference-origin.0", /BOR001/],

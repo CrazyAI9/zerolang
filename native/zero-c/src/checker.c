@@ -745,6 +745,11 @@ static void scope_clear_maybe_present_in_scope_for_place(Scope *target, Scope *l
   place_vec_clear_for_place(&target->maybe_present, scope_binding_scope(lookup_scope, root), root, path);
 }
 
+static void scope_clear_maybe_present_in_scope_for_resolved_place(Scope *target, const Place *place) {
+  if (!target || !place || !place->root || !place->root[0]) return;
+  place_vec_clear_for_place(&target->maybe_present, place->root_scope, place->root, place->path);
+}
+
 static bool scope_add_moved_place(Scope *scope, const char *root, const char *path) {
   if (!scope || !root || !root[0]) return false;
   Scope *root_scope = scope_binding_scope(scope, root);
@@ -1403,6 +1408,7 @@ static bool expr_addressable_storage_type(const Program *program, const Expr *ex
 static bool place_storage_value_provenance_under_path(CheckContext *ctx, const Program *program, Scope *scope, const Place *place, const char *relative_path, ValueProvenance *out);
 static bool actual_storage_value_provenance_under_path(CheckContext *ctx, const Program *program, const Expr *actual, Scope *scope, const char *relative_path, ValueProvenance *out);
 static char *provenance_context_type_text(const CheckContext *ctx, const Program *program, const char *type, GenericBinding *bindings, size_t binding_len);
+static void scope_clear_maybe_guards_for_mutating_call_args(CheckContext *ctx, const Program *program, const Expr *call, Scope *scope);
 
 static bool borrow_expr_source_is_local_storage(const Expr *borrowed, Scope *scope, const char *root) {
   if (!scope_is_param(scope, root)) return true;
@@ -1625,6 +1631,7 @@ static bool type_is_named_generic(const char *type, const char *name) {
 }
 
 static void scope_clear_maybe_guards_for_expr_mutations(CheckContext *ctx, const Program *program, const Expr *expr, Scope *lookup_scope, Scope *guard_scope);
+static void scope_clear_maybe_guards_for_resolved_call_mutations(CheckContext *ctx, const Program *program, const Expr *call, Scope *lookup_scope, Scope *guard_scope);
 static bool resolve_receiver_shape_call(CheckContext *ctx, const Program *program, const Expr *call, Scope *scope, const char *receiver_type_hint, ZCallResolution *out);
 static bool shape_method_receiver_info(const Function *method, bool *requires_mut);
 
@@ -1747,6 +1754,7 @@ static void scope_clear_maybe_guards_for_expr_mutations(CheckContext *ctx, const
         z_call_resolution_free(&resolution);
       }
     }
+    scope_clear_maybe_guards_for_resolved_call_mutations(ctx, program, expr, lookup_scope, guard_scope);
   }
   scope_clear_maybe_guards_for_expr_mutations(ctx, program, expr->left, lookup_scope, guard_scope);
   scope_clear_maybe_guards_for_expr_mutations(ctx, program, expr->right, lookup_scope, guard_scope);
@@ -6662,7 +6670,7 @@ static bool check_expr_expected(CheckContext *ctx, const Program *program, const
           snprintf(message, sizeof(message), "type name '%s' cannot be used as a runtime value", expr->text);
           return set_diag_detail(diag, 3005, message, expr->line, expr->column, "runtime value", "type name", "use the type name in an annotation or constructor context");
         }
-        if (actual && type_is_owned(actual) && scope_is_moved(scope, expr->text)) {
+        if (actual && type_contains_owned(program, actual, 0) && scope_is_moved(scope, expr->text)) {
           char actual_detail[160];
           snprintf(actual_detail, sizeof(actual_detail), "%s was moved", expr->text);
           return set_diag_detail(diag, 3013, "owned value was already moved", expr->line, expr->column, "live owned binding", actual_detail, "stop using the old binding after transferring ownership");
@@ -6902,7 +6910,7 @@ static bool check_expr_expected(CheckContext *ctx, const Program *program, const
     }
     case EXPR_CALL:
       if (!check_call_expr_expected(ctx, program, expr, scope, diag, expected)) return false;
-      scope_clear_maybe_guards_for_mutable_borrow_args(expr, scope);
+      scope_clear_maybe_guards_for_mutating_call_args(ctx, program, expr, scope);
       return true;
     case EXPR_CAST: {
       if (!validate_type_form(expr->text, diag, expr->line, expr->column)) return false;
@@ -8079,7 +8087,8 @@ static bool choice_constructor_value_provenance(CheckContext *ctx, const Program
 
   ValueProvenance payload_origins = {0};
   bool added = false;
-  if (expr_reference_provenance(ctx, program, expr->args.items[0], scope, &payload_origins)) {
+  if (expr_reference_provenance(ctx, program, expr->args.items[0], scope, &payload_origins) ||
+      span_view_expr_provenance(ctx, program, expr->args.items[0], scope, item_case->type, &payload_origins)) {
     added = value_provenance_add_all_with_prefix(origins, &payload_origins, item_case->name);
   }
   value_provenance_free(&payload_origins);
@@ -8859,6 +8868,71 @@ static bool collect_effect_target_places(CheckContext *ctx, const Program *progr
     return place_vec_add(places, root, scope_binding_scope(scope, root), path);
   }
   return false;
+}
+
+static void scope_clear_maybe_guards_for_places(Scope *scope, const PlaceVec *places) {
+  if (!scope || !places) return;
+  for (size_t i = 0; i < places->len; i++) {
+    const Place *place = &places->items[i];
+    scope_clear_maybe_present_for_place(scope, place->root, place->path);
+  }
+}
+
+static void scope_clear_maybe_guards_for_mutating_actual(CheckContext *ctx, const Program *program, const Expr *actual, Scope *scope) {
+  if (!program || !actual || !scope) return;
+  PlaceVec places = {0};
+  if (collect_effect_target_places(ctx, program, actual, scope, &places)) {
+    scope_clear_maybe_guards_for_places(scope, &places);
+  }
+  place_vec_free(&places);
+}
+
+static void scope_clear_maybe_guards_for_resolved_call_mutations(CheckContext *ctx, const Program *program, const Expr *call, Scope *lookup_scope, Scope *guard_scope) {
+  if (!program || !call || call->kind != EXPR_CALL || !lookup_scope || !guard_scope) return;
+  ResolvedProvenanceCall resolved = {0};
+  if (!resolve_provenance_call(ctx, program, call, lookup_scope, expr_type(ctx, program, call, lookup_scope), ctx ? ctx->function : NULL, ctx ? ctx->return_provenance_expr_bindings : NULL, ctx ? ctx->return_provenance_expr_binding_len : 0, &resolved)) {
+    resolved_provenance_call_free(&resolved);
+    return;
+  }
+  const ZCallResolution *resolution = &resolved.resolution;
+  const Function *callee = resolution->callee;
+  for (size_t param_index = 0; callee && param_index < callee->params.len; param_index++) {
+    char *param_type = resolved_call_param_type_text(program, &resolved, param_index);
+    bool mutating_param = type_is_named_generic(param_type, "mutref") || type_is_named_generic(param_type, "MutSpan");
+    free(param_type);
+    if (!mutating_param) continue;
+    const Expr *actual = call_actual_for_param(call, resolution->receiver_expr, resolution->param_offset, param_index);
+    PlaceVec places = {0};
+    if (collect_effect_target_places(ctx, program, actual, lookup_scope, &places)) {
+      for (size_t i = 0; i < places.len; i++) {
+        scope_clear_maybe_present_in_scope_for_resolved_place(guard_scope, &places.items[i]);
+      }
+    }
+    place_vec_free(&places);
+  }
+  resolved_provenance_call_free(&resolved);
+}
+
+static void scope_clear_maybe_guards_for_mutating_call_args(CheckContext *ctx, const Program *program, const Expr *call, Scope *scope) {
+  if (!program || !call || call->kind != EXPR_CALL || !scope) return;
+  scope_clear_maybe_guards_for_mutable_borrow_args(call, scope);
+
+  ResolvedProvenanceCall resolved = {0};
+  if (!resolve_provenance_call(ctx, program, call, scope, expr_type(ctx, program, call, scope), ctx ? ctx->function : NULL, ctx ? ctx->return_provenance_expr_bindings : NULL, ctx ? ctx->return_provenance_expr_binding_len : 0, &resolved)) {
+    resolved_provenance_call_free(&resolved);
+    return;
+  }
+  const ZCallResolution *resolution = &resolved.resolution;
+  const Function *callee = resolution->callee;
+  for (size_t param_index = 0; callee && param_index < callee->params.len; param_index++) {
+    char *param_type = resolved_call_param_type_text(program, &resolved, param_index);
+    bool mutating_param = type_is_named_generic(param_type, "mutref") || type_is_named_generic(param_type, "MutSpan");
+    free(param_type);
+    if (!mutating_param) continue;
+    const Expr *actual = call_actual_for_param(call, resolution->receiver_expr, resolution->param_offset, param_index);
+    scope_clear_maybe_guards_for_mutating_actual(ctx, program, actual, scope);
+  }
+  resolved_provenance_call_free(&resolved);
 }
 
 static bool place_storage_value_provenance_under_path(CheckContext *ctx, const Program *program, Scope *scope, const Place *place, const char *relative_path, ValueProvenance *out) {
