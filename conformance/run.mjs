@@ -3980,6 +3980,7 @@ for (const [fixture, code] of [
   ["maybe-value-nested-assignment-without-has.0", /MEM002/],
   ["maybe-value-guard-invalidated-by-condition-call.0", /MEM002/],
   ["maybe-value-temporary-without-has.0", /MEM002/],
+  ["maybe-value-branch-local-guard-leak.0", /MEM002/],
   ["maybe-value-guard-invalidated-by-receiver-call.0", /MEM002/],
   ["maybe-value-dynamic-index-guard.0", /MEM002/],
   ["maybe-value-mutspan-alias-invalidated.0", /MEM002/],

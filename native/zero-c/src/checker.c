@@ -714,7 +714,12 @@ static bool scope_add_maybe_present(Scope *guard_scope, Scope *lookup_scope, con
 
 static void scope_add_maybe_present_all(Scope *target, Scope *source) {
   if (!target || !source) return;
-  place_vec_add_all(&target->maybe_present, &source->maybe_present);
+  for (size_t i = 0; i < source->maybe_present.len; i++) {
+    Place *place = &source->maybe_present.items[i];
+    Scope *root_scope = scope_binding_scope(target, place->root);
+    if (!root_scope || (place->root_scope && place->root_scope != root_scope)) continue;
+    place_vec_add(&target->maybe_present, place->root, root_scope, place->path);
+  }
 }
 
 static bool scope_has_maybe_present(Scope *scope, const char *root, const char *path) {
