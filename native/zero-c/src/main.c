@@ -15,6 +15,7 @@
 #include "program_graph_roundtrip.h"
 #include "program_graph_size.h"
 #include "program_graph_view.h"
+#include "safety_contract.h"
 #include "std_sig.h"
 #include "std_source.h"
 
@@ -2154,6 +2155,7 @@ static void append_compile_time_json(ZBuf *buf, const Program *program, const So
 }
 
 static void append_program_graph_artifact_source_json(ZBuf *buf, const ZProgramGraphArtifactSource *source);
+static void append_safety_facts_json(ZBuf *buf, const char *profile);
 
 static void print_check_json_success(const char *path, SourceInput *input, const Program *program, const ZTargetInfo *target, const Command *command) {
   ZBuf buf;
@@ -2162,13 +2164,14 @@ static void print_check_json_success(const char *path, SourceInput *input, const
   append_json_string(&buf, path);
   if (command) append_program_graph_artifact_source_json(&buf, &command->graph_source);
   bool graph_input = command && z_program_graph_artifact_source_present(&command->graph_source);
+  const char *profile = command && command->profile ? command->profile : "release";
   CapabilitySummary caps = program_capabilities(program);
   ZMetaCacheStats meta = z_meta_cache_stats();
   char *manifest = read_optional_file("zero.json");
   zbuf_append(&buf, ",\n  \"package\": ");
   append_package_metadata_json(&buf, input, target);
   zbuf_append(&buf, ",\n  \"packageCache\": ");
-  append_package_cache_audit_json(&buf, input, target, "release");
+  append_package_cache_audit_json(&buf, input, target, profile);
   zbuf_append(&buf, ",\n  \"diagnostics\": [],\n  \"metaCache\": {");
   zbuf_appendf(&buf, "\n    \"hits\": %zu,\n    \"misses\": %zu,\n    \"entries\": %zu", meta.hits, meta.misses, meta.entries);
   append_hash_json(&buf, "sourceHash", fnv1a_text(input ? input->source : ""));
@@ -2178,17 +2181,19 @@ static void print_check_json_success(const char *path, SourceInput *input, const
   append_compile_time_json(&buf, program, input, target);
   zbuf_append(&buf, ",\n  \"targetReadiness\": ");
   append_target_readiness_json(&buf, input, program, target, command);
+  zbuf_append(&buf, ",\n  \"safetyFacts\": ");
+  append_safety_facts_json(&buf, profile);
   zbuf_append(&buf, ",\n  \"compilerPhases\": ");
   append_compiler_phases_json(&buf, input);
   zbuf_append(&buf, ",\n  \"compilerCaches\": ");
-  if (graph_input) append_compiler_caches_json_ex(&buf, input, target, "release", "program-graph", command->graph_source.graph_hash);
-  else append_compiler_caches_json(&buf, input, target, "release");
+  if (graph_input) append_compiler_caches_json_ex(&buf, input, target, profile, "program-graph", command->graph_source.graph_hash);
+  else append_compiler_caches_json(&buf, input, target, profile);
   zbuf_append(&buf, ",\n  \"interfaceFingerprints\": ");
   if (graph_input) append_interface_fingerprints_json_ex(&buf, input, target, command->graph_source.graph_hash);
   else append_interface_fingerprints_json(&buf, input, target);
   zbuf_append(&buf, ",\n  \"incrementalInvalidation\": ");
-  if (graph_input) append_incremental_invalidations_json_ex(&buf, input, target, "release", command->graph_source.artifact, command->graph_source.graph_hash, command->graph_source.lowering);
-  else append_incremental_invalidations_json(&buf, input, target, "release");
+  if (graph_input) append_incremental_invalidations_json_ex(&buf, input, target, profile, command->graph_source.artifact, command->graph_source.graph_hash, command->graph_source.lowering);
+  else append_incremental_invalidations_json(&buf, input, target, profile);
   zbuf_append(&buf, ",\n  \"selfHostRouting\": ");
   append_self_host_routing_json(&buf, "check", NULL, program, &caps, target);
   zbuf_append(&buf, "\n}\n");
@@ -3079,7 +3084,7 @@ static void append_backend_blocker_json(ZBuf *buf, const ZBackendBlocker *blocke
   zbuf_append(buf, "}");
 }
 
-static void print_diag_json(const char *path, const ZDiag *diag) {
+static void print_diag_json_ex(const char *path, const ZDiag *diag, const char *safety_profile) {
   ZBuf buf;
   zbuf_init(&buf);
   zbuf_append(&buf, "{\n  \"schemaVersion\": 1,\n  \"ok\": false,\n  \"diagnostics\": [\n    {\n");
@@ -3122,9 +3127,27 @@ static void print_diag_json(const char *path, const ZDiag *diag) {
     zbuf_append(&buf, "}");
   }
   zbuf_append(&buf, "]");
-  zbuf_append(&buf, "\n    }\n  ]\n}\n");
+  zbuf_append(&buf, "\n    }\n  ]");
+  if (safety_profile) {
+    zbuf_append(&buf, ",\n  \"safetyFacts\": ");
+    append_safety_facts_json(&buf, safety_profile);
+  }
+  zbuf_append(&buf, "\n}\n");
   fputs(buf.data, stdout);
   zbuf_free(&buf);
+}
+
+static void print_diag_json(const char *path, const ZDiag *diag) {
+  print_diag_json_ex(path, diag, NULL);
+}
+
+static void print_check_diag_json(const char *path, const ZDiag *diag, const char *profile) {
+  print_diag_json_ex(path, diag, profile ? profile : "release");
+}
+
+static void print_command_diag_json(const Command *command, const char *path, const ZDiag *diag) {
+  if (command && command->command && strcmp(command->command, "check") == 0) print_check_diag_json(path, diag, command->profile);
+  else print_diag_json(path, diag);
 }
 
 static void append_fix_plan_diagnostic(ZBuf *buf, const char *path, const ZDiag *diag) {
@@ -4309,13 +4332,13 @@ static bool load_format_source(const char *input_path, SourceInput *input, ZDiag
   return ok;
 }
 
-static bool finish_checked_source_input(const ZTargetInfo *target, SourceInput *input, Program *program, ZDiag *diag, long long parse_ms) {
+static bool finish_checked_source_input(const ZTargetInfo *target, const char *profile, SourceInput *input, Program *program, ZDiag *diag, long long parse_ms) {
   input->parse_ms = parse_ms;
   input->interface_ms = input->resolve_ms;
   input->parse_cache_hit = compiler_cache_touch("parse-tree", compile_cache_key(input, NULL, NULL, "parse-tree"));
   input->interface_cache_hit = compiler_cache_touch("interface", source_interface_hash(input));
   input->check_cache_hit = compiler_cache_touch("checked-body", compile_cache_key(input, target, NULL, "checked-body"));
-  input->specialization_cache_hit = compiler_cache_touch("specialization", compile_cache_key(input, target, "release", "specialization"));
+  input->specialization_cache_hit = compiler_cache_touch("specialization", compile_cache_key(input, target, profile ? profile : "release", "specialization"));
   z_set_check_target(target);
   long long phase_started = now_ms();
   bool checked = input->allow_missing_main ? z_check_program_library(program, diag) : z_check_program(program, diag);
@@ -4327,7 +4350,7 @@ static bool finish_checked_source_input(const ZTargetInfo *target, SourceInput *
   return true;
 }
 
-static bool try_check_canonical_text_input(const ZTargetInfo *target, SourceInput *input, Program *program, ZDiag *diag, long long resolve_started_ms, bool *parsed) {
+static bool try_check_canonical_text_input(const ZTargetInfo *target, const char *profile, SourceInput *input, Program *program, ZDiag *diag, long long resolve_started_ms, bool *parsed) {
   if (parsed) *parsed = false;
   input->resolve_ms = now_ms() - resolve_started_ms;
   diag->path = input->source_file;
@@ -4339,15 +4362,15 @@ static bool try_check_canonical_text_input(const ZTargetInfo *target, SourceInpu
   }
   input->canonical_text_source = true;
   if (parsed) *parsed = true;
-  return finish_checked_source_input(target, input, program, diag, now_ms() - phase_started);
+  return finish_checked_source_input(target, profile, input, program, diag, now_ms() - phase_started);
 }
 
-static bool compile_input(const char *input_path, const ZTargetInfo *target, SourceInput *input, Program *program, ZDiag *diag) {
+static bool compile_input(const char *input_path, const ZTargetInfo *target, const char *profile, SourceInput *input, Program *program, ZDiag *diag) {
   long long phase_started = now_ms();
   bool handled_package = false;
   if (resolve_direct_package_source(input_path, input, diag, &handled_package)) {
     bool parsed_canonical = false;
-    if (try_check_canonical_text_input(target, input, program, diag, phase_started, &parsed_canonical)) return true;
+    if (try_check_canonical_text_input(target, profile, input, program, diag, phase_started, &parsed_canonical)) return true;
     if (!parsed_canonical) z_map_source_diag(input, diag);
     return false;
   }
@@ -4357,7 +4380,7 @@ static bool compile_input(const char *input_path, const ZTargetInfo *target, Sou
     ZDiag canonical_diag = {0};
     bool parsed_canonical = false;
     if (!resolve_direct_canonical_source(input_path, input, diag)) return false;
-    if (try_check_canonical_text_input(target, input, program, &canonical_diag, phase_started, &parsed_canonical)) return true;
+    if (try_check_canonical_text_input(target, profile, input, program, &canonical_diag, phase_started, &parsed_canonical)) return true;
     if (!parsed_canonical) z_map_source_diag(input, &canonical_diag);
     if (diag) *diag = canonical_diag;
     return false;
@@ -4545,16 +4568,12 @@ static const char *profile_canonical_name(const char *profile) {
 }
 
 static const char *profile_overflow_policy(const char *profile) {
-  const char *canonical = profile_canonical_name(profile);
-  if (strcmp(canonical, "debug") == 0 || strcmp(canonical, "dev") == 0 || strcmp(canonical, "audit") == 0) return "checked";
-  if (strcmp(canonical, "tiny") == 0) return "abort-on-trap";
-  return "profile-defined-trap";
+  (void)profile;
+  return "literal-range-checked-runtime-unchecked";
 }
 
 static const char *profile_bounds_policy(const char *profile) {
-  const char *canonical = profile_canonical_name(profile);
-  if (strcmp(canonical, "release-fast") == 0) return "checked-with-optimizer-elision";
-  if (strcmp(canonical, "tiny") == 0) return "checked-minimal-trap";
+  (void)profile;
   return "checked";
 }
 
@@ -4623,6 +4642,15 @@ static const char *profile_symbol_policy(const char *profile) {
   if (strcmp(canonical, "audit") == 0) return "keep-public-and-audit-names";
   if (strcmp(canonical, "tiny") == 0) return "strip-all-unrequested-names";
   return "keep-public-names";
+}
+
+static void append_safety_facts_json(ZBuf *buf, const char *profile) {
+  const char *canonical = profile_canonical_name(profile);
+  ZSafetyFactsProfile facts = {
+    .canonical_profile = canonical,
+    .profile_key = profile_key_name(profile),
+  };
+  z_append_safety_facts_json(buf, &facts);
 }
 
 static int profile_max_hello_bytes(const char *profile) {
@@ -5475,6 +5503,8 @@ static void append_direct_memory_json(ZBuf *buf, const SourceInput *input, const
   append_json_string(buf, z_host_target());
   zbuf_append(buf, ",\n  \"profile\": ");
   append_json_string(buf, command && command->profile ? command->profile : "release");
+  zbuf_append(buf, ",\n  \"safetyFacts\": ");
+  append_safety_facts_json(buf, command && command->profile ? command->profile : "release");
   zbuf_append(buf, ",\n  \"generatedCBytes\": 0,\n  \"cBridgeFallback\": false,\n  \"loweredIrBytes\": ");
   zbuf_appendf(buf, "%zu", input ? input->lowered_ir_bytes : 0);
   zbuf_append(buf, ",\n  \"directFacts\": {\"functionCount\":");
@@ -5607,6 +5637,8 @@ static void print_build_json(const Command *command, const SourceInput *input, c
   else append_incremental_invalidations_json(&extra, input, target, command->profile);
   zbuf_append(&extra, ",\n  \"profileSemantics\": ");
   append_profile_semantics_json(&extra, command->profile);
+  zbuf_append(&extra, ",\n  \"safetyFacts\": ");
+  append_safety_facts_json(&extra, command->profile);
   zbuf_append(&extra, ",\n  \"profileCatalog\": ");
   append_profile_catalog_json(&extra);
   zbuf_append(&extra, ",\n  \"profileBudget\": ");
@@ -5711,6 +5743,10 @@ static bool write_ship_artifacts(const Command *command, const SourceInput *inpu
   append_json_string(&size, input ? input->source_file : "");
   zbuf_append(&size, ",\n  \"target\": ");
   append_json_string(&size, target ? target->name : z_host_target());
+  zbuf_append(&size, ",\n  \"profile\": ");
+  append_json_string(&size, command && command->profile ? command->profile : "release");
+  zbuf_append(&size, ",\n  \"safetyFacts\": ");
+  append_safety_facts_json(&size, command && command->profile ? command->profile : "release");
   zbuf_appendf(&size, ",\n  \"artifactBytes\": %lld,\n  \"loweredIrBytes\": %zu,\n  \"generatedCBytes\": 0,\n  \"sections\": [{\"name\":\"binary\",\"bytes\":%lld},{\"name\":\"lowered-ir\",\"bytes\":%zu}],\n  \"directFacts\": {\"functionCount\":%zu,\"readonlyDataBytes\":%zu,\"stackBytes\":%zu}\n}\n",
                artifacts->binary_bytes,
                input ? input->lowered_ir_bytes : 0,
@@ -5785,6 +5821,8 @@ static void print_ship_json(const Command *command, const SourceInput *input, co
   append_json_string(&buf, z_host_target());
   zbuf_append(&buf, ",\n  \"profile\": ");
   append_json_string(&buf, command ? command->profile : "release");
+  zbuf_append(&buf, ",\n  \"safetyFacts\": ");
+  append_safety_facts_json(&buf, command && command->profile ? command->profile : "release");
   zbuf_append(&buf, ",\n  \"emit\": \"exe\",\n  \"generatedCBytes\": 0,\n  \"cBridgeFallback\": false,\n  \"artifactPath\": ");
   append_json_string(&buf, artifacts ? artifacts->binary_path : "");
   zbuf_appendf(&buf, ",\n  \"artifactBytes\": %lld,\n  \"checksum\": {\"algorithm\":\"fnv1a64\",\"value\":\"%016llx\",\"path\":",
@@ -8155,6 +8193,7 @@ static void append_size_report_back_json(ZBuf *buf, const Command *command, Sour
   zbuf_append(buf, ",\n  \"compilerCaches\": "); append_compiler_caches_json_ex(buf, input, target, profile, graph_hash && graph_hash[0] ? "program-graph" : NULL, graph_hash);
   zbuf_append(buf, ",\n  \"incrementalInvalidation\": "); append_incremental_invalidations_json_ex(buf, input, target, profile, graph_artifact, graph_hash, graph_lowering);
   zbuf_append(buf, ",\n  \"profileSemantics\": "); append_profile_semantics_json(buf, profile);
+  zbuf_append(buf, ",\n  \"safetyFacts\": "); append_safety_facts_json(buf, profile);
   zbuf_append(buf, ",\n  \"profileCatalog\": "); append_profile_catalog_json(buf);
   zbuf_append(buf, ",\n  \"objectBackend\": "); append_object_backend_json(buf, input, target, command, "size");
   zbuf_append(buf, "\n}\n");
@@ -9017,10 +9056,18 @@ static void append_use_imports_json(ZBuf *buf, const SourceInput *input, const P
   zbuf_append(buf, "]");
 }
 
+static void append_graph_readiness_json(ZBuf *buf, SourceInput *input, Program *program, const ZTargetInfo *target, const Command *command) {
+  zbuf_append(buf, "  \"targetReadiness\": ");
+  append_target_readiness_json(buf, input, program, target, command);
+  zbuf_append(buf, ",\n  \"safetyFacts\": ");
+  append_safety_facts_json(buf, command && command->profile ? command->profile : "release");
+  zbuf_append(buf, ",\n");
+}
+
 static void append_graph_json(ZBuf *buf, SourceInput *input, Program *program, const ZTargetInfo *target, const Command *command) {
   CapabilitySummary caps = program_capabilities(program);
-  size_t public_count = 0;
-  size_t private_count = 0;
+  const char *profile = command && command->profile ? command->profile : "release";
+  size_t public_count = 0, private_count = 0;
   for (size_t i = 0; i < input->symbol_count; i++) {
     if (input->symbol_public[i]) public_count++;
     else private_count++;
@@ -9032,7 +9079,7 @@ static void append_graph_json(ZBuf *buf, SourceInput *input, Program *program, c
   zbuf_append(buf, "}],\n");
   zbuf_append(buf, "  \"package\": "); append_package_metadata_json(buf, input, target); zbuf_append(buf, ",\n");
   zbuf_append(buf, "  \"packageCache\": ");
-  append_package_cache_audit_json(buf, input, target, "release");
+  append_package_cache_audit_json(buf, input, target, profile);
   zbuf_append(buf, ",\n");
   zbuf_append(buf, "  \"targetSupport\": {\"target\":");
   append_json_string(buf, target ? target->name : "host");
@@ -9055,7 +9102,7 @@ static void append_graph_json(ZBuf *buf, SourceInput *input, Program *program, c
   zbuf_append(buf, ",\"httpRuntime\":");
   z_append_http_runtime_json(buf, target);
   zbuf_append(buf, "},\n");
-  zbuf_append(buf, "  \"targetReadiness\": "); append_target_readiness_json(buf, input, program, target, command); zbuf_append(buf, ",\n");
+  append_graph_readiness_json(buf, input, program, target, command);
   zbuf_append(buf, "  \"requiresCapabilities\": ");
   append_capability_json_array(buf, &caps);
   zbuf_append(buf, ",\n");
@@ -9391,9 +9438,9 @@ static void append_graph_json(ZBuf *buf, SourceInput *input, Program *program, c
   zbuf_append(buf, "],\n  \"compilerPhases\": ");
   append_compiler_phases_json(buf, input);
   zbuf_append(buf, ",\n  \"compilerCaches\": ");
-  append_compiler_caches_json(buf, input, target, "release");
+  append_compiler_caches_json(buf, input, target, profile);
   zbuf_append(buf, ",\n  \"incrementalInvalidation\": ");
-  append_incremental_invalidations_json(buf, input, target, "release");
+  append_incremental_invalidations_json(buf, input, target, profile);
   zbuf_append(buf, "\n}\n");
 }
 
@@ -9554,7 +9601,7 @@ static bool load_graph_from_checked_canonical_source_file(const char *path, Sour
   z_free_source(&parsed_input);
 
   const ZTargetInfo *host_target = z_find_target(z_host_target());
-  if (!compile_input(path, host_target, input, program, diag)) return false;
+  if (!compile_input(path, host_target, "release", input, program, diag)) return false;
   return graph_build_from_source_program(input, program, true, graph, diag);
 }
 
@@ -9723,6 +9770,8 @@ static void append_graph_check_json(
   bool include_readiness = source && program && ok;
   if (include_readiness) append_target_readiness_json(buf, source, program, target, command);
   else zbuf_append(buf, "null");
+  zbuf_append(buf, ",\n  \"safetyFacts\": ");
+  append_safety_facts_json(buf, command && command->profile ? command->profile : "release");
   zbuf_append(buf, ",\n  \"diagnostics\": [");
   if (!ok && diag) append_fix_plan_diagnostic(buf, diag->path ? diag->path : graph_check_diagnostic_path(command), diag);
   zbuf_append(buf, "],\n  \"saved\": ");
@@ -10673,7 +10722,7 @@ int main(int argc, char **argv) {
     snprintf(diag.expected, sizeof(diag.expected), "one of exe, obj");
     snprintf(diag.actual, sizeof(diag.actual), "--emit %s", command.invalid_emit);
     snprintf(diag.help, sizeof(diag.help), "use --emit exe or --emit obj");
-    if (command.json) print_diag_json(command.input, &diag);
+    if (command.json) print_command_diag_json(&command, command.input, &diag);
     else print_diag(command.input, &diag);
     return 1;
   }
@@ -10716,7 +10765,7 @@ int main(int argc, char **argv) {
     snprintf(diag.expected, sizeof(diag.expected), "one of zero targets");
     snprintf(diag.actual, sizeof(diag.actual), "%s", command.target);
     snprintf(diag.help, sizeof(diag.help), "run zero targets and choose a supported target name");
-    if (command.json) print_diag_json(command.input, &diag);
+    if (command.json) print_command_diag_json(&command, command.input, &diag);
     else print_diag(command.input, &diag);
     return 1;
   }
@@ -10730,7 +10779,7 @@ int main(int argc, char **argv) {
     snprintf(diag.expected, sizeof(diag.expected), "zero build --emit exe|obj <input>");
     snprintf(diag.actual, sizeof(diag.actual), command.legacy_backend ? "--legacy-backend" : "--emit c");
     snprintf(diag.help, sizeof(diag.help), "use direct emitters; C backend output is not a compatibility or debug path");
-    if (command.json) print_diag_json(command.input, &diag);
+    if (command.json) print_command_diag_json(&command, command.input, &diag);
     else print_diag(command.input, &diag);
     return 1;
   }
@@ -10746,7 +10795,7 @@ int main(int argc, char **argv) {
       snprintf(diag.expected, sizeof(diag.expected), "%s <input>", graph_run_command ? "zero graph run" : "zero run");
       snprintf(diag.actual, sizeof(diag.actual), "%s --json", graph_run_command ? "zero graph run" : "zero run");
       snprintf(diag.help, sizeof(diag.help), "program stdout belongs to the program; use %s --json to inspect the artifact before running it", graph_run_command ? "zero graph build" : "zero build");
-      print_diag_json(command.input, &diag);
+      print_command_diag_json(&command, command.input, &diag);
       return 1;
     }
     if (command.emit != EMIT_EXE) {
@@ -10791,14 +10840,14 @@ int main(int argc, char **argv) {
     snprintf(diag.expected, sizeof(diag.expected), "zero fix --plan, --patch, or --apply --json <input>");
     snprintf(diag.actual, sizeof(diag.actual), "zero fix without a mode");
     snprintf(diag.help, sizeof(diag.help), "rerun with --plan to inspect repairs, --patch to preview edits, or --apply for behavior-preserving edits");
-    if (command.json) print_diag_json(command.input, &diag);
+    if (command.json) print_command_diag_json(&command, command.input, &diag);
     else print_diag(command.input, &diag);
     return 1;
   }
 
   bool graph_command_artifact_input = false;
   if (!resolve_graph_command_manifest_input(&command, &graph_command_artifact_input, &diag)) {
-    if (command.json) print_diag_json(diag.path ? diag.path : command.input, &diag);
+    if (command.json) print_command_diag_json(&command, diag.path ? diag.path : command.input, &diag);
     else print_diag(diag.path ? diag.path : command.input, &diag);
     return 1;
   }
@@ -10815,12 +10864,12 @@ int main(int argc, char **argv) {
   if (strcmp(command.command, "fmt") == 0) {
     SourceInput fmt_input = {0};
     if (!load_format_source(command.input, &fmt_input, &diag)) {
-      if (command.json) print_diag_json(command.input, &diag);
+      if (command.json) print_command_diag_json(&command, command.input, &diag);
       else print_diag(diag.path ? diag.path : command.input, &diag);
       return 1;
     }
     if (!fmt_input.source) {
-      if (command.json) print_diag_json(command.input, &diag);
+      if (command.json) print_command_diag_json(&command, command.input, &diag);
       else print_diag(diag.path ? diag.path : command.input, &diag);
       z_free_source(&fmt_input);
       return 1;
@@ -10836,7 +10885,7 @@ int main(int argc, char **argv) {
     }
     if (!formatted || diag.code != 0) {
       z_map_source_diag(&fmt_input, &diag);
-      if (command.json) print_diag_json(diag.path ? diag.path : command.input, &diag);
+      if (command.json) print_command_diag_json(&command, diag.path ? diag.path : command.input, &diag);
       else print_diag(diag.path ? diag.path : command.input, &diag);
       free(formatted);
       z_free_source(&fmt_input);
@@ -10862,12 +10911,12 @@ int main(int argc, char **argv) {
   if (strcmp(command.command, "tokens") == 0) {
     SourceInput token_input = {0};
     if (!load_command_source(command.input, &token_input, &diag)) {
-      if (command.json) print_diag_json(command.input, &diag);
+      if (command.json) print_command_diag_json(&command, command.input, &diag);
       else print_diag(diag.path ? diag.path : command.input, &diag);
       return 1;
     }
     if (!token_input.source) {
-      if (command.json) print_diag_json(command.input, &diag);
+      if (command.json) print_command_diag_json(&command, command.input, &diag);
       else print_diag(diag.path ? diag.path : command.input, &diag);
       z_free_source(&token_input);
       return 1;
@@ -10876,7 +10925,7 @@ int main(int argc, char **argv) {
     ZCanonicalTokenVec tokens = z_canonical_text_tokenize(token_input.source, &diag);
     if (diag.code != 0) {
       z_map_source_diag(&token_input, &diag);
-      if (command.json) print_diag_json(diag.path ? diag.path : command.input, &diag);
+      if (command.json) print_command_diag_json(&command, diag.path ? diag.path : command.input, &diag);
       else print_diag(diag.path ? diag.path : command.input, &diag);
       z_free_canonical_text_tokens(&tokens);
       z_free_source(&token_input);
@@ -10901,12 +10950,12 @@ int main(int argc, char **argv) {
   if (strcmp(command.command, "parse") == 0) {
     SourceInput parse_input = {0};
     if (!load_command_source(command.input, &parse_input, &diag)) {
-      if (command.json) print_diag_json(command.input, &diag);
+      if (command.json) print_command_diag_json(&command, command.input, &diag);
       else print_diag(diag.path ? diag.path : command.input, &diag);
       return 1;
     }
     if (!parse_input.source) {
-      if (command.json) print_diag_json(command.input, &diag);
+      if (command.json) print_command_diag_json(&command, command.input, &diag);
       else print_diag(diag.path ? diag.path : command.input, &diag);
       z_free_source(&parse_input);
       return 1;
@@ -10916,7 +10965,7 @@ int main(int argc, char **argv) {
     z_parse_canonical_text_program_source(parse_input.source, &parsed, &diag);
     if (diag.code != 0) {
       z_map_source_diag(&parse_input, &diag);
-      if (command.json) print_diag_json(diag.path ? diag.path : command.input, &diag);
+      if (command.json) print_command_diag_json(&command, diag.path ? diag.path : command.input, &diag);
       else print_diag(diag.path ? diag.path : command.input, &diag);
       z_free_program(&parsed);
       z_free_source(&parse_input);
@@ -10939,7 +10988,7 @@ int main(int argc, char **argv) {
   const char *direct_graph_manifest_input = command.input;
   bool direct_graph_manifest_command = false;
   if (!resolve_direct_command_manifest_graph_input(&command, &direct_graph_manifest_command, &diag)) {
-    if (command.json) print_diag_json(diag.path ? diag.path : command.input, &diag);
+    if (command.json) print_command_diag_json(&command, diag.path ? diag.path : command.input, &diag);
     else print_diag(diag.path ? diag.path : command.input, &diag);
     return 1;
   }
@@ -10952,14 +11001,14 @@ int main(int argc, char **argv) {
   if (direct_graph_manifest_command || direct_graph_source_command || graph_build_command || graph_run_command || graph_test_command) {
     ZProgramGraphArtifactSource graph_source = {0};
     if (!z_program_graph_prepare_artifact_input(command.input, target, &program, &input, &graph_source, &diag)) {
-      if (command.json) print_diag_json(diag.path ? diag.path : command.input, &diag);
+      if (command.json) print_command_diag_json(&command, diag.path ? diag.path : command.input, &diag);
       else print_diag(diag.path ? diag.path : command.input, &diag);
       z_free_program(&program);
       z_free_source(&input);
       return 1;
     }
     if (direct_graph_manifest_command && !attach_manifest_metadata_to_graph_input(&input, direct_graph_manifest_input, &diag)) {
-      if (command.json) print_diag_json(diag.path ? diag.path : direct_graph_manifest_input, &diag);
+      if (command.json) print_command_diag_json(&command, diag.path ? diag.path : direct_graph_manifest_input, &diag);
       else print_diag(diag.path ? diag.path : direct_graph_manifest_input, &diag);
       z_free_program(&program);
       z_free_source(&input);
@@ -10974,7 +11023,7 @@ int main(int argc, char **argv) {
       command.command = graph_run_command ? "run" : (graph_test_command ? "test" : "build");
       command.kind = NULL;
     }
-  } else if (!compile_input(command.input, target, &input, &program, &diag)) {
+  } else if (!compile_input(command.input, target, command.profile, &input, &program, &diag)) {
     if (strcmp(command.command, "fix") == 0) {
       if (command.apply || command.patch) {
         int rc = print_or_apply_fix_json(diag.path ? diag.path : command.input, &input, &diag, command.apply);
@@ -10987,7 +11036,7 @@ int main(int argc, char **argv) {
       z_free_source(&input);
       return 0;
     }
-    if (command.json) print_diag_json(diag.path ? diag.path : command.input, &diag);
+    if (command.json) print_command_diag_json(&command, diag.path ? diag.path : command.input, &diag);
     else print_diag(diag.path ? diag.path : command.input, &diag);
     z_free_program(&program);
     z_free_source(&input);
@@ -11002,7 +11051,7 @@ int main(int argc, char **argv) {
       z_free_source(&input);
       return 0;
     }
-    if (command.json) print_diag_json(diag.path ? diag.path : command.input, &diag);
+    if (command.json) print_command_diag_json(&command, diag.path ? diag.path : command.input, &diag);
     else print_diag(diag.path ? diag.path : command.input, &diag);
     z_free_program(&program);
     z_free_source(&input);
@@ -11010,7 +11059,7 @@ int main(int argc, char **argv) {
   }
 
   if (!is_graph_command && !validate_package_dependencies_for_target(&input, target, &diag)) {
-    if (command.json) print_diag_json(diag.path ? diag.path : command.input, &diag);
+    if (command.json) print_command_diag_json(&command, diag.path ? diag.path : command.input, &diag);
     else print_diag(diag.path ? diag.path : command.input, &diag);
     z_free_program(&program);
     z_free_source(&input);
@@ -11019,7 +11068,7 @@ int main(int argc, char **argv) {
 
   if ((strcmp(command.command, "build") == 0 || strcmp(command.command, "run") == 0 || strcmp(command.command, "ship") == 0) &&
       !validate_c_libraries_for_target(&input, target, &diag)) {
-    if (command.json) print_diag_json(diag.path ? diag.path : command.input, &diag);
+    if (command.json) print_command_diag_json(&command, diag.path ? diag.path : command.input, &diag);
     else print_diag(diag.path ? diag.path : command.input, &diag);
     z_free_program(&program);
     z_free_source(&input);

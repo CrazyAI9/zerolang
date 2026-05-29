@@ -136,13 +136,13 @@ The inspection and repair surfaces are compiler commands, not editor-only featur
 | Command | Contract |
 | --- | --- |
 | `zero skills get language` | Version-matched language rules bundled with the compiler binary. |
-| `zero check --json` | Diagnostics with code, span, expected/actual fields, fix safety, repair metadata, compile-time sandbox facts, and target readiness. |
+| `zero check --json` | Diagnostics with code, span, expected/actual fields, fix safety, repair metadata, compile-time sandbox facts, target readiness, and safety facts. |
 | `zero parse --json` | A stable parse summary with declarations, function signatures, and body node kinds. |
-| `zero graph --json` | Modules, imports, public symbols, capabilities, effects, ownership facts, helper use, and interface fingerprints. |
+| `zero graph --json` | Modules, imports, public symbols, capabilities, effects, ownership facts, safety facts, helper use, and interface fingerprints. |
 | `zero graph dump` | Deterministic ProgramGraph text with graph hashes, node IDs, nodes, and edges. |
 | `zero graph patch` | Checked graph edits with graph-hash and field-value preconditions. |
 | `zero fix --plan --json` | Typed repair plans that describe proposed fixes without editing files. |
-| `zero size --json` | Retained helpers, size reasons, profile policy, backend facts, and artifact budget data. |
+| `zero size --json` | Retained helpers, size reasons, profile policy, safety facts, backend facts, and artifact budget data. |
 
 ### Repair With Diagnostics
 

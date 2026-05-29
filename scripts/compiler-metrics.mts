@@ -85,6 +85,8 @@ const fileBudgets = {
   "native/zero-c/src/program_graph_size.h": { maxLines: 8, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_view.c": { maxLines: 841, maxStrcmpCalls: 1 },
   "native/zero-c/src/program_graph_view.h": { maxLines: 8, maxStrcmpCalls: 0 },
+  "native/zero-c/src/safety_contract.c": { maxLines: 70, maxStrcmpCalls: 0 },
+  "native/zero-c/src/safety_contract.h": { maxLines: 30, maxStrcmpCalls: 0 },
   "native/zero-c/src/specialize.c": { maxLines: 150, maxStrcmpCalls: 2 },
   "native/zero-c/src/specialize.h": { maxLines: 50, maxStrcmpCalls: 0 },
   "native/zero-c/src/std_sig.c": { maxLines: 225, maxStrcmpCalls: 2 },

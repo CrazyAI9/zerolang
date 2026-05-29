@@ -73,23 +73,23 @@ another tool needs stable fields.
 
 | Command | Useful JSON fields |
 | --- | --- |
-| `zero check --json` | Diagnostics with code, span, expected/actual details, help, repair metadata, and `targetReadiness` for the selected target/emit kind. |
-| `zero graph --json` | Modules, public symbols, capabilities, static facts, helper use, and nested `programGraph`. |
+| `zero check --json` | Diagnostics with code, span, expected/actual details, help, repair metadata, `targetReadiness`, and `safetyFacts` for the selected target/emit kind. |
+| `zero graph --json` | Modules, public symbols, capabilities, static facts, safety facts, helper use, and nested `programGraph`. |
 | `zero graph dump --json` | The bare deterministic ProgramGraph with `moduleIdentity`, `graphHash`, validation, counts, nodes, and edges. Use `--out <program-graph-artifact>` to also write a derived graph artifact. |
 | `zero graph import --json` | Source-to-ProgramGraph import with graph identity and validation. With `--out <program-graph-artifact>`, writes a derived graph artifact and reports `saved.path`. |
 | `zero graph validate --json` | A derived ProgramGraph artifact readback check with `moduleIdentity`, `graphHash`, counts, validation state, and optional normalized artifact output path. |
 | `zero graph view --json` | Canonical source text rendered from source or a ProgramGraph artifact with `moduleIdentity`, `graphHash`, and optional output path. |
-| `zero graph check --json` | Typecheck source or a ProgramGraph artifact through direct graph lowering with graph identity, target, `check.lowering: "direct-program-graph"`, target readiness, and graph-mapped diagnostics. |
-| `zero graph size --json` | Size, helper, runtime, profile, and backend facts for a ProgramGraph artifact lowered through `direct-program-graph`, with graph identity. |
-| `zero graph build --json` | Build a ProgramGraph artifact through direct graph lowering, including graph identity, selected `emit` kind, target, artifact path and size, compiler cache facts, and graph-aware incremental invalidation. |
+| `zero graph check --json` | Typecheck source or a ProgramGraph artifact through direct graph lowering with graph identity, target, `check.lowering: "direct-program-graph"`, target readiness, safety facts, and graph-mapped diagnostics. |
+| `zero graph size --json` | Size, helper, runtime, profile, safety, and backend facts for a ProgramGraph artifact lowered through `direct-program-graph`, with graph identity. |
+| `zero graph build --json` | Build a ProgramGraph artifact through direct graph lowering, including graph identity, selected `emit` kind, target, artifact path and size, safety facts, compiler cache facts, and graph-aware incremental invalidation. |
 | `zero graph patch --json` | Checked graph edits with graph-hash preconditions, per-operation node/field results, the changed graph hash, and the saved source or artifact path. |
 | `zero graph roundtrip --json` | Source or ProgramGraph artifact stability through direct graph lowering with `semanticStable`, lowering mode, original and roundtripped graph hashes, raw counts, normalized semantic counts, and optional ProgramGraph output. |
 | `zero dev --json` | A watch plan for changed source, manifest, package-lock, and generated-binding inputs. |
 | `zero dev --json --trace` | Adds phase timing, cache hit/miss facts, diagnostics passthrough, and `interfaceFingerprints`. |
 | `zero time --json` | Compiler phase timing plus `interfaceFingerprints` and incremental invalidation facts. |
-| `zero build --json` | Artifact path, size, selected `toolchain`, target triple, linker flavor, sysroot status, and runtime provider facts when a helper such as hosted HTTP is linked. |
-| `zero size --json` | `profileSemantics`, `profileCatalog`, `profileBudget`, `sizeBreakdown`, `retentionReasons`, and `optimizationHints`. |
-| `zero ship --json` | A release preview with artifact names, hashes, a checksum file, debug-symbol metadata, size report, and SBOM placeholder. |
+| `zero build --json` | Artifact path, size, selected `toolchain`, target triple, linker flavor, sysroot status, `safetyFacts`, and runtime provider facts when a helper such as hosted HTTP is linked. |
+| `zero size --json` | `profileSemantics`, `profileCatalog`, `profileBudget`, `safetyFacts`, `sizeBreakdown`, `retentionReasons`, and `optimizationHints`. |
+| `zero ship --json` | A release preview with artifact names, hashes, safety facts, a checksum file, debug-symbol metadata, size report, and SBOM placeholder. |
 | `zero doctor --json` | Host checks plus `targetToolchains`, the per-target readiness matrix. |
 
 `zero check --json` and `zero graph --json` also include `compileTime`.

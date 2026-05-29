@@ -447,6 +447,10 @@ function assertShipReport(report, outPath) {
   assert.equal(report.target, "linux-musl-x64");
   assert.equal(report.generatedCBytes, 0);
   assert.equal(report.cBridgeFallback, false);
+  assert.equal(report.safetyFacts.schemaVersion, 1);
+  assert.equal(report.safetyFacts.profileKey, "small");
+  assert.equal(report.safetyFacts.bounds.policy, "checked");
+  assert.equal(report.safetyFacts.overflow.runtimeArithmetic, "unchecked-machine-wrap");
   assert.equal(report.releasePreview.deterministic, true);
   assertReleaseTargetContract(report, {
     target: "linux-musl-x64",
@@ -466,7 +470,10 @@ function assertShipReport(report, outPath) {
   for (const artifact of report.artifacts) {
     assert(existsSync(artifact.path), `${artifact.kind} should exist at ${artifact.path}`);
   }
-  assert.equal(JSON.parse(readFileSync(report.releasePreview.sizeReport, "utf8")).generatedCBytes, 0);
+  const sizeReport = JSON.parse(readFileSync(report.releasePreview.sizeReport, "utf8"));
+  assert.equal(sizeReport.generatedCBytes, 0);
+  assert.equal(sizeReport.safetyFacts.profileKey, "small");
+  assert.equal(sizeReport.safetyFacts.bounds.optimizerElision, false);
   assert.equal(JSON.parse(readFileSync(report.releasePreview.debugSymbols, "utf8")).kind, "zero-debug-symbol-metadata");
   assert.equal(JSON.parse(readFileSync(report.releasePreview.sbom, "utf8")).kind, "zero-sbom-placeholder");
   assert.match(readFileSync(report.releasePreview.archive, "utf8"), /zero archive manifest v1/);
@@ -940,6 +947,12 @@ assert.equal(graphCheckJson.check.sourcePath, null);
 assert.equal(graphCheckJson.targetReadiness.ok, true);
 assert.equal(graphCheckJson.targetReadiness.languageOk, true);
 assert.equal(graphCheckJson.targetReadiness.buildable, true);
+assert.equal(graphCheckJson.safetyFacts.schemaVersion, 1);
+assert.equal(graphCheckJson.safetyFacts.bounds.runtimeTraps, true);
+assert.equal(graphCheckJson.safetyFacts.bounds.optimizerElision, false);
+assert.equal(graphCheckJson.safetyFacts.overflow.runtimeArithmetic, "unchecked-machine-wrap");
+assert.equal(graphCheckJson.safetyFacts.overflow.unchecked, true);
+assert.equal(graphCheckJson.safetyFacts.mir.invalidMemoryContractsBlockEmission, true);
 assert.deepEqual(graphCheckJson.diagnostics, []);
 assert.equal(graphCheckJson.saved, null);
 assert.equal(graphCheckJson.view, null);
@@ -948,6 +961,7 @@ assert.equal(graphDirectImportCheckJson.ok, true);
 assert.equal(graphDirectImportCheckJson.canonicalSource, true);
 assert.equal(graphDirectImportCheckJson.check.phase, "typecheck");
 assert.equal(graphDirectImportCheckJson.targetReadiness.ok, true);
+assert.equal(graphDirectImportCheckJson.safetyFacts.initialization.locals, "initializer-required");
 assert.deepEqual(graphDirectImportCheckJson.diagnostics, []);
 const graphDirectImportView = zero(["graph", "view", "examples/direct-package-arrays/src/main.0"]).stdout;
 assert.match(graphDirectImportView, /fn package_sum\(\) -> i32/);
@@ -2330,6 +2344,16 @@ const tinyHello = join(outDir, "tiny-hello");
 rmSync(tinyHello, { force: true });
 zero(["build", "--release", "tiny", "--target", "linux-musl-x64", "examples/hello.0", "--out", tinyHello]);
 assert(statSync(tinyHello).size < 10 * 1024);
+const profileCacheCheckSource = join(outDir, "profile-cache-check.0");
+writeFileSync(profileCacheCheckSource, `pub fn main(world: World) -> Void raises {
+    check world.out.write("profile cache ${process.pid}\\n")
+}
+`);
+const profileCacheCheck = json(["check", "--json", "--profile", "fast", profileCacheCheckSource]).body;
+const profileCacheSpecialization = profileCacheCheck.compilerCaches.find((cache) => cache.name === "specialization");
+assert(profileCacheSpecialization);
+assert.equal(profileCacheCheck.incrementalInvalidation.profileDependency, "fast");
+assert.equal(existsSync(join(".zero", "cache", "native", `specialization-${profileCacheSpecialization.key}.cache`)), true);
 const buildReport = json(["build", "--json", "--target", "linux-musl-x64", "examples/hello.0", "--out", join(outDir, "hello-linux-report")]).body;
 assert.equal(buildReport.schemaVersion, 1);
 assert.equal(buildReport.emit, "exe");
@@ -2342,6 +2366,13 @@ assert(buildReport.loweredIrBytes > 0);
 assert.equal(buildReport.targetSupport.fsAvailable, true);
 assert.equal(buildReport.profileSemantics.profileKey, "small");
 assert.equal(buildReport.profileSemantics.profileBudget.generatedCBytes, 0);
+assert.equal(buildReport.safetyFacts.profileKey, "small");
+assert.equal(buildReport.safetyFacts.bounds.policy, "checked");
+assert.equal(buildReport.safetyFacts.bounds.optimizerElision, false);
+assert.equal(buildReport.safetyFacts.overflow.policy, "literal-range-checked-runtime-unchecked");
+assert.equal(buildReport.safetyFacts.initialization.locals, "initializer-required");
+assert.equal(buildReport.safetyFacts.aliasing.mutableAliases, "diagnostic");
+assert.equal(buildReport.safetyFacts.mir.invalidMemoryContractsBlockEmission, true);
 assert.equal(buildReport.profileBudget.cBridgeFallback, false);
 assert.equal(buildReport.objectBackend.objectEmission.path, "direct-elf64-exe");
 assert.equal(buildReport.objectBackend.linking.externalToolchain, "none");
@@ -2375,13 +2406,19 @@ for (const [requestedProfile, canonicalProfile, profileKey] of [
   assert.equal(profileReport.generatedCBytes, 0);
   assert.equal(profileReport.profileSemantics.canonical, canonicalProfile);
   assert.equal(profileReport.profileSemantics.profileKey, profileKey);
+  assert.equal(profileReport.profileSemantics.boundsPolicy, "checked");
+  assert.equal(profileReport.profileSemantics.overflowPolicy, "literal-range-checked-runtime-unchecked");
   assert.equal(profileReport.profileSemantics.profileBudget.generatedCBytes, 0);
+  assert.equal(profileReport.safetyFacts.profile, canonicalProfile);
+  assert.equal(profileReport.safetyFacts.profileKey, profileKey);
   assert.equal(profileReport.profileBudget.helperBudgetPolicy, profileReport.profileSemantics.profileBudget.helperBudgetPolicy);
   repeatBuildHash(["build", "--json", "--profile", requestedProfile, "--target", "linux-musl-x64", "examples/hello.0", "--out", profileOut], profileOut, `${profileOut}.repeat`);
 }
 
 const profileSizeReport = json(["size", "--json", "--profile", "debug", "--target", "linux-musl-x64", "examples/memory-primitives.0"]).body;
 assert.equal(profileSizeReport.profileSemantics.profileKey, "debug");
+assert.equal(profileSizeReport.safetyFacts.profileKey, "debug");
+assert.equal(profileSizeReport.safetyFacts.uncheckedSurfaces[0].policy, "externally-trusted");
 assert.equal(profileSizeReport.sizeBreakdown.profileKey, "debug");
 assert(profileSizeReport.sizeBreakdown.functions.some((item) => item.name === "main" && item.retainedBy === "entry point"));
 assert(profileSizeReport.sizeBreakdown.sections.some((item) => item.name === "debug-metadata"));
@@ -3371,10 +3408,13 @@ for (const [fixture, code] of [
   const result = json(["check", "--json", fixture], { allowFailure: true });
   assert.notEqual(result.code, 0);
   assert.equal(result.body.diagnostics[0].code, code);
+  assert.equal(result.body.safetyFacts.schemaVersion, 1);
+  assert.equal(result.body.safetyFacts.profileKey, "small");
 }
 const targetIncompatible = json(["check", "--json", "--target", "linux-musl-x64", "conformance/packages/target-incompatible-app"], { allowFailure: true });
 assert.notEqual(targetIncompatible.code, 0);
 assert.equal(targetIncompatible.body.diagnostics[0].code, "PKG004");
+assert.equal(targetIncompatible.body.safetyFacts.schemaVersion, 1);
 
 const zeroHashSize = json(["size", "--json", "--target", "linux-musl-x64", "examples/zero-hash", "--out", join(outDir, "zero-hash-sized")]).body;
 assert.equal(zeroHashSize.generatedCBytes, 0);
