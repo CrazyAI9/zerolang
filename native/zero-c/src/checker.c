@@ -6388,10 +6388,18 @@ static void stdlib_record_single_type_arg(const Expr *expr, const char *type) {
   set_expr_checked_type_args(expr, &binding, 1);
 }
 
+static bool stdlib_reject_owned_item_element(const Program *program, const char *display_name, const char *element_type, const Expr *expr, ZDiag *diag, const char *action, const char *help) {
+  if (!type_contains_owned(program, element_type, 0)) return true;
+  char message[256];
+  snprintf(message, sizeof(message), "%s cannot %s owned item elements", display_name, action ? action : "duplicate");
+  return set_diag_detail(diag, 3013, message, expr ? expr->line : 0, expr ? expr->column : 0, "item type without owned values", element_type ? element_type : "Unknown", help ? help : "write each owned element explicitly so ownership is transferred once");
+}
+
 static bool check_stdlib_mem_copy_items_call_expected(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, ZCallResolution *resolution) {
   const char *dst_actual = NULL;
   char element_type[128];
   if (!stdlib_mutable_items_arg_element(ctx, program, expr->args.items[0], scope, diag, "std.mem.copyItems", element_type, sizeof(element_type), &dst_actual)) return false;
+  if (!stdlib_reject_owned_item_element(program, "std.mem.copyItems", element_type, expr->args.items[0], diag, "copy", "move owned values explicitly so each destination receives one owner")) return false;
   char expected_dst[160];
   char expected_src[160];
   stdlib_span_type_for_element(expected_dst, sizeof(expected_dst), element_type, true);
@@ -6413,6 +6421,7 @@ static bool check_stdlib_mem_fill_items_call_expected(CheckContext *ctx, const P
   const char *dst_actual = NULL;
   char element_type[128];
   if (!stdlib_mutable_items_arg_element(ctx, program, expr->args.items[0], scope, diag, "std.mem.fillItems", element_type, sizeof(element_type), &dst_actual)) return false;
+  if (!stdlib_reject_owned_item_element(program, "std.mem.fillItems", element_type, expr->args.items[0], diag, "duplicate", "write each owned element explicitly so ownership is transferred once")) return false;
   char expected_dst[160];
   stdlib_span_type_for_element(expected_dst, sizeof(expected_dst), element_type, true);
   record_stdlib_arg_fact(resolution, 0, expr->args.items[0], expected_dst, dst_actual);

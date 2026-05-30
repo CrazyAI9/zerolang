@@ -3600,9 +3600,17 @@ const memCopyItemsMismatch = await execFileAsync(zero, ["check", "conformance/na
 assert.notEqual(memCopyItemsMismatch.code, 0);
 assert.match(memCopyItemsMismatch.stderr, /STD003/);
 
+const memCopyItemsOwned = await execFileAsync(zero, ["check", "conformance/native/fail/std-mem-copy-items-owned.0"]).catch((error) => error);
+assert.notEqual(memCopyItemsOwned.code, 0);
+assert.match(memCopyItemsOwned.stderr, /OWN001/);
+
 const memFillItemsMismatch = await execFileAsync(zero, ["check", "conformance/native/fail/std-mem-fill-items-mismatch.0"]).catch((error) => error);
 assert.notEqual(memFillItemsMismatch.code, 0);
 assert.match(memFillItemsMismatch.stderr, /TYP002|STD003/);
+
+const memFillItemsOwned = await execFileAsync(zero, ["check", "conformance/native/fail/std-mem-fill-items-owned.0"]).catch((error) => error);
+assert.notEqual(memFillItemsOwned.code, 0);
+assert.match(memFillItemsOwned.stderr, /OWN001/);
 
 const mutspanFromSpan = await execFileAsync(zero, ["check", "conformance/native/fail/mutspan-from-span.0"]).catch((error) => error);
 assert.notEqual(mutspanFromSpan.code, 0);
