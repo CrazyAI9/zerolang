@@ -4002,6 +4002,7 @@ for (const [fixture, code] of [
   ["maybe-value-guard-invalidated-by-receiver-call.0", /MEM002/],
   ["maybe-value-dynamic-index-guard.0", /MEM002/],
   ["maybe-value-mutspan-alias-invalidated.0", /MEM002/],
+  ["maybe-value-nested-mutspan-alias-invalidated.0", /MEM002/],
   ["maybe-value-mutspan-call-invalidated.0", /MEM002/],
   ["maybe-value-mutspan-condition-call-invalidated.0", /MEM002/],
   ["maybe-value-mutspan-alias-guard-invalidated.0", /MEM002/],

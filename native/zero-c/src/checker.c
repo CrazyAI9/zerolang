@@ -1754,16 +1754,9 @@ static bool place_root_scope_matches(Scope *left, Scope *right) {
   return !left || !right || left == right;
 }
 
-static bool maybe_guard_place_overlaps_mutation(Scope *lookup_scope, const Place *guard_place, Scope *mutation_root_scope, const char *mutation_root, const char *mutation_path) {
-  if (!guard_place || !guard_place->root || !guard_place->root[0] || !mutation_root || !mutation_root[0]) return false;
-  if (strcmp(guard_place->root, mutation_root) == 0 &&
-      place_root_scope_matches(guard_place->root_scope, mutation_root_scope) &&
-      origin_path_overlaps(guard_place->path, mutation_path)) {
-    return true;
-  }
-  if (!lookup_scope || !origin_path_text(guard_place->path)[0]) return false;
-
-  const char *root_type = scope_type_in_binding_scope(lookup_scope, guard_place->root_scope, guard_place->root);
+static bool collect_provenance_resolved_places(Scope *scope, Scope *root_scope, const char *root, const char *path, bool include_direct_view, PlaceVec *places) {
+  if (!scope || !root || !root[0] || !places) return false;
+  const char *root_type = scope_type_in_binding_scope(scope, root_scope, root);
   char storage_type[192];
   const char *target_storage_type = root_type;
   bool root_ref_like = false;
@@ -1773,25 +1766,55 @@ static bool maybe_guard_place_overlaps_mutation(Scope *lookup_scope, const Place
     target_storage_type = storage_type;
   }
   bool root_view_like = type_is_named_generic(target_storage_type, "Span") || type_is_named_generic(target_storage_type, "MutSpan");
-  if (!root_ref_like && !root_view_like) return false;
-
-  bool overlaps = false;
+  bool added = false;
   ValueProvenance root_origins = {0};
-  if (scope_copy_value_provenance_from_scope(lookup_scope, guard_place->root_scope, guard_place->root, &root_origins)) {
+  if (scope_copy_value_provenance_from_scope(scope, root_scope, root, &root_origins)) {
     for (size_t i = 0; i < root_origins.len; i++) {
       ProvenanceEntry *entry = &root_origins.items[i];
-      if (origin_path_text(entry->value_path)[0]) continue;
-      char *generalized_path = root_view_like && !entry->index_exact ? origin_path_generalize_indexes(guard_place->path) : NULL;
-      char *target_path = origin_path_join(entry->origin.path, generalized_path ? generalized_path : guard_place->path);
-      bool same_storage_root = strcmp(entry->origin.root, mutation_root) == 0 &&
-        place_root_scope_matches(entry->origin.root_scope, mutation_root_scope);
-      if (same_storage_root && origin_path_overlaps(target_path, mutation_path)) overlaps = true;
+      const char *relative_path = NULL;
+      bool nested_alias = origin_path_text(entry->value_path)[0];
+      if (nested_alias) {
+        if (!origin_path_is_within(path, entry->value_path)) continue;
+        relative_path = origin_path_after_prefix(path, entry->value_path);
+        if (!origin_path_text(relative_path)[0]) continue;
+      } else if (include_direct_view && (root_ref_like || root_view_like) && origin_path_text(path)[0]) {
+        relative_path = path;
+      } else {
+        continue;
+      }
+      bool generalize_indexes = !entry->index_exact && (nested_alias || root_view_like);
+      char *generalized_path = generalize_indexes ? origin_path_generalize_indexes(relative_path) : NULL;
+      char *target_path = origin_path_join(entry->origin.path, generalized_path ? generalized_path : relative_path);
+      if (place_vec_add(places, entry->origin.root, entry->origin.root_scope, target_path)) added = true;
       free(generalized_path);
       free(target_path);
-      if (overlaps) break;
     }
   }
   value_provenance_free(&root_origins);
+  return added;
+}
+
+static bool maybe_guard_place_overlaps_mutation(Scope *lookup_scope, const Place *guard_place, Scope *mutation_root_scope, const char *mutation_root, const char *mutation_path) {
+  if (!guard_place || !guard_place->root || !guard_place->root[0] || !mutation_root || !mutation_root[0]) return false;
+  if (strcmp(guard_place->root, mutation_root) == 0 &&
+      place_root_scope_matches(guard_place->root_scope, mutation_root_scope) &&
+      origin_path_overlaps(guard_place->path, mutation_path)) {
+    return true;
+  }
+  if (!lookup_scope || !origin_path_text(guard_place->path)[0]) return false;
+
+  PlaceVec guard_targets = {0};
+  bool overlaps = false;
+  if (collect_provenance_resolved_places(lookup_scope, guard_place->root_scope, guard_place->root, guard_place->path, true, &guard_targets)) {
+    for (size_t i = 0; i < guard_targets.len; i++) {
+      Place *target = &guard_targets.items[i];
+      bool same_storage_root = strcmp(target->root, mutation_root) == 0 &&
+        place_root_scope_matches(target->root_scope, mutation_root_scope);
+      if (same_storage_root && origin_path_overlaps(target->path, mutation_path)) overlaps = true;
+      if (overlaps) break;
+    }
+  }
+  place_vec_free(&guard_targets);
   return overlaps;
 }
 
@@ -8706,34 +8729,9 @@ static bool collect_assignment_target_places(const Expr *target, Scope *scope, P
   char path[256];
   if (!expr_binding_path(target, root, sizeof(root), path, sizeof(path)) || !scope_has(scope, root)) return false;
 
-  const char *root_type = scope_type(scope, root);
-  char storage_type[192];
-  const char *target_storage_type = root_type;
-  bool root_ref_like = false;
-  if (named_ref_inner_text(root_type, "ref", storage_type, sizeof(storage_type)) ||
-      named_ref_inner_text(root_type, "mutref", storage_type, sizeof(storage_type))) {
-    root_ref_like = true;
-    target_storage_type = storage_type;
-  }
-  bool root_view_like = type_is_named_generic(target_storage_type, "Span") || type_is_named_generic(target_storage_type, "MutSpan");
-  bool added = false;
-  if ((root_ref_like || root_view_like) && origin_path_text(path)[0]) {
-    ValueProvenance root_origins = {0};
-    if (scope_copy_value_provenance(scope, root, &root_origins)) {
-      for (size_t i = 0; i < root_origins.len; i++) {
-        ProvenanceEntry *entry = &root_origins.items[i];
-        if (origin_path_text(entry->value_path)[0]) continue;
-        char *generalized_path = root_view_like && !entry->index_exact ? origin_path_generalize_indexes(path) : NULL;
-        char *target_path = origin_path_join(entry->origin.path, generalized_path ? generalized_path : path);
-        if (place_vec_add(places, entry->origin.root, entry->origin.root_scope, target_path)) added = true;
-        free(generalized_path);
-        free(target_path);
-      }
-    }
-    value_provenance_free(&root_origins);
-  }
-  if (added) return true;
-  return place_vec_add(places, root, scope_binding_scope(scope, root), path);
+  Scope *root_scope = scope_binding_scope(scope, root);
+  if (collect_provenance_resolved_places(scope, root_scope, root, path, true, places)) return true;
+  return place_vec_add(places, root, root_scope, path);
 }
 
 static bool update_borrow_assignment(CheckContext *ctx, const Program *program, const Expr *target, const Expr *value, Scope *scope, ZDiag *diag) {
