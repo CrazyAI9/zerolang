@@ -52,6 +52,20 @@ static bool machx64_type_is_unsigned(IrTypeKind type) {
   return type == IR_TYPE_BOOL || type == IR_TYPE_U8 || type == IR_TYPE_U16 || type == IR_TYPE_U32 || type == IR_TYPE_USIZE || type == IR_TYPE_U64;
 }
 
+static IrTypeKind machx64_view_element_type(const IrValue *view) {
+  return view && view->element_type != IR_TYPE_UNSUPPORTED ? view->element_type : IR_TYPE_U8;
+}
+
+static unsigned machx64_type_byte_size(IrTypeKind type) {
+  if (type == IR_TYPE_U8 || type == IR_TYPE_BOOL) return 1;
+  if (machx64_type_is_i64(type)) return 8;
+  return 4;
+}
+
+static void machx64_emit_scale_index_into_rax(ZBuf *text, IrTypeKind element_type) {
+  z_x64_emit_lea_base_index_scale_disp_reg(text, 0, 0, 1, machx64_type_byte_size(element_type), 0);
+}
+
 static bool machx64_is_main_function(const IrFunction *fun) {
   return fun && fun->is_exported && fun->name && fun->name[0] == 'm' && fun->name[1] == 'a' && fun->name[2] == 'i' && fun->name[3] == 'n' && fun->name[4] == '\0';
 }
@@ -309,7 +323,7 @@ static bool machx64_emit_byte_view_ptr(ZBuf *text, const IrFunction *fun, const 
   if (view->kind == IR_VALUE_CALL && view->type == IR_TYPE_BYTE_VIEW) return machx64_emit_value(text, fun, view, ctx, diag);
   if (view->kind == IR_VALUE_ARRAY_BYTE_VIEW && view->array_index < fun->local_len) {
     const IrLocal *local = &fun->locals[view->array_index];
-    if (!local->is_array || local->element_type != IR_TYPE_U8) return machx64_diag_at(diag, "direct x86_64 Mach-O byte-view array requires [N]u8", view->line, view->column, "unsupported array view");
+    if (!local->is_array) return machx64_diag_at(diag, "direct x86_64 Mach-O byte-view array requires a fixed array", view->line, view->column, "unsupported array view");
     z_x64_emit_rbp_disp_reg(text, 0x8d, 0, machx64_local_offset(fun, view->array_index), true);
     return true;
   }
@@ -322,8 +336,9 @@ static bool machx64_emit_byte_view_ptr(ZBuf *text, const IrFunction *fun, const 
     } else {
       z_x64_emit_mov_eax_u32(text, 0);
     }
-    z_x64_emit_pop_reg64(text, 1);
-    z_x64_emit_add_rax_rcx(text, true);
+    z_x64_emit_mov_rcx_from_rax(text, false);
+    z_x64_emit_pop_reg64(text, 0);
+    machx64_emit_scale_index_into_rax(text, machx64_view_element_type(view));
     return true;
   }
   return machx64_diag_at(diag, "direct x86_64 Mach-O value is not a supported byte view", view->line, view->column, "unsupported byte view");
@@ -374,7 +389,7 @@ static bool machx64_emit_byte_view_pair(ZBuf *text, const IrFunction *fun, const
       z_x64_emit_sub_reg_reg(text, 0, 1, true);
     }
     z_x64_emit_pop_reg64(text, 8);
-    z_x64_emit_add_reg_reg(text, 8, 1, true);
+    z_x64_emit_lea_base_index_scale_disp_reg(text, 8, 8, 1, machx64_type_byte_size(machx64_view_element_type(view)), 0);
     machx64_emit_move_byte_view_pair(text, ptr_reg, len_reg, 8, 0);
     return true;
   }
@@ -519,7 +534,9 @@ static bool machx64_emit_call_value(ZBuf *text, const IrFunction *fun, const IrV
 static bool machx64_emit_byte_view_index_load_value(ZBuf *text, const IrFunction *fun, const IrValue *value, MachOEmitContext *ctx, ZDiag *diag) {
   unsigned const_index = 0;
   unsigned char byte = 0;
-  if (machx64_const_u32_value(value->index, &const_index) && machx64_byte_view_const_byte(ctx ? ctx->program : NULL, value->left, const_index, &byte)) {
+  if (machx64_view_element_type(value->left) == IR_TYPE_U8 &&
+      machx64_const_u32_value(value->index, &const_index) &&
+      machx64_byte_view_const_byte(ctx ? ctx->program : NULL, value->left, const_index, &byte)) {
     z_x64_emit_mov_eax_u32(text, byte);
     return true;
   }
@@ -533,8 +550,11 @@ static bool machx64_emit_byte_view_index_load_value(ZBuf *text, const IrFunction
   z_x64_patch_rel32(text, ok_patch, text->len);
   z_x64_emit_mov_rcx_from_rax(text, false);
   z_x64_emit_mov_reg_from_reg(text, 0, 8, true);
-  z_x64_emit_add_rax_rcx(text, true);
-  z_x64_emit_movzx_reg32_ptr_reg_u8(text, 0, 0);
+  IrTypeKind element_type = machx64_view_element_type(value->left);
+  machx64_emit_scale_index_into_rax(text, element_type);
+  if (element_type == IR_TYPE_BOOL || element_type == IR_TYPE_U8) z_x64_emit_movzx_reg32_ptr_reg_u8(text, 0, 0);
+  else if (machx64_type_is_i64(element_type)) z_x64_emit_load_reg_ptr_reg(text, 0, 0, true);
+  else z_x64_emit_load_reg_ptr_reg(text, 0, 0, false);
   return true;
 }
 
@@ -718,7 +738,9 @@ static bool machx64_emit_field_store_instr(ZBuf *text, const IrFunction *fun, co
 }
 
 static bool machx64_emit_byte_view_index_store_instr(ZBuf *text, const IrFunction *fun, const IrInstr *instr, MachOEmitContext *ctx, ZDiag *diag) {
-  if (!instr->value || instr->value->type != IR_TYPE_U8) return machx64_diag_at(diag, "direct x86_64 Mach-O byte-view indexed store requires u8 value", instr->line, instr->column, "unsupported byte-view store value");
+  const IrLocal *local = instr->array_index < fun->local_len ? &fun->locals[instr->array_index] : NULL;
+  IrTypeKind element_type = local && local->element_type != IR_TYPE_UNSUPPORTED ? local->element_type : IR_TYPE_U8;
+  if (!instr->value || instr->value->type != element_type) return machx64_diag_at(diag, "direct x86_64 Mach-O byte-view indexed store value type does not match span element", instr->line, instr->column, "unsupported byte-view store value");
   if (!machx64_emit_value(text, fun, instr->value, ctx, diag)) return false;
   z_x64_emit_push_rax(text);
   if (!instr->index || !machx64_emit_value(text, fun, instr->index, ctx, diag)) return false;
@@ -733,10 +755,12 @@ static bool machx64_emit_byte_view_index_store_instr(ZBuf *text, const IrFunctio
   z_x64_emit_push_rax(text);
   machx64_emit_load_local_slot_rax(text, fun, instr->array_index, 0);
   z_x64_emit_pop_reg64(text, 1);
-  z_x64_emit_add_rax_rcx(text, true);
+  machx64_emit_scale_index_into_rax(text, element_type);
   z_x64_emit_mov_reg_from_reg(text, 2, 0, true);
   z_x64_emit_pop_reg64(text, 0);
-  z_x64_emit_store_ptr_reg8_from_reg(text, 2, 0);
+  if (element_type == IR_TYPE_BOOL || element_type == IR_TYPE_U8) z_x64_emit_store_ptr_reg8_from_reg(text, 2, 0);
+  else if (machx64_type_is_i64(element_type)) z_x64_emit_store_ptr_reg_from_reg(text, 2, 0, true);
+  else z_x64_emit_store_ptr_reg_from_reg(text, 2, 0, false);
   return true;
 }
 

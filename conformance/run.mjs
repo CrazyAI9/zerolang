@@ -327,6 +327,7 @@ for (const fixture of [
   "conformance/native/pass/std-json-allocator-capacity.0",
   "conformance/native/pass/std-platform-basics.0",
   "conformance/native/pass/std-mem-arrays.0",
+  "conformance/native/pass/std-mem-generic-items.0",
   "conformance/native/pass/array-repeat-literal.0",
   "conformance/native/pass/array-repeat-record-field.0",
   "conformance/native/pass/integer-widths.0",
@@ -372,7 +373,7 @@ for (const fixture of [
   "conformance/native/pass/coff-dynamic-byte-slice.0",
   "conformance/native/pass/macho-large-byte-slice-blocked.0",
   "conformance/native/pass/macho-nested-call-scratch-blocked.0",
-  "conformance/native/pass/macho-open-byte-slice-blocked.0",
+  "conformance/native/pass/macho-open-byte-slice.0",
   "conformance/native/pass/string-byte-ergonomics.0",
   "conformance/native/pass/indexed-mutation.0",
   "conformance/native/pass/nested-lvalues.0",
@@ -951,11 +952,39 @@ await assertMachOObjectBuildabilityBlocked(
   "macho-nested-call-scratch.o",
   /scratch spill capacity/,
 );
-await assertMachOObjectBuildabilityBlocked(
-  "conformance/native/pass/macho-open-byte-slice-blocked.0",
-  "macho-open-byte-slice.o",
-  /byte-view length/,
-);
+
+const machoOpenByteSliceFixture = "conformance/native/pass/macho-open-byte-slice.0";
+const machoOpenByteSliceReadiness = await execFileAsync(zero, [
+  "check",
+  "--json",
+  "--emit",
+  "obj",
+  "--target",
+  "darwin-arm64",
+  machoOpenByteSliceFixture,
+]);
+const machoOpenByteSliceReadinessBody = JSON.parse(machoOpenByteSliceReadiness.stdout);
+assert.equal(machoOpenByteSliceReadinessBody.ok, true);
+assert.equal(machoOpenByteSliceReadinessBody.diagnostics.length, 0);
+assert.equal(machoOpenByteSliceReadinessBody.targetReadiness.ok, true);
+assert.equal(machoOpenByteSliceReadinessBody.targetReadiness.buildable, true);
+assert.equal(machoOpenByteSliceReadinessBody.targetReadiness.backend, "zero-macho64");
+const machoOpenByteSliceBuild = await execFileAsync(zero, [
+  "build",
+  "--json",
+  "--emit",
+  "obj",
+  "--target",
+  "darwin-arm64",
+  machoOpenByteSliceFixture,
+  "--out",
+  `${outDir}/macho-open-byte-slice.o`,
+]);
+const machoOpenByteSliceBuildBody = JSON.parse(machoOpenByteSliceBuild.stdout);
+assert.equal(machoOpenByteSliceBuildBody.compiler, "zero-macho64");
+assert.equal(machoOpenByteSliceBuildBody.generatedCBytes, 0);
+assert.equal(machoOpenByteSliceBuildBody.objectBackend.objectEmission.path, "direct-macho64-object");
+await assertMachOArm64Object(`${outDir}/macho-open-byte-slice.o`, "main");
 
 async function assertAArch64ObjectBuildabilityBlocked(target, backend, outName, expectedMessage) {
   const fixture = "conformance/native/pass/macho-nested-call-scratch-blocked.0";
@@ -1098,7 +1127,7 @@ await writeFile(arm64NestedDynamicStartLenFixture, `export c fn main() -> u32 {
     return ${arm64NestedDynamicStartLenExpr}
 }
 `);
-await assertArm64NestedScratchBlocked(arm64NestedDynamicStartLenFixture, /expression nesting exceeds scratch register spill capacity/, "aarch64-nested-dynamic-start-len");
+await assertArm64NestedScratchBlocked(arm64NestedDynamicStartLenFixture, /byte-view length exceeds scratch register spill capacity/, "aarch64-nested-dynamic-start-len");
 let arm64NestedEndLenExpr = "((std.mem.len(text[1..(end + 0_usize)])) as u32)";
 for (let i = 0; i < 32; i++) arm64NestedEndLenExpr = `(0_u32 + ${arm64NestedEndLenExpr})`;
 const arm64NestedEndLenFixture = `${outDir}/aarch64-nested-end-len-scratch-blocked.0`;
@@ -3445,6 +3474,7 @@ for (const runtimeFixture of [
   ["conformance/native/pass/byte-view-call-single-eval.0", "byte-view-call-single-eval", { stdout: "byte view call single eval ok\n" }],
   ["conformance/native/pass/std-math-breadth.0", "std-math-breadth", { stdout: "std math breadth ok\n" }],
   ["conformance/native/pass/std-str-breadth.0", "std-str-breadth", { stdout: "std str breadth ok\n" }],
+  ["conformance/native/pass/std-mem-generic-items.0", "std-mem-generic-items", { stdout: "std mem generic items ok\n" }],
   ["conformance/native/pass/std-path-helper-name-collision.0", "std-path-helper-name-collision", { stdout: "std path helper collision ok\n" }],
   ["conformance/native/pass/byte-view-params.0", "byte-view-params", { stdout: "byte view params ok\n" }],
   ["conformance/native/pass/bool-arrays.0", "bool-arrays", { stdout: "bool arrays ok\n" }],
@@ -3561,6 +3591,18 @@ assert.notEqual(memCopyImmutableDstJson.code, 0);
 const memCopyImmutableDstBody = JSON.parse(memCopyImmutableDstJson.stdout);
 assert.equal(memCopyImmutableDstBody.diagnostics[0].code, "TYP009");
 assert.equal(memCopyImmutableDstBody.diagnostics[0].repair.id, "make-binding-mutable");
+
+const memCopyItemsImmutableDst = await execFileAsync(zero, ["check", "conformance/native/fail/std-mem-copy-items-immutable-dst.0"]).catch((error) => error);
+assert.notEqual(memCopyItemsImmutableDst.code, 0);
+assert.match(memCopyItemsImmutableDst.stderr, /TYP009/);
+
+const memCopyItemsMismatch = await execFileAsync(zero, ["check", "conformance/native/fail/std-mem-copy-items-mismatch.0"]).catch((error) => error);
+assert.notEqual(memCopyItemsMismatch.code, 0);
+assert.match(memCopyItemsMismatch.stderr, /STD003/);
+
+const memFillItemsMismatch = await execFileAsync(zero, ["check", "conformance/native/fail/std-mem-fill-items-mismatch.0"]).catch((error) => error);
+assert.notEqual(memFillItemsMismatch.code, 0);
+assert.match(memFillItemsMismatch.stderr, /TYP002|STD003/);
 
 const mutspanFromSpan = await execFileAsync(zero, ["check", "conformance/native/fail/mutspan-from-span.0"]).catch((error) => error);
 assert.notEqual(mutspanFromSpan.code, 0);

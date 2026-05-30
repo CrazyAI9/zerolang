@@ -3529,11 +3529,20 @@ assertMachOObjectBuildabilityBlocked(
   "macho-nested-call-scratch.o",
   /scratch spill capacity/,
 );
-assertMachOObjectBuildabilityBlocked(
-  "conformance/native/pass/macho-open-byte-slice-blocked.0",
-  "macho-open-byte-slice.o",
-  /byte-view length/,
-);
+const machoOpenByteSliceFixture = "conformance/native/pass/macho-open-byte-slice.0";
+const machoOpenByteSliceReadiness = json(["check", "--json", "--emit", "obj", "--target", "darwin-arm64", machoOpenByteSliceFixture]).body;
+assert.equal(machoOpenByteSliceReadiness.ok, true);
+assert.equal(machoOpenByteSliceReadiness.diagnostics.length, 0);
+assert.equal(machoOpenByteSliceReadiness.targetReadiness.ok, true);
+assert.equal(machoOpenByteSliceReadiness.targetReadiness.buildable, true);
+assert.equal(machoOpenByteSliceReadiness.targetReadiness.backend, "zero-macho64");
+const machoOpenByteSlicePath = join(outDir, "macho-open-byte-slice.o");
+const machoOpenByteSliceBuild = json(["build", "--json", "--emit", "obj", "--target", "darwin-arm64", machoOpenByteSliceFixture, "--out", machoOpenByteSlicePath]).body;
+const machoOpenByteSliceBytes = readFileSync(machoOpenByteSlicePath);
+assert.equal(machoOpenByteSliceBuild.compiler, "zero-macho64");
+assert.equal(machoOpenByteSliceBuild.generatedCBytes, 0);
+assert.equal(machoOpenByteSliceBuild.objectBackend.objectEmission.path, "direct-macho64-object");
+assert.equal(machoOpenByteSliceBytes.readUInt32LE(0), 0xfeedfacf);
 const machOMemoryPackageReadiness = json(["check", "--json", "--emit", "obj", "--target", "darwin-arm64", "examples/memory-package"]).body;
 assert.equal(machOMemoryPackageReadiness.ok, true);
 assert.equal(machOMemoryPackageReadiness.diagnostics.length, 0);
@@ -3550,7 +3559,7 @@ const machOMemoryPackageBytes = readFileSync(machOMemoryPackagePath);
 assert.equal(machOMemoryPackageReport.compiler, "zero-macho64");
 assert.equal(machOMemoryPackageReport.generatedCBytes, 0);
 assert.equal(machOMemoryPackageReport.objectBackend.objectEmission.path, "direct-macho64-object");
-assert.equal(machOMemoryPackageReport.objectBackend.directFacts.moduleCount, 3);
+assert.equal(machOMemoryPackageReport.objectBackend.directFacts.moduleCount, 4);
 assert.equal(machOMemoryPackageReport.objectBackend.directFacts.runtimeHelperCount, 1);
 assert.equal(machOMemoryPackageBytes.readUInt32LE(0), 0xfeedfacf);
 assert(machOMemoryPackageBytes.includes(Buffer.from("memory package ok")));

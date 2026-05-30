@@ -11,6 +11,17 @@ static bool build_const_u32_value(const IrValue *value, unsigned *out) {
   return true;
 }
 
+static IrTypeKind build_view_element_type(const IrValue *view) {
+  return view && view->element_type != IR_TYPE_UNSUPPORTED ? view->element_type : IR_TYPE_U8;
+}
+
+static unsigned build_type_index_shift(IrTypeKind type) {
+  if (type == IR_TYPE_U8 || type == IR_TYPE_BOOL) return 0;
+  if (type == IR_TYPE_U16) return 1;
+  if (type == IR_TYPE_I64 || type == IR_TYPE_U64) return 3;
+  return 2;
+}
+
 static bool build_aarch64_index_load_uses_scratch(const IrFunction *fun, const IrValue *value) {
   if (!fun || value->kind != IR_VALUE_INDEX_LOAD || value->array_index >= fun->local_len) return true;
   const IrLocal *local = &fun->locals[value->array_index];
@@ -26,9 +37,13 @@ static bool build_check_aarch64_byte_view_len_spill(const ZBuildability *ctx, co
   bool const_end = build_const_u32_value(view->right, &end);
   if (const_start && const_end && end >= start && end - start <= 65535u) return true;
   if ((const_start && view->right) || (view->index && view->right)) {
-    if (scratch_slot >= slot_count) return z_build_diag(ctx, diag, message, view->line, view->column, "expression too deep");
+    if (scratch_slot >= slot_count || (view->index && !const_start && scratch_slot + 1 >= slot_count)) return z_build_diag(ctx, diag, message, view->line, view->column, "expression too deep");
     if (!z_build_check_value(ctx, fun, view->right, false, scratch_slot, diag)) return false;
     return const_start || z_build_check_value(ctx, fun, view->index, false, scratch_slot + 1, diag);
+  }
+  if (view->index && !view->right) {
+    if (scratch_slot + 1 >= slot_count) return z_build_diag(ctx, diag, message, view->line, view->column, "expression too deep");
+    return z_build_check_value(ctx, fun, view->index, false, scratch_slot + 1, diag);
   }
   return true;
 }
@@ -59,14 +74,14 @@ static bool build_aarch64_byte_view_ptr(const ZBuildability *ctx, const IrFuncti
   if (view->kind == IR_VALUE_CALL && view->type == IR_TYPE_BYTE_VIEW) return true;
   if (view->kind == IR_VALUE_ARRAY_BYTE_VIEW && fun && view->array_index < fun->local_len) {
     const IrLocal *local = &fun->locals[view->array_index];
-    if (!local->is_array || local->element_type != IR_TYPE_U8) return z_build_diag(ctx, diag, "direct AArch64 byte-view array requires [N]u8", view->line, view->column, "unsupported array view");
+    if (!local->is_array) return z_build_diag(ctx, diag, "direct AArch64 byte-view array requires a fixed array", view->line, view->column, "unsupported array view");
     return true;
   }
   if (view->kind == IR_VALUE_STRING_LITERAL) return true;
   if (view->kind == IR_VALUE_BYTE_SLICE) {
     unsigned start = 0;
     if (!build_aarch64_byte_view_ptr(ctx, fun, view->left, diag)) return false;
-    if (build_const_u32_value(view->index, &start) && start > BUILD_AARCH64_IMM12_MAX) {
+    if (build_const_u32_value(view->index, &start) && (start << build_type_index_shift(build_view_element_type(view))) > BUILD_AARCH64_IMM12_MAX) {
       return z_build_diag(ctx, diag, "direct AArch64 byte slice constant start is too large", view->line, view->column, "unsupported byte slice");
     }
     return true;
@@ -88,6 +103,7 @@ bool z_build_check_aarch64_byte_view_len(const ZBuildability *ctx, const IrFunct
     unsigned end = 0;
     bool const_start = !view->index || build_const_u32_value(view->index, &start);
     bool const_end = build_const_u32_value(view->right, &end);
+    if (!view->right) return z_build_check_aarch64_byte_view_len(ctx, fun, view->left, diag);
     if (const_start && const_end && end >= start && end - start <= 65535u) return true;
     if (const_start && view->right) {
       if (start > BUILD_AARCH64_IMM12_MAX) {

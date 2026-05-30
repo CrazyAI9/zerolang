@@ -12,6 +12,17 @@ static bool build_const_u32_value(const IrValue *value, unsigned *out) {
   return true;
 }
 
+static IrTypeKind build_view_element_type(const IrValue *view) {
+  return view && view->element_type != IR_TYPE_UNSUPPORTED ? view->element_type : IR_TYPE_U8;
+}
+
+static unsigned build_type_index_shift(IrTypeKind type) {
+  if (type == IR_TYPE_U8 || type == IR_TYPE_BOOL) return 0;
+  if (type == IR_TYPE_U16) return 1;
+  if (type == IR_TYPE_I64 || type == IR_TYPE_U64) return 3;
+  return 2;
+}
+
 static bool build_byte_view_const_len(const IrValue *view, unsigned *out) {
   if (!view) return false;
   if (view->kind == IR_VALUE_STRING_LITERAL || view->kind == IR_VALUE_ARRAY_BYTE_VIEW) {
@@ -39,8 +50,8 @@ static bool build_check_coff_byte_view_ptr(const ZBuildability *ctx, const IrFun
   if (view->kind == IR_VALUE_CALL && view->type == IR_TYPE_BYTE_VIEW) return true;
   if (view->kind == IR_VALUE_ARRAY_BYTE_VIEW && fun && view->array_index < fun->local_len) {
     const IrLocal *local = &fun->locals[view->array_index];
-    if (!local->is_array || local->element_type != IR_TYPE_U8) {
-      return z_build_diag(ctx, diag, "direct COFF byte-view array requires [N]u8", view->line, view->column, "unsupported array view");
+    if (!local->is_array) {
+      return z_build_diag(ctx, diag, "direct COFF byte-view array requires a fixed array", view->line, view->column, "unsupported array view");
     }
     return true;
   }
@@ -72,8 +83,8 @@ static bool build_check_macho_x64_byte_view_ptr(const ZBuildability *ctx, const 
   if (view->kind == IR_VALUE_CALL && view->type == IR_TYPE_BYTE_VIEW) return true;
   if (view->kind == IR_VALUE_ARRAY_BYTE_VIEW && fun && view->array_index < fun->local_len) {
     const IrLocal *local = &fun->locals[view->array_index];
-    if (!local->is_array || local->element_type != IR_TYPE_U8) {
-      return z_build_diag(ctx, diag, "direct x86_64 Mach-O byte-view array requires [N]u8", view->line, view->column, "unsupported array view");
+    if (!local->is_array) {
+      return z_build_diag(ctx, diag, "direct x86_64 Mach-O byte-view array requires a fixed array", view->line, view->column, "unsupported array view");
     }
     return true;
   }
@@ -105,8 +116,8 @@ static bool build_check_macho_byte_view_ptr(const ZBuildability *ctx, const IrFu
   if (view->kind == IR_VALUE_CALL && view->type == IR_TYPE_BYTE_VIEW) return true;
   if (view->kind == IR_VALUE_ARRAY_BYTE_VIEW && fun && view->array_index < fun->local_len) {
     const IrLocal *local = &fun->locals[view->array_index];
-    if (!local->is_array || local->element_type != IR_TYPE_U8) {
-      return z_build_diag(ctx, diag, "direct AArch64 Mach-O byte-view array requires [N]u8", view->line, view->column, "unsupported array view");
+    if (!local->is_array) {
+      return z_build_diag(ctx, diag, "direct AArch64 Mach-O byte-view array requires a fixed array", view->line, view->column, "unsupported array view");
     }
     return true;
   }
@@ -114,7 +125,7 @@ static bool build_check_macho_byte_view_ptr(const ZBuildability *ctx, const IrFu
   if (view->kind == IR_VALUE_BYTE_SLICE) {
     unsigned start = 0;
     if (!build_check_macho_byte_view_ptr(ctx, fun, view->left, diag)) return false;
-    if (build_const_u32_value(view->index, &start) && start > BUILD_AARCH64_IMM12_MAX) {
+    if (build_const_u32_value(view->index, &start) && (start << build_type_index_shift(build_view_element_type(view))) > BUILD_AARCH64_IMM12_MAX) {
       return z_build_diag(ctx, diag, "direct AArch64 Mach-O byte slice constant start is too large", view->line, view->column, "unsupported byte slice");
     }
     return true;
@@ -138,6 +149,7 @@ bool z_build_check_macho_byte_view_len(const ZBuildability *ctx, const IrFunctio
     unsigned end = 0;
     bool const_start = !view->index || build_const_u32_value(view->index, &start);
     bool const_end = build_const_u32_value(view->right, &end);
+    if (!view->right) return z_build_check_macho_byte_view_len(ctx, fun, view->left, diag);
     if (const_start && const_end && end >= start && end - start <= 65535u) return true;
     if (const_start && view->right) {
       if (start > BUILD_AARCH64_IMM12_MAX) {
