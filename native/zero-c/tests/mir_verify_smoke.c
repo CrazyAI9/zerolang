@@ -737,6 +737,23 @@ static void byte_view_equality_result_type_mismatch_fails(void) {
   expect_fail("byte-view equality result mismatch", &ir, "byte-view equality result type mismatch");
 }
 
+static void byte_view_equality_element_mismatch_fails(void) {
+  IrLocal locals[] = {
+    array_local("left", IR_TYPE_I32, 0),
+    array_local("right", IR_TYPE_U8, 1)
+  };
+  locals[1].frame_offset = 32;
+  IrValue left = array_byte_view_value(0, 4, IR_TYPE_I32);
+  IrValue right = array_byte_view_value(1, 4, IR_TYPE_U8);
+  IrValue equal = value(IR_VALUE_BYTE_VIEW_EQ, IR_TYPE_BOOL);
+  equal.left = &left;
+  equal.right = &right;
+  IrInstr ret = {.kind = IR_INSTR_RETURN, .value = &equal, .line = 1, .column = 1};
+  IrFunction fun = function("main", IR_TYPE_BOOL, IR_TYPE_BOOL, locals, 2, 0, &ret, 1, 32, false);
+  IrProgram ir = program(&fun, 1);
+  expect_fail("byte-view equality element mismatch", &ir, "byte-view equality element mismatch");
+}
+
 static void binary_operand_type_mismatch_fails(void) {
   IrValue left = value(IR_VALUE_INT, IR_TYPE_I32);
   IrValue right = value(IR_VALUE_BOOL, IR_TYPE_BOOL);
@@ -987,6 +1004,7 @@ int main(void) {
   http_fetch_immutable_response_fails();
   helper_result_type_mismatch_fails();
   byte_view_equality_result_type_mismatch_fails();
+  byte_view_equality_element_mismatch_fails();
   binary_operand_type_mismatch_fails();
   byte_copy_immutable_destination_fails();
   byte_copy_result_type_mismatch_fails();

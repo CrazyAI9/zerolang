@@ -92,6 +92,13 @@ static void a64_emit_store_ptr_element(ZBuf *text, unsigned src, unsigned base, 
   else z_aarch64_emit_store_w_imm(text, src, base, 0);
 }
 
+static void a64_emit_scale_len_for_element(ZBuf *text, unsigned reg, IrTypeKind element_type) {
+  unsigned shift = a64_type_index_shift(element_type);
+  if (shift == 0) return;
+  z_aarch64_emit_movz_w(text, 14, 1u << shift);
+  z_aarch64_emit_mul_w_reg(text, reg, reg, 14);
+}
+
 static bool a64_const_u32_value(const IrValue *value, unsigned *out) {
   if (!value || value->kind != IR_VALUE_INT || value->int_value > UINT32_MAX) return false;
   if (out) *out = (unsigned)value->int_value;
@@ -504,6 +511,7 @@ static bool a64_emit_byte_view_eq_to_reg_at(ZBuf *text, const IrFunction *fun, c
   z_aarch64_patch_cond19(text, same_len, text->len);
   if (!a64_emit_load_scratch(text, 11, IR_TYPE_U64, scratch_slot + 1, value->left, diag)) return false;
   if (!a64_emit_load_scratch(text, 10, IR_TYPE_U32, scratch_slot, value->left, diag)) return false;
+  a64_emit_scale_len_for_element(text, 10, a64_view_element_type(value->left));
   z_aarch64_emit_byte_eq_loop(text, reg);
   z_aarch64_patch_branch26(text, end_patch, text->len);
   return true;

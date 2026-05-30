@@ -148,6 +148,11 @@ static void elf_emit_scale_index_into_rax(ZBuf *code, IrTypeKind element_type) {
   z_x64_emit_lea_base_index_scale_disp_reg(code, 0, 0, 1, elf_type_byte_size(element_type), 0);
 }
 
+static void elf_emit_scale_len_reg(ZBuf *code, unsigned reg, IrTypeKind element_type) {
+  unsigned size = elf_type_byte_size(element_type);
+  if (size > 1) z_x64_emit_shl_reg_imm8(code, reg, size == 8 ? 3 : (size == 4 ? 2 : 1), true);
+}
+
 static unsigned elf_setcc_opcode(IrCompareOp op, bool uns) {
   switch (op) {
     case IR_CMP_EQ: return 0x94;
@@ -1242,6 +1247,7 @@ static bool elf_emit_byte_bulk_value(ZBuf *code, const IrFunction *fun, const Ir
       size_t end = z_x64_emit_jmp32_placeholder(code, 0xe9);
       z_x64_patch_rel32(code, same_len, code->len);
       z_x64_emit_pop_reg64(code, 8);
+      elf_emit_scale_len_reg(code, 10, elf_view_element_type(value->left));
       z_x64_emit_byte_eq_loop(code);
       z_x64_patch_rel32(code, end, code->len);
       return true;

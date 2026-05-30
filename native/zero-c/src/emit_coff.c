@@ -48,11 +48,17 @@ static IrTypeKind coff_view_element_type(const IrValue *view) {
 
 static unsigned coff_type_byte_size(IrTypeKind type) {
   if (type == IR_TYPE_U8 || type == IR_TYPE_BOOL) return 1;
+  if (type == IR_TYPE_I64 || type == IR_TYPE_U64) return 8;
   return 4;
 }
 
 static void coff_emit_scale_index_into_rax(ZBuf *text, IrTypeKind element_type) {
   z_x64_emit_lea_base_index_scale_disp_reg(text, 0, 0, 1, coff_type_byte_size(element_type), 0);
+}
+
+static void coff_emit_scale_len_reg(ZBuf *text, unsigned reg, IrTypeKind element_type) {
+  unsigned size = coff_type_byte_size(element_type);
+  if (size > 1) z_x64_emit_shl_reg_imm8(text, reg, size == 8 ? 3 : (size == 4 ? 2 : 1), true);
 }
 
 static void coff_emit_cast_normalize_rax(ZBuf *text, IrTypeKind target) {
@@ -552,6 +558,7 @@ static bool coff_emit_byte_view_eq_value(ZBuf *text, const IrFunction *fun, cons
   size_t end = z_x64_emit_jmp32_placeholder(text, 0xe9);
   z_x64_patch_rel32(text, same_len, text->len);
   z_x64_emit_pop_reg64(text, 8);
+  coff_emit_scale_len_reg(text, 10, coff_view_element_type(value->left));
   z_x64_emit_byte_eq_loop(text);
   z_x64_patch_rel32(text, end, text->len);
   return true;

@@ -66,6 +66,11 @@ static void machx64_emit_scale_index_into_rax(ZBuf *text, IrTypeKind element_typ
   z_x64_emit_lea_base_index_scale_disp_reg(text, 0, 0, 1, machx64_type_byte_size(element_type), 0);
 }
 
+static void machx64_emit_scale_len_reg(ZBuf *text, unsigned reg, IrTypeKind element_type) {
+  unsigned size = machx64_type_byte_size(element_type);
+  if (size > 1) z_x64_emit_shl_reg_imm8(text, reg, size == 8 ? 3 : (size == 4 ? 2 : 1), true);
+}
+
 static bool machx64_is_main_function(const IrFunction *fun) {
   return fun && fun->is_exported && fun->name && fun->name[0] == 'm' && fun->name[1] == 'a' && fun->name[2] == 'i' && fun->name[3] == 'n' && fun->name[4] == '\0';
 }
@@ -594,6 +599,7 @@ static bool machx64_emit_byte_view_eq_value(ZBuf *text, const IrFunction *fun, c
   size_t end = z_x64_emit_jmp32_placeholder(text, 0xe9);
   z_x64_patch_rel32(text, same_len, text->len);
   z_x64_emit_pop_reg64(text, 8);
+  machx64_emit_scale_len_reg(text, 10, machx64_view_element_type(value->left));
   z_x64_emit_byte_eq_loop(text);
   z_x64_patch_rel32(text, end, text->len);
   return true;

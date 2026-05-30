@@ -749,6 +749,21 @@ static bool mir_verify_byte_view_pair(IrProgram *ir, const IrValue *value, const
   return mir_verify_value_type(ir, value ? value->right : NULL, IR_TYPE_BYTE_VIEW, message, right_role);
 }
 
+static IrTypeKind mir_verify_view_element_type(const IrValue *value) {
+  return value && value->element_type != IR_TYPE_UNSUPPORTED ? value->element_type : IR_TYPE_U8;
+}
+
+static bool mir_verify_byte_view_pair_same_element(IrProgram *ir, const IrValue *value, const char *message) {
+  if (!mir_verify_byte_view_pair(ir, value, message, "byte-view equality left", "byte-view equality right")) return false;
+  IrTypeKind left = mir_verify_view_element_type(value ? value->left : NULL);
+  IrTypeKind right = mir_verify_view_element_type(value ? value->right : NULL);
+  if (left == right) return true;
+  char actual[160];
+  snprintf(actual, sizeof(actual), "left element %s but right element %s", mir_type_kind_name(left), mir_type_kind_name(right));
+  mir_verify_mark_unsupported(ir, "MIR verifier found byte-view equality element mismatch", value ? value->line : 1, value ? value->column : 1, actual);
+  return false;
+}
+
 static bool mir_verify_fs_value_contract(IrProgram *ir, const IrFunction *fun, const MirVerifierState *state, const IrValue *value) {
   if (!ir || !ir->mir_valid || !value) return false;
   switch (value->kind) {
@@ -943,7 +958,7 @@ static bool mir_verify_direct_value_kind_contract(IrProgram *ir, const IrFunctio
       return mir_verify_byte_view_index_load_contract(ir, value);
     case IR_VALUE_BYTE_VIEW_EQ:
       if (!mir_verify_value_type(ir, value, IR_TYPE_BOOL, "MIR verifier found byte-view equality result type mismatch", "byte-view equality result")) return false;
-      return mir_verify_byte_view_pair(ir, value, "MIR verifier found invalid byte-view equality input", "byte-view equality left", "byte-view equality right");
+      return mir_verify_byte_view_pair_same_element(ir, value, "MIR verifier found invalid byte-view equality input");
     case IR_VALUE_BYTE_COPY:
     case IR_VALUE_BYTE_FILL:
       return mir_verify_byte_mutation_value_contract(ir, fun, state, value);
