@@ -1029,6 +1029,36 @@ static bool ir_lower_string_literal_byte_view(IrProgram *ir, const Expr *expr, I
   return true;
 }
 
+static bool ir_lower_record_array_field_byte_view(const Program *program, IrProgram *ir, const IrFunction *fun, const Expr *expr, IrValue **out) {
+  if (!expr || expr->kind != EXPR_MEMBER || !expr->left || expr->left->kind != EXPR_IDENT) return false;
+  const IrLocal *record = ir_function_find_local(fun, expr->left->text);
+  unsigned field_offset = 0;
+  bool field_is_array = false;
+  unsigned field_array_len = 0;
+  IrTypeKind field_element_type = IR_TYPE_UNSUPPORTED;
+  if (!record || !record->is_record ||
+      !ir_shape_field_storage_info(program, record->shape_name, expr->text, &field_offset, NULL, &field_is_array, &field_array_len, &field_element_type) ||
+      !field_is_array) {
+    return false;
+  }
+  unsigned element_size = ir_type_byte_size(field_element_type);
+  if (!(ir_type_is_value(field_element_type) || field_element_type == IR_TYPE_BOOL) ||
+      element_size == 0 ||
+      field_array_len > UINT_MAX / element_size ||
+      field_offset > record->byte_size ||
+      field_array_len * element_size > record->byte_size - field_offset) {
+    ir_mark_unsupported(ir, "direct backend record array field byte view has unsupported storage", expr->line, expr->column, expr->text);
+    return false;
+  }
+  IrValue *value = ir_new_value(ir, IR_VALUE_ARRAY_BYTE_VIEW, IR_TYPE_BYTE_VIEW, expr->line, expr->column);
+  value->array_index = record->index;
+  value->field_offset = field_offset;
+  value->data_len = field_array_len;
+  value->element_type = field_element_type;
+  *out = value;
+  return true;
+}
+
 static bool ir_lower_byte_view(const Program *program, IrProgram *ir, const IrFunction *fun, const Expr *expr, IrValue **out) {
   if (!expr) {
     ir_mark_unsupported(ir, "direct backend byte view is missing", 1, 1, "missing expression");
@@ -1097,6 +1127,7 @@ static bool ir_lower_byte_view(const Program *program, IrProgram *ir, const IrFu
       return false;
     }
   }
+  if (ir_lower_record_array_field_byte_view(program, ir, fun, expr, out)) return true;
   if (expr->kind == EXPR_MEMBER && expr->left && expr->left->kind == EXPR_IDENT && strcmp(expr->text ? expr->text : "", "value") == 0) {
     const IrLocal *local = ir_function_find_local(fun, expr->left->text);
     if (!local || local->type != IR_TYPE_MAYBE_BYTE_VIEW) {

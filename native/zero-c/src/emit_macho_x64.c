@@ -351,8 +351,8 @@ static bool machx64_emit_byte_view_ptr(ZBuf *text, const IrFunction *fun, const 
   if (view->kind == IR_VALUE_CALL && view->type == IR_TYPE_BYTE_VIEW) return machx64_emit_value(text, fun, view, ctx, diag);
   if (view->kind == IR_VALUE_ARRAY_BYTE_VIEW && view->array_index < fun->local_len) {
     const IrLocal *local = &fun->locals[view->array_index];
-    if (!local->is_array) return machx64_diag_at(diag, "direct x86_64 Mach-O byte-view array requires a fixed array", view->line, view->column, "unsupported array view");
-    z_x64_emit_rbp_disp_reg(text, 0x8d, 0, machx64_local_offset(fun, view->array_index), true);
+    if (!((local->is_array && view->field_offset == 0) || local->is_record)) return machx64_diag_at(diag, "direct x86_64 Mach-O byte-view array requires a fixed array or record array field", view->line, view->column, "unsupported array view");
+    z_x64_emit_rbp_disp_reg(text, 0x8d, 0, machx64_local_slot_offset(fun, view->array_index, view->field_offset), true);
     return true;
   }
   if (view->kind == IR_VALUE_STRING_LITERAL) return machx64_emit_rodata_ptr_rax(text, view->data_offset, ctx, view, diag);

@@ -444,8 +444,8 @@ static bool macho_emit_byte_view_ptr_at(ZBuf *text, const IrFunction *fun, const
   }
   if (view->kind == IR_VALUE_ARRAY_BYTE_VIEW && view->array_index < fun->local_len) {
     const IrLocal *local = &fun->locals[view->array_index];
-    if (!local->is_array) return macho_diag_at(diag, "direct AArch64 Mach-O byte-view array requires a fixed array", view->line, view->column, "unsupported array view");
-    z_aarch64_emit_add_x_sp_imm(text, reg, macho_local_slot_offset(fun, view->array_index, 0, frame_size));
+    if (!((local->is_array && view->field_offset == 0) || local->is_record)) return macho_diag_at(diag, "direct AArch64 Mach-O byte-view array requires a fixed array or record array field", view->line, view->column, "unsupported array view");
+    z_aarch64_emit_add_x_sp_imm(text, reg, macho_local_slot_offset(fun, view->array_index, view->field_offset, frame_size));
     return true;
   }
   if (view->kind == IR_VALUE_STRING_LITERAL) {

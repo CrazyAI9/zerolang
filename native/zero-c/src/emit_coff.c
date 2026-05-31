@@ -298,8 +298,8 @@ static bool coff_emit_byte_view_ptr(ZBuf *text, const IrFunction *fun, const IrV
   if (view->kind == IR_VALUE_CALL && view->type == IR_TYPE_BYTE_VIEW) return coff_emit_value(text, fun, view, ctx, diag);
   if (view->kind == IR_VALUE_ARRAY_BYTE_VIEW && view->array_index < fun->local_len) {
     const IrLocal *local = &fun->locals[view->array_index];
-    if (!local->is_array) return coff_diag_at(diag, "direct COFF byte-view array requires a fixed array", view->line, view->column, "unsupported array view");
-    z_x64_emit_rbp_disp_reg(text, 0x8d, 0, coff_local_offset(fun, view->array_index), true);
+    if (!((local->is_array && view->field_offset == 0) || local->is_record)) return coff_diag_at(diag, "direct COFF byte-view array requires a fixed array or record array field", view->line, view->column, "unsupported array view");
+    z_x64_emit_rbp_disp_reg(text, 0x8d, 0, coff_local_slot_offset(fun, view->array_index, view->field_offset), true);
     return true;
   }
   if (view->kind == IR_VALUE_STRING_LITERAL) {

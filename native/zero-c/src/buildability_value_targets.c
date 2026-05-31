@@ -67,14 +67,19 @@ static size_t build_value_abi_slots(const IrValue *value) {
   return slots;
 }
 
+static bool build_array_byte_view_has_storage(const IrFunction *fun, const IrValue *view) {
+  if (!view || view->kind != IR_VALUE_ARRAY_BYTE_VIEW || !fun || view->array_index >= fun->local_len) return false;
+  const IrLocal *local = &fun->locals[view->array_index];
+  return (local->is_array && view->field_offset == 0) || local->is_record;
+}
+
 static bool build_aarch64_byte_view_ptr(const ZBuildability *ctx, const IrFunction *fun, const IrValue *view, ZDiag *diag) {
   if (!view) return z_build_diag(ctx, diag, "direct AArch64 byte view is missing", 1, 1, "missing byte view");
   if (view->kind == IR_VALUE_LOCAL && fun && view->local_index < fun->local_len && fun->locals[view->local_index].type == IR_TYPE_BYTE_VIEW) return true;
   if (view->kind == IR_VALUE_MAYBE_VALUE && fun && view->local_index < fun->local_len && fun->locals[view->local_index].type == IR_TYPE_MAYBE_BYTE_VIEW) return true;
   if (view->kind == IR_VALUE_CALL && view->type == IR_TYPE_BYTE_VIEW) return true;
   if (view->kind == IR_VALUE_ARRAY_BYTE_VIEW && fun && view->array_index < fun->local_len) {
-    const IrLocal *local = &fun->locals[view->array_index];
-    if (!local->is_array) return z_build_diag(ctx, diag, "direct AArch64 byte-view array requires a fixed array", view->line, view->column, "unsupported array view");
+    if (!build_array_byte_view_has_storage(fun, view)) return z_build_diag(ctx, diag, "direct AArch64 byte-view array requires a fixed array or record array field", view->line, view->column, "unsupported array view");
     return true;
   }
   if (view->kind == IR_VALUE_STRING_LITERAL) return true;

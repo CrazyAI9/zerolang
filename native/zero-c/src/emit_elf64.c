@@ -165,8 +165,8 @@ static void elf_emit_store_ptr_element(ZBuf *code, unsigned base_reg, unsigned s
   }
 }
 
-static void elf_emit_lea_array_base_rax(ZBuf *code, const IrLocal *local) {
-  z_x64_emit_rbp_disp_reg(code, 0x8d, 0, local->frame_offset, true);
+static void elf_emit_lea_array_base_rax(ZBuf *code, const IrLocal *local, unsigned field_offset) {
+  z_x64_emit_rbp_disp_reg(code, 0x8d, 0, elf_record_field_disp(local, field_offset), true);
 }
 
 static void elf_emit_scale_index_into_rax(ZBuf *code, IrTypeKind element_type) {
@@ -316,7 +316,7 @@ static bool elf_emit_bounds_checked_address(ZBuf *code, const IrFunction *fun, c
   z_x64_emit_ud2(code);
   z_x64_patch_rel32(code, ok_patch, code->len);
   z_x64_emit_mov_rcx_from_rax(code, false);
-  elf_emit_lea_array_base_rax(code, local);
+  elf_emit_lea_array_base_rax(code, local, 0);
   elf_emit_scale_index_into_rax(code, local->element_type);
   return true;
 }
@@ -522,8 +522,8 @@ static bool elf_emit_byte_view_ptr(ZBuf *code, const IrFunction *fun, const IrVa
   }
   if (view->kind == IR_VALUE_ARRAY_BYTE_VIEW && view->array_index < fun->local_len) {
     const IrLocal *local = &fun->locals[view->array_index];
-    if (!local->is_array) return elf_diag(diag, "direct ELF64 byte-view array requires a fixed array", view->line, view->column, "non-array view");
-    elf_emit_lea_array_base_rax(code, local);
+    if (!((local->is_array && view->field_offset == 0) || local->is_record)) return elf_diag(diag, "direct ELF64 byte-view array requires a fixed array or record array field", view->line, view->column, "non-array view");
+    elf_emit_lea_array_base_rax(code, local, view->field_offset);
     return true;
   }
   if (view->kind == IR_VALUE_BYTE_SLICE) {
@@ -1630,7 +1630,7 @@ static bool elf_emit_temp_name_to_local(ZBuf *text, const IrFunction *fun, const
     elf_emit_maybe_clear(text, local);
     return true;
   }
-  elf_emit_lea_array_base_rax(text, buf_local);
+  elf_emit_lea_array_base_rax(text, buf_local, 0);
   for (unsigned i = 0; i < prefix_len; i++) {
     unsigned char byte = 0;
     if (!elf_byte_view_const_byte(ctx ? ctx->ir : NULL, fun, prefix, i, &byte)) return elf_diag(diag, "direct ELF64 std.fs.tempName prefix byte is unavailable", instr->line, instr->column, "unavailable prefix");

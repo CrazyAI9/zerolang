@@ -577,25 +577,56 @@ static bool mir_verify_array_byte_view_contract(IrProgram *ir, const IrFunction 
   if (!mir_verify_value_type(ir, value, IR_TYPE_BYTE_VIEW, "MIR verifier found byte-view result type mismatch", "array byte view result")) return false;
   if (!mir_verify_local_index(ir, fun, value->array_index, value->line, value->column, "MIR verifier found array byte view outside the local table")) return false;
   const IrLocal *local = &fun->locals[value->array_index];
-  if (!local->is_array || (!mir_type_is_value(local->element_type) && local->element_type != IR_TYPE_BOOL)) {
+  if (local->is_array) {
+    if ((!mir_type_is_value(local->element_type) && local->element_type != IR_TYPE_BOOL) || value->field_offset != 0) {
+      char actual[160];
+      snprintf(actual, sizeof(actual), "local %s is %s array element %s with field offset %u", local->name ? local->name : "<unnamed>", local->is_array ? "an" : "not an", mir_type_kind_name(local->element_type), value->field_offset);
+      mir_verify_mark_unsupported(ir, "MIR verifier found array byte view from an unsupported array local", value->line, value->column, actual);
+      return false;
+    }
+    if (value->element_type != local->element_type) {
+      char actual[160];
+      snprintf(actual, sizeof(actual), "view element %s but array element is %s", mir_type_kind_name(value->element_type), mir_type_kind_name(local->element_type));
+      mir_verify_mark_unsupported(ir, "MIR verifier found array byte view element mismatch", value->line, value->column, actual);
+      return false;
+    }
+    if (value->data_len != local->array_len) {
+      char actual[128];
+      snprintf(actual, sizeof(actual), "byte view length %u but array length is %u", value->data_len, local->array_len);
+      mir_verify_mark_unsupported(ir, "MIR verifier found array byte view length mismatch", value->line, value->column, actual);
+      return false;
+    }
+    return true;
+  }
+  if (local->is_record) {
+    if (!mir_type_is_value(value->element_type) && value->element_type != IR_TYPE_BOOL) {
+      char actual[160];
+      snprintf(actual, sizeof(actual), "record field view element is %s", mir_type_kind_name(value->element_type));
+      mir_verify_mark_unsupported(ir, "MIR verifier found array byte view from an unsupported record field", value->line, value->column, actual);
+      return false;
+    }
+    unsigned element_size = mir_type_byte_size(value->element_type);
+    if (element_size == 0 || value->data_len > (unsigned)(~0u) / element_size) {
+      char actual[128];
+      snprintf(actual, sizeof(actual), "record field view length %u element %s", value->data_len, mir_type_kind_name(value->element_type));
+      mir_verify_mark_unsupported(ir, "MIR verifier found array byte view record field size overflow", value->line, value->column, actual);
+      return false;
+    }
+    unsigned byte_len = value->data_len * element_size;
+    if (value->field_offset > local->byte_size || byte_len > local->byte_size - value->field_offset) {
+      char actual[160];
+      snprintf(actual, sizeof(actual), "record field offset %u width %u in local size %u", value->field_offset, byte_len, local->byte_size);
+      mir_verify_mark_unsupported(ir, "MIR verifier found array byte view record field outside local storage", value->line, value->column, actual);
+      return false;
+    }
+    return true;
+  }
+  {
     char actual[160];
     snprintf(actual, sizeof(actual), "local %s is %s array element %s", local->name ? local->name : "<unnamed>", local->is_array ? "an" : "not an", mir_type_kind_name(local->element_type));
     mir_verify_mark_unsupported(ir, "MIR verifier found array byte view from an unsupported array local", value->line, value->column, actual);
     return false;
   }
-  if (value->element_type != local->element_type) {
-    char actual[160];
-    snprintf(actual, sizeof(actual), "view element %s but array element is %s", mir_type_kind_name(value->element_type), mir_type_kind_name(local->element_type));
-    mir_verify_mark_unsupported(ir, "MIR verifier found array byte view element mismatch", value->line, value->column, actual);
-    return false;
-  }
-  if (value->data_len != local->array_len) {
-    char actual[128];
-    snprintf(actual, sizeof(actual), "byte view length %u but array length is %u", value->data_len, local->array_len);
-    mir_verify_mark_unsupported(ir, "MIR verifier found array byte view length mismatch", value->line, value->column, actual);
-    return false;
-  }
-  return true;
 }
 
 static bool mir_verify_maybe_value_contract(IrProgram *ir, const IrFunction *fun, const IrValue *value) {
