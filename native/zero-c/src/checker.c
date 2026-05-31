@@ -849,14 +849,23 @@ static void scope_clear_moved_resolved_place(Scope *scope, const Place *place) {
   scope_clear_moved_place_with_scope(scope, place->root_scope, place->root, place->path);
 }
 
-static bool scope_borrow_counts_for_place(Scope *scope, const char *root, const char *path, size_t *shared, size_t *mut) {
+static bool scope_binding_is_excluded(Scope *cursor, size_t binding_index, Scope *exclude_scope, const char *exclude_root) {
+  return exclude_root && exclude_root[0] &&
+         (!exclude_scope || cursor == exclude_scope) &&
+         cursor && binding_index < cursor->len &&
+         cursor->names[binding_index] &&
+         strcmp(cursor->names[binding_index], exclude_root) == 0;
+}
+
+static bool scope_borrow_counts_for_place_resolved(Scope *scope, Scope *root_scope, const char *root, const char *path, Scope *exclude_scope, const char *exclude_root, size_t *shared, size_t *mut) {
   if (shared) *shared = 0;
   if (mut) *mut = 0;
   if (!scope || !root) return false;
   bool found = false;
-  Scope *root_scope = scope_binding_scope(scope, root);
+  if (!root_scope) root_scope = scope_binding_scope(scope, root);
   for (Scope *cursor = scope; cursor; cursor = cursor->parent) {
     for (size_t binding_index = 0; binding_index < cursor->len; binding_index++) {
+      if (scope_binding_is_excluded(cursor, binding_index, exclude_scope, exclude_root)) continue;
       ValueProvenance *origins = &cursor->value_provenance[binding_index];
       for (size_t origin_index = 0; origin_index < origins->len; origin_index++) {
         ProvenanceEntry *entry = &origins->items[origin_index];
@@ -873,6 +882,10 @@ static bool scope_borrow_counts_for_place(Scope *scope, const char *root, const 
     }
   }
   return found;
+}
+
+static bool scope_borrow_counts_for_place(Scope *scope, const char *root, const char *path, size_t *shared, size_t *mut) {
+  return scope_borrow_counts_for_place_resolved(scope, NULL, root, path, NULL, NULL, shared, mut);
 }
 
 static bool borrow_trace_equal(const ZBorrowTrace *left, const ZBorrowTrace *right) {
@@ -899,14 +912,15 @@ static bool borrow_trace_push(ZBorrowTrace *out, size_t *out_len, bool *truncate
   return true;
 }
 
-static bool scope_active_borrows_for_place(Scope *scope, const char *root, const char *path, bool mutable_only, ZBorrowTrace *out, size_t *out_len, bool *truncated) {
+static bool scope_active_borrows_for_place_resolved(Scope *scope, Scope *root_scope, const char *root, const char *path, bool mutable_only, Scope *exclude_scope, const char *exclude_root, ZBorrowTrace *out, size_t *out_len, bool *truncated) {
   if (!scope || !root || !out || !out_len) return false;
   *out_len = 0;
   if (truncated) *truncated = false;
   bool found = false;
-  Scope *root_scope = scope_binding_scope(scope, root);
+  if (!root_scope) root_scope = scope_binding_scope(scope, root);
   for (Scope *cursor = scope; cursor; cursor = cursor->parent) {
     for (size_t binding_index = 0; binding_index < cursor->len; binding_index++) {
+      if (scope_binding_is_excluded(cursor, binding_index, exclude_scope, exclude_root)) continue;
       ValueProvenance *origins = &cursor->value_provenance[binding_index];
       for (size_t origin_index = 0; origin_index < origins->len; origin_index++) {
         ProvenanceEntry *entry = &origins->items[origin_index];
@@ -927,6 +941,10 @@ static bool scope_active_borrows_for_place(Scope *scope, const char *root, const
     }
   }
   return found;
+}
+
+static bool scope_active_borrows_for_place(Scope *scope, const char *root, const char *path, bool mutable_only, ZBorrowTrace *out, size_t *out_len, bool *truncated) {
+  return scope_active_borrows_for_place_resolved(scope, NULL, root, path, mutable_only, NULL, NULL, out, out_len, truncated);
 }
 
 static ZDiag *diag_sink_target(DiagSink *sink) {
@@ -1627,10 +1645,10 @@ static bool expr_reference_provenance_as(CheckContext *ctx, const Program *progr
   return ok;
 }
 
-static bool check_borrow_conflict_at(Scope *scope, const char *root, const char *path, bool mut_borrow, ZDiag *diag, const Expr *expr) {
+static bool check_borrow_conflict_at_resolved_excluding(Scope *scope, Scope *root_scope, const char *root, const char *path, bool mut_borrow, ZDiag *diag, const Expr *expr, Scope *exclude_scope, const char *exclude_root) {
   size_t shared = 0;
   size_t mut = 0;
-  scope_borrow_counts_for_place(scope, root, path, &shared, &mut);
+  scope_borrow_counts_for_place_resolved(scope, root_scope, root, path, exclude_scope, exclude_root, &shared, &mut);
   if (mut_borrow ? (shared > 0 || mut > 0) : (mut > 0)) {
     char place[200];
     format_origin_place(place, sizeof(place), root, path);
@@ -1640,12 +1658,16 @@ static bool check_borrow_conflict_at(Scope *scope, const char *root, const char 
     ZBorrowTrace active[Z_BORROW_TRACE_MAX] = {0};
     size_t active_len = 0;
     bool truncated = false;
-    if (scope_active_borrows_for_place(scope, root, path, !mut_borrow, active, &active_len, &truncated)) {
+    if (scope_active_borrows_for_place_resolved(scope, root_scope, root, path, !mut_borrow, exclude_scope, exclude_root, active, &active_len, &truncated)) {
       set_diag_borrow_trace(diag, active, active_len, truncated, "move the conflicting borrow after the active borrow's lexical scope or put the earlier borrow in an inner block");
     }
     return false;
   }
   return true;
+}
+
+static bool check_borrow_conflict_at(Scope *scope, const char *root, const char *path, bool mut_borrow, ZDiag *diag, const Expr *expr) {
+  return check_borrow_conflict_at_resolved_excluding(scope, NULL, root, path, mut_borrow, diag, expr, NULL, NULL);
 }
 
 static bool mutating_fixed_storage_place(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, char *root, size_t root_len, char *path, size_t path_len) {
@@ -1668,8 +1690,36 @@ static bool mutating_fixed_storage_place(CheckContext *ctx, const Program *progr
 static bool check_mutating_fixed_storage_not_borrowed(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag) {
   char root[128];
   char path[256];
-  if (!mutating_fixed_storage_place(ctx, program, expr, scope, root, sizeof(root), path, sizeof(path))) return true;
-  return check_borrow_conflict_at(scope, root, path, true, diag, expr);
+  if (mutating_fixed_storage_place(ctx, program, expr, scope, root, sizeof(root), path, sizeof(path))) {
+    return check_borrow_conflict_at(scope, root, path, true, diag, expr);
+  }
+
+  const char *actual = expr_type(ctx, program, expr, scope);
+  if (!type_is_named_generic(actual, "MutSpan")) return true;
+
+  ValueProvenance origins = {0};
+  if (!span_view_expr_provenance(ctx, program, expr, scope, actual, &origins)) {
+    value_provenance_free(&origins);
+    return true;
+  }
+
+  char exclude_root[128] = {0};
+  Scope *exclude_scope = NULL;
+  const Expr *handle = expr && expr->kind == EXPR_SLICE ? expr->left : expr;
+  if (handle && handle->kind == EXPR_IDENT && expr_binding_path(handle, exclude_root, sizeof(exclude_root), path, sizeof(path)) && scope_has(scope, exclude_root)) {
+    exclude_scope = scope_binding_scope(scope, exclude_root);
+  } else {
+    exclude_root[0] = '\0';
+  }
+
+  bool ok = true;
+  for (size_t i = 0; ok && i < origins.len; i++) {
+    ProvenanceEntry *entry = &origins.items[i];
+    if (!entry->origin.root || !entry->origin.root[0]) continue;
+    ok = check_borrow_conflict_at_resolved_excluding(scope, entry->origin.root_scope, entry->origin.root, entry->origin.path, true, diag, expr, exclude_scope, exclude_root);
+  }
+  value_provenance_free(&origins);
+  return ok;
 }
 
 static bool check_place_available(const Expr *expr, Scope *scope, const char *root, const char *path, ZDiag *diag) {
@@ -6310,6 +6360,10 @@ static bool check_stdlib_table_arg_range_expected(CheckContext *ctx, const Progr
       bool ok = set_diag_detail(diag, 3012, message, expr->args.items[i]->line, expr->args.items[i]->column, expected_type, actual, "pass a compatible value");
       free(expected_type);
       return ok;
+    }
+    if (expected_mut_span && !check_mutating_fixed_storage_not_borrowed(ctx, program, expr->args.items[i], scope, diag)) {
+      free(expected_type);
+      return false;
     }
     free(expected_type);
   }

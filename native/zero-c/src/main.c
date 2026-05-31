@@ -1068,6 +1068,11 @@ static void memory_scope_note_array(MemoryScope *scope, const char *name, size_t
   scope->arrays[scope->len++] = (MemoryArrayBinding){.name = name, .byte_len = byte_len, .owner_id = scope->owner_id, .binding_id = ++scope->next_binding_id};
 }
 
+static void memory_scope_note_array_alias(MemoryScope *scope, const char *name, const MemoryArrayBinding *target) {
+  if (!scope || !name || !target || scope->len >= sizeof(scope->arrays) / sizeof(scope->arrays[0])) return;
+  scope->arrays[scope->len++] = (MemoryArrayBinding){.name = name, .byte_len = target->byte_len, .owner_id = target->owner_id, .binding_id = target->binding_id};
+}
+
 static const MemoryArrayBinding *memory_scope_lookup_array_binding(const MemoryScope *scope, const char *name) {
   if (!scope || !name) return NULL;
   for (size_t i = scope->len; i > 0; i--) {
@@ -1086,6 +1091,20 @@ static size_t memory_byte_capacity_expr(const MemoryScope *scope, const Expr *ex
   if (expr->kind == EXPR_BORROW) return memory_byte_capacity_expr(scope, expr->left);
   if (expr->kind == EXPR_IDENT) return memory_scope_lookup_array(scope, expr->text);
   return 0;
+}
+
+static const MemoryArrayBinding *memory_array_binding_expr(const MemoryScope *scope, const Expr *expr) {
+  if (!expr) return NULL;
+  if (expr->kind == EXPR_BORROW) return memory_array_binding_expr(scope, expr->left);
+  if (expr->kind == EXPR_IDENT) return memory_scope_lookup_array_binding(scope, expr->text);
+  return NULL;
+}
+
+static bool memory_type_is_span_view(const char *type) {
+  if (!type) return false;
+  while (*type == ' ' || *type == '\t') type++;
+  return strncmp(type, "Span<", strlen("Span<")) == 0 ||
+         strncmp(type, "MutSpan<", strlen("MutSpan<")) == 0;
 }
 
 static void memory_model_collect_expr(const Expr *expr, MemoryScope *scope, MemoryModelSummary *summary);
@@ -1202,6 +1221,8 @@ static void memory_model_collect_stmt_vec(const StmtVec *body, MemoryScope *scop
       if (memory_parse_fixed_array_type(type, scope ? scope->target : NULL, NULL, &array_bytes, NULL)) {
         summary->stack_estimate_bytes += array_bytes;
         memory_scope_note_array(scope, stmt->name, array_bytes);
+      } else if (memory_type_is_span_view(type)) {
+        memory_scope_note_array_alias(scope, stmt->name, memory_array_binding_expr(scope, stmt->expr));
       }
     }
     memory_model_collect_expr(stmt->target, scope, summary);
