@@ -17,7 +17,7 @@ type CScanState = {
 const fileBudgets = {
   "native/zero-c/include/zero.h": { maxLines: 985, maxStrcmpCalls: 0 },
   "native/zero-c/include/zero_runtime.h": { maxLines: 100, maxStrcmpCalls: 0 },
-  "native/zero-c/src/checker.c": { maxLines: 11267, maxStrcmpCalls: 284 },
+  "native/zero-c/src/checker.c": { maxLines: 11551, maxStrcmpCalls: 285 },
   "native/zero-c/src/main.c": { maxLines: 11888, maxStrcmpCalls: 464 },
   "native/zero-c/src/ir.c": { maxLines: 3869, maxStrcmpCalls: 226 },
   "native/zero-c/src/ast.c": { maxLines: 250, maxStrcmpCalls: 0 },
@@ -89,9 +89,9 @@ const fileBudgets = {
   "native/zero-c/src/safety_contract.h": { maxLines: 30, maxStrcmpCalls: 0 },
   "native/zero-c/src/specialize.c": { maxLines: 150, maxStrcmpCalls: 2 },
   "native/zero-c/src/specialize.h": { maxLines: 50, maxStrcmpCalls: 0 },
-  "native/zero-c/src/std_sig.c": { maxLines: 231, maxStrcmpCalls: 2 },
-  "native/zero-c/src/std_sig.h": { maxLines: 53, maxStrcmpCalls: 0 },
-  "native/zero-c/src/std_source.c": { maxLines: 91, maxStrcmpCalls: 2 },
+  "native/zero-c/src/std_sig.c": { maxLines: 252, maxStrcmpCalls: 2 },
+  "native/zero-c/src/std_sig.h": { maxLines: 59, maxStrcmpCalls: 0 },
+  "native/zero-c/src/std_source.c": { maxLines: 115, maxStrcmpCalls: 2 },
   "native/zero-c/src/std_source.h": { maxLines: 30, maxStrcmpCalls: 0 },
   "native/zero-c/src/target_backend.c": { maxLines: 360, maxStrcmpCalls: 32 },
   "native/zero-c/src/target.c": { maxLines: 465, maxStrcmpCalls: 15 },
@@ -105,7 +105,7 @@ const fileBudgets = {
 
 const knownLargeFunctionLimits = new Map([
   ["native/zero-c/src/ir.c|static bool ir_lower_expr(const Program *program, IrProgram *ir, const IrFunction *fun, const Expr *expr, IrValue **out) {", 1484],
-  ["native/zero-c/src/checker.c|static bool check_expr_expected(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, const char *expected) {", 564],
+  ["native/zero-c/src/checker.c|static bool check_expr_expected(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, const char *expected) {", 567],
   ["native/zero-c/src/main.c|int main(int argc, char **argv) {", 924],
   ["native/zero-c/src/main.c|static void append_graph_json(ZBuf *buf, SourceInput *input, Program *program, const ZTargetInfo *target, const Command *command) {", 379],
   ["native/zero-c/src/checker.c|static bool check_stmt(CheckContext *ctx, const Program *program, const Function *fun, const Stmt *stmt, Scope *scope, ZDiag *diag, int loop_depth) {", 279],
@@ -121,15 +121,31 @@ const knownLargeFunctionLimits = new Map([
 const knownReturnTypeDivergences = new Map();
 
 const allowedHelpersWithSpecialArgTypeChecks = [
+  "std.collections.append",
+  "std.collections.contains",
+  "std.collections.count",
+  "std.collections.moveToFront",
+  "std.collections.push",
+  "std.collections.removeSwap",
+  "std.collections.view",
   "std.mem.contains",
   "std.mem.copyItems",
   "std.mem.eqlBytes",
   "std.mem.fillItems",
   "std.mem.isEmpty",
   "std.mem.len",
+  "std.search.indexOf",
+  "std.search.lastIndexOf",
 ];
 
 const expectedStdHelperKinds = new Map([
+  ["std.collections.append", "Z_STD_HELPER_KIND_COLLECTIONS_APPEND"],
+  ["std.collections.contains", "Z_STD_HELPER_KIND_COLLECTIONS_LEN_VALUE"],
+  ["std.collections.count", "Z_STD_HELPER_KIND_COLLECTIONS_LEN_VALUE"],
+  ["std.collections.moveToFront", "Z_STD_HELPER_KIND_COLLECTIONS_LEN_INDEX"],
+  ["std.collections.push", "Z_STD_HELPER_KIND_COLLECTIONS_PUSH"],
+  ["std.collections.removeSwap", "Z_STD_HELPER_KIND_COLLECTIONS_LEN_INDEX"],
+  ["std.collections.view", "Z_STD_HELPER_KIND_COLLECTIONS_VIEW"],
   ["std.mem.len", "Z_STD_HELPER_KIND_MEM_LEN"],
   ["std.mem.get", "Z_STD_HELPER_KIND_MEM_GET"],
   ["std.mem.eqlBytes", "Z_STD_HELPER_KIND_MEM_EQL_BYTES"],
@@ -141,6 +157,8 @@ const expectedStdHelperKinds = new Map([
   ["std.mem.dropPrefix", "Z_STD_HELPER_KIND_MEM_SLICE"],
   ["std.mem.allocBytes", "Z_STD_HELPER_KIND_MEM_ALLOC_BYTES"],
   ["std.mem.byteBuf", "Z_STD_HELPER_KIND_MEM_BYTE_BUF"],
+  ["std.search.indexOf", "Z_STD_HELPER_KIND_SEARCH_INDEX"],
+  ["std.search.lastIndexOf", "Z_STD_HELPER_KIND_SEARCH_INDEX"],
   ["std.fs.read", "Z_STD_HELPER_KIND_FS_READ"],
   ["std.fs.readAll", "Z_STD_HELPER_KIND_FS_READ_ALL"],
   ["std.fs.readAllOrRaise", "Z_STD_HELPER_KIND_FS_READ_ALL_OR_RAISE"],

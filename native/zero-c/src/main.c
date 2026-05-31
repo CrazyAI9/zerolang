@@ -833,11 +833,16 @@ typedef struct {
 typedef struct {
   const char *name;
   size_t byte_len;
+  size_t owner_id;
+  size_t binding_id;
 } MemoryArrayBinding;
 
 typedef struct {
   MemoryArrayBinding arrays[128];
   size_t len;
+  size_t owner_id;
+  size_t next_binding_id;
+  const ZTargetInfo *target;
 } MemoryScope;
 
 typedef struct {
@@ -856,15 +861,19 @@ typedef struct {
   size_t vec_push_calls;
   size_t vec_len_calls;
   size_t vec_capacity_calls;
-  size_t map_empty_count;
-  size_t map_len_calls;
-  size_t set_empty_count;
-  size_t set_len_calls;
+  size_t vec_capacity_bytes;
+  size_t collection_storage_count;
+  size_t collection_push_calls;
+  size_t collection_append_calls;
+  size_t collection_view_calls;
+  size_t collection_query_calls;
+  size_t collection_mutation_calls;
   size_t fixed_allocator_capacity_bytes;
   size_t arena_capacity_bytes;
-  size_t collection_capacity_bytes;
+  size_t fixed_collection_capacity_bytes;
   size_t allocation_requested_bytes;
   size_t unknown_capacity_sites;
+  MemoryArrayBinding collection_storages[128];
 } MemoryModelSummary;
 
 
@@ -987,7 +996,9 @@ static char *expr_callee_name(const Expr *callee) {
   return name.data;
 }
 
-static size_t memory_element_size(const char *element, bool *is_u8) {
+static int abi_pointer_size(const ZTargetInfo *target);
+
+static size_t memory_element_size(const char *element, const ZTargetInfo *target, bool *is_u8) {
   if (is_u8) *is_u8 = false;
   if (!element) return 0;
   while (*element == ' ' || *element == '\t') element++;
@@ -996,12 +1007,13 @@ static size_t memory_element_size(const char *element, bool *is_u8) {
     return 1;
   }
   if (strcmp(element, "u16") == 0 || strcmp(element, "i16") == 0) return 2;
-  if (strcmp(element, "u32") == 0 || strcmp(element, "i32") == 0 || strcmp(element, "f32") == 0 || strcmp(element, "usize") == 0 || strcmp(element, "isize") == 0) return 4;
+  if (strcmp(element, "u32") == 0 || strcmp(element, "i32") == 0 || strcmp(element, "f32") == 0) return 4;
+  if (strcmp(element, "usize") == 0 || strcmp(element, "isize") == 0) return (size_t)abi_pointer_size(target);
   if (strcmp(element, "u64") == 0 || strcmp(element, "i64") == 0 || strcmp(element, "f64") == 0) return 8;
   return 0;
 }
 
-static bool memory_parse_fixed_array_type(const char *type, size_t *out_len, size_t *out_bytes, bool *out_u8) {
+static bool memory_parse_fixed_array_type(const char *type, const ZTargetInfo *target, size_t *out_len, size_t *out_bytes, bool *out_u8) {
   if (out_len) *out_len = 0;
   if (out_bytes) *out_bytes = 0;
   if (out_u8) *out_u8 = false;
@@ -1022,7 +1034,7 @@ static bool memory_parse_fixed_array_type(const char *type, size_t *out_len, siz
   if (!saw_digit || *cursor != ']') return false;
   cursor++;
   bool is_u8 = false;
-  size_t element_size = memory_element_size(cursor, &is_u8);
+  size_t element_size = memory_element_size(cursor, target, &is_u8);
   if (element_size == 0) return false;
   if (out_len) *out_len = len;
   if (out_bytes) *out_bytes = len * element_size;
@@ -1053,15 +1065,25 @@ static bool memory_parse_number_literal(const Expr *expr, size_t *out_value) {
 
 static void memory_scope_note_array(MemoryScope *scope, const char *name, size_t byte_len) {
   if (!scope || !name || scope->len >= sizeof(scope->arrays) / sizeof(scope->arrays[0])) return;
-  scope->arrays[scope->len++] = (MemoryArrayBinding){.name = name, .byte_len = byte_len};
+  scope->arrays[scope->len++] = (MemoryArrayBinding){.name = name, .byte_len = byte_len, .owner_id = scope->owner_id, .binding_id = ++scope->next_binding_id};
+}
+
+static void memory_scope_note_array_alias(MemoryScope *scope, const char *name, const MemoryArrayBinding *target) {
+  if (!scope || !name || !target || scope->len >= sizeof(scope->arrays) / sizeof(scope->arrays[0])) return;
+  scope->arrays[scope->len++] = (MemoryArrayBinding){.name = name, .byte_len = target->byte_len, .owner_id = target->owner_id, .binding_id = target->binding_id};
+}
+
+static const MemoryArrayBinding *memory_scope_lookup_array_binding(const MemoryScope *scope, const char *name) {
+  if (!scope || !name) return NULL;
+  for (size_t i = scope->len; i > 0; i--) {
+    if (scope->arrays[i - 1].name && strcmp(scope->arrays[i - 1].name, name) == 0) return &scope->arrays[i - 1];
+  }
+  return NULL;
 }
 
 static size_t memory_scope_lookup_array(const MemoryScope *scope, const char *name) {
-  if (!scope || !name) return 0;
-  for (size_t i = scope->len; i > 0; i--) {
-    if (scope->arrays[i - 1].name && strcmp(scope->arrays[i - 1].name, name) == 0) return scope->arrays[i - 1].byte_len;
-  }
-  return 0;
+  const MemoryArrayBinding *binding = memory_scope_lookup_array_binding(scope, name);
+  return binding ? binding->byte_len : 0;
 }
 
 static size_t memory_byte_capacity_expr(const MemoryScope *scope, const Expr *expr) {
@@ -1071,7 +1093,47 @@ static size_t memory_byte_capacity_expr(const MemoryScope *scope, const Expr *ex
   return 0;
 }
 
+static const MemoryArrayBinding *memory_array_binding_expr(const MemoryScope *scope, const Expr *expr) {
+  if (!expr) return NULL;
+  if (expr->kind == EXPR_BORROW) return memory_array_binding_expr(scope, expr->left);
+  if (expr->kind == EXPR_IDENT) return memory_scope_lookup_array_binding(scope, expr->text);
+  return NULL;
+}
+
+static bool memory_type_is_span_view(const char *type) {
+  if (!type) return false;
+  while (*type == ' ' || *type == '\t') type++;
+  return strncmp(type, "Span<", strlen("Span<")) == 0 ||
+         strncmp(type, "MutSpan<", strlen("MutSpan<")) == 0;
+}
+
 static void memory_model_collect_expr(const Expr *expr, MemoryScope *scope, MemoryModelSummary *summary);
+
+static void memory_model_note_fixed_collection_storage(MemoryModelSummary *summary, const MemoryScope *scope, const Expr *expr) {
+  if (!summary) return;
+  const Expr *storage = expr;
+  if (storage && storage->kind == EXPR_BORROW) storage = storage->left;
+  if (!storage || storage->kind != EXPR_IDENT || !storage->text) {
+    summary->unknown_capacity_sites++;
+    return;
+  }
+  const MemoryArrayBinding *binding = memory_scope_lookup_array_binding(scope, storage->text);
+  if (!binding || binding->byte_len == 0) {
+    summary->unknown_capacity_sites++;
+    return;
+  }
+  for (size_t i = 0; i < summary->collection_storage_count; i++) {
+    if (summary->collection_storages[i].name &&
+        summary->collection_storages[i].owner_id == binding->owner_id &&
+        summary->collection_storages[i].binding_id == binding->binding_id) return;
+  }
+  if (summary->collection_storage_count >= sizeof(summary->collection_storages) / sizeof(summary->collection_storages[0])) {
+    summary->unknown_capacity_sites++;
+    return;
+  }
+  summary->collection_storages[summary->collection_storage_count++] = *binding;
+  summary->fixed_collection_capacity_bytes += binding->byte_len;
+}
 
 static void memory_model_note_allocator_capacity(MemoryModelSummary *summary, size_t capacity, bool arena) {
   if (!summary) return;
@@ -1117,15 +1179,29 @@ static void memory_model_collect_expr(const Expr *expr, MemoryScope *scope, Memo
     else if (strcmp(callee, "std.mem.vec") == 0) {
       summary->vec_count++;
       size_t capacity = expr->args.len > 0 ? memory_byte_capacity_expr(scope, expr->args.items[0]) : 0;
-      if (capacity > 0) summary->collection_capacity_bytes += capacity;
+      if (capacity > 0) summary->vec_capacity_bytes += capacity;
       else summary->unknown_capacity_sites++;
     } else if (strcmp(callee, "std.mem.vecPush") == 0) summary->vec_push_calls++;
     else if (strcmp(callee, "std.mem.vecLen") == 0) summary->vec_len_calls++;
     else if (strcmp(callee, "std.mem.vecCapacity") == 0) summary->vec_capacity_calls++;
-    else if (strcmp(callee, "std.mem.mapEmpty") == 0) summary->map_empty_count++;
-    else if (strcmp(callee, "std.mem.mapLen") == 0) summary->map_len_calls++;
-    else if (strcmp(callee, "std.mem.setEmpty") == 0) summary->set_empty_count++;
-    else if (strcmp(callee, "std.mem.setLen") == 0) summary->set_len_calls++;
+    else if (strcmp(callee, "std.collections.push") == 0) {
+      summary->collection_push_calls++;
+      summary->collection_mutation_calls++;
+      memory_model_note_fixed_collection_storage(summary, scope, expr->args.len > 0 ? expr->args.items[0] : NULL);
+    } else if (strcmp(callee, "std.collections.append") == 0) {
+      summary->collection_append_calls++;
+      summary->collection_mutation_calls++;
+      memory_model_note_fixed_collection_storage(summary, scope, expr->args.len > 0 ? expr->args.items[0] : NULL);
+    } else if (strcmp(callee, "std.collections.view") == 0) {
+      summary->collection_view_calls++;
+      memory_model_note_fixed_collection_storage(summary, scope, expr->args.len > 0 ? expr->args.items[0] : NULL);
+    } else if (strcmp(callee, "std.collections.contains") == 0 || strcmp(callee, "std.collections.count") == 0) {
+      summary->collection_query_calls++;
+      memory_model_note_fixed_collection_storage(summary, scope, expr->args.len > 0 ? expr->args.items[0] : NULL);
+    } else if (strcmp(callee, "std.collections.removeSwap") == 0 || strcmp(callee, "std.collections.moveToFront") == 0) {
+      summary->collection_mutation_calls++;
+      memory_model_note_fixed_collection_storage(summary, scope, expr->args.len > 0 ? expr->args.items[0] : NULL);
+    }
     free(callee);
   }
   memory_model_collect_expr(expr->left, scope, summary);
@@ -1141,13 +1217,12 @@ static void memory_model_collect_stmt_vec(const StmtVec *body, MemoryScope *scop
     if (!stmt) continue;
     if (stmt->kind == STMT_LET) {
       const char *type = stmt->resolved_type ? stmt->resolved_type : stmt->type;
-      size_t array_len = 0;
       size_t array_bytes = 0;
-      bool is_u8 = false;
-      if (memory_parse_fixed_array_type(type, &array_len, &array_bytes, &is_u8)) {
-        (void)array_len;
+      if (memory_parse_fixed_array_type(type, scope ? scope->target : NULL, NULL, &array_bytes, NULL)) {
         summary->stack_estimate_bytes += array_bytes;
-        if (is_u8) memory_scope_note_array(scope, stmt->name, array_bytes);
+        memory_scope_note_array(scope, stmt->name, array_bytes);
+      } else if (memory_type_is_span_view(type)) {
+        memory_scope_note_array_alias(scope, stmt->name, memory_array_binding_expr(scope, stmt->expr));
       }
     }
     memory_model_collect_expr(stmt->target, scope, summary);
@@ -1162,17 +1237,17 @@ static void memory_model_collect_stmt_vec(const StmtVec *body, MemoryScope *scop
   }
 }
 
-static MemoryModelSummary memory_model_summary_from_program(const Program *program) {
+static MemoryModelSummary memory_model_summary_from_program(const Program *program, const ZTargetInfo *target) {
   MemoryModelSummary summary = {0};
   if (!program) return summary;
-  for (size_t i = 0; i < program->consts.len; i++) memory_model_collect_expr(program->consts.items[i].expr, &(MemoryScope){0}, &summary);
+  for (size_t i = 0; i < program->consts.len; i++) memory_model_collect_expr(program->consts.items[i].expr, &(MemoryScope){.target = target}, &summary);
   for (size_t i = 0; i < program->shapes.len; i++) {
     for (size_t field_index = 0; field_index < program->shapes.items[i].fields.len; field_index++) {
-      memory_model_collect_expr(program->shapes.items[i].fields.items[field_index].default_value, &(MemoryScope){0}, &summary);
+      memory_model_collect_expr(program->shapes.items[i].fields.items[field_index].default_value, &(MemoryScope){.target = target}, &summary);
     }
   }
   for (size_t i = 0; i < program->functions.len; i++) {
-    MemoryScope scope = {0};
+    MemoryScope scope = {.owner_id = i + 1, .target = target};
     memory_model_collect_stmt_vec(&program->functions.items[i].body, &scope, &summary);
   }
   return summary;
@@ -5514,10 +5589,12 @@ static bool memory_summary_uses_collections(const MemoryModelSummary *summary) {
                      summary->vec_push_calls > 0 ||
                      summary->vec_len_calls > 0 ||
                      summary->vec_capacity_calls > 0 ||
-                     summary->map_empty_count > 0 ||
-                     summary->map_len_calls > 0 ||
-                     summary->set_empty_count > 0 ||
-                     summary->set_len_calls > 0 ||
+                     summary->collection_storage_count > 0 ||
+                     summary->collection_push_calls > 0 ||
+                     summary->collection_append_calls > 0 ||
+                     summary->collection_view_calls > 0 ||
+                     summary->collection_query_calls > 0 ||
+                     summary->collection_mutation_calls > 0 ||
                      summary->byte_buf_calls > 0);
 }
 
@@ -5527,7 +5604,7 @@ static void append_memory_budgets_json(ZBuf *buf, const SourceInput *input, cons
   size_t static_bytes = memory_budget_static_bytes(input, summary);
   size_t fixed_capacity = summary ? summary->fixed_allocator_capacity_bytes : 0;
   size_t arena_capacity = summary ? summary->arena_capacity_bytes : 0;
-  size_t collection_capacity = summary ? summary->collection_capacity_bytes : 0;
+  size_t collection_capacity = summary ? summary->vec_capacity_bytes + summary->fixed_collection_capacity_bytes : 0;
   zbuf_appendf(buf, "{\"stackBytes\":%zu,\"maxFrameBytes\":%zu,\"staticBytes\":%zu,\"heapBytes\":0,\"arenaBytes\":%zu,\"fixedBufferBytes\":%zu,\"collectionCapacityBytes\":%zu,\"allocatorCapacityBytes\":%zu,\"allocationRequestedBytes\":%zu,\"globalHeapBytes\":0,\"linearMemoryFloorBytes\":%d,\"hiddenHeapAllocation\":false,\"unknownCapacitySites\":%zu,\"source\":\"direct-mir-and-checked-ast\"}",
                stack_bytes,
                max_frame_bytes,
@@ -5580,18 +5657,25 @@ static void append_collection_facts_json(ZBuf *buf, const MemoryModelSummary *su
                summary ? summary->vec_count : 0,
                summary ? summary->vec_push_calls : 0,
                summary ? summary->vec_capacity_calls : 0,
-               summary ? summary->collection_capacity_bytes : 0);
+               summary ? summary->vec_capacity_bytes : 0);
+  zbuf_appendf(buf, ",\"FixedStorage\":{\"used\":%s,\"storageSites\":%zu,\"pushCalls\":%zu,\"appendCalls\":%zu,\"viewCalls\":%zu,\"queryCalls\":%zu,\"mutationCalls\":%zu,\"capacityBytes\":%zu,\"lengthModel\":\"caller-tracked usize\",\"overflow\":\"returns unchanged length\",\"cleanup\":\"caller owns storage\",\"hiddenAllocation\":false}",
+               summary && (summary->collection_storage_count > 0 ||
+                            summary->collection_push_calls > 0 ||
+                            summary->collection_append_calls > 0 ||
+                            summary->collection_view_calls > 0 ||
+                            summary->collection_query_calls > 0 ||
+                            summary->collection_mutation_calls > 0) ? "true" : "false",
+               summary ? summary->collection_storage_count : 0,
+               summary ? summary->collection_push_calls : 0,
+               summary ? summary->collection_append_calls : 0,
+               summary ? summary->collection_view_calls : 0,
+               summary ? summary->collection_query_calls : 0,
+               summary ? summary->collection_mutation_calls : 0,
+               summary ? summary->fixed_collection_capacity_bytes : 0);
   zbuf_appendf(buf, ",\"ByteBuf\":{\"used\":%s,\"allocationCalls\":%zu,\"ownership\":\"owned ByteBuf backed by explicit allocator storage\",\"cleanup\":\"owned value releases logical ownership; allocator storage remains explicit\",\"hiddenAllocation\":false}",
                summary && summary->byte_buf_calls > 0 ? "true" : "false",
                summary ? summary->byte_buf_calls : 0);
-  zbuf_appendf(buf, ",\"Map\":{\"used\":%s,\"instances\":%zu,\"lenCalls\":%zu,\"status\":\"empty fixed metadata\",\"growth\":\"not enabled without explicit allocator/capacity contract\",\"hiddenAllocation\":false}",
-               summary && summary->map_empty_count > 0 ? "true" : "false",
-               summary ? summary->map_empty_count : 0,
-               summary ? summary->map_len_calls : 0);
-  zbuf_appendf(buf, ",\"Set\":{\"used\":%s,\"instances\":%zu,\"lenCalls\":%zu,\"status\":\"empty fixed metadata\",\"growth\":\"not enabled without explicit allocator/capacity contract\",\"hiddenAllocation\":false}}",
-               summary && summary->set_empty_count > 0 ? "true" : "false",
-               summary ? summary->set_empty_count : 0,
-               summary ? summary->set_len_calls : 0);
+  zbuf_append(buf, "}");
 }
 
 static void append_memory_regions_json(ZBuf *buf, const SourceInput *input, const MemoryModelSummary *summary, bool linear_memory) {
@@ -5609,7 +5693,7 @@ static void append_memory_regions_json(ZBuf *buf, const SourceInput *input, cons
   zbuf_appendf(buf, ", {\"name\":\"fixed-buffer-storage\",\"kind\":\"allocator-capacity\",\"bytes\":%zu,\"payAsUsed\":true,\"source\":\"caller-owned FixedBufAlloc buffers\"}",
                summary ? summary->fixed_allocator_capacity_bytes : 0);
   zbuf_appendf(buf, ", {\"name\":\"collection-storage\",\"kind\":\"collection-capacity\",\"bytes\":%zu,\"payAsUsed\":true,\"source\":\"caller-owned collection storage\"}",
-               summary ? summary->collection_capacity_bytes : 0);
+               summary ? summary->vec_capacity_bytes + summary->fixed_collection_capacity_bytes : 0);
   zbuf_append(buf, "]");
 }
 
@@ -5632,7 +5716,7 @@ static void append_memory_capability_facts_json(ZBuf *buf, const CapabilitySumma
 static void append_direct_memory_json(ZBuf *buf, const SourceInput *input, const Program *program, const ZTargetInfo *target, const Command *command, const IrProgram *ir) {
   CapabilitySummary caps = program_capabilities(program);
   HelperUseSummary used_helpers = program_used_helpers(program);
-  MemoryModelSummary memory_summary = memory_model_summary_from_program(program);
+  MemoryModelSummary memory_summary = memory_model_summary_from_program(program, target);
   bool uses_allocator = (input && input->direct_allocator_helper_count > 0) || memory_summary_uses_allocator(&memory_summary);
   bool uses_buffers = (input && input->direct_buffer_helper_count > 0) || memory_summary_uses_collections(&memory_summary);
   bool linear_memory = input && (input->direct_stack_bytes > 0 ||
@@ -7185,9 +7269,12 @@ static int helper_estimated_direct_bytes(const ZStdHelperInfo *helper) {
 static const char *helper_module_name(const ZStdHelperInfo *helper) {
   const char *name = helper && helper->name ? helper->name : "";
   if (strncmp(name, "std.args.", strlen("std.args.")) == 0) return "std.args";
+  if (strncmp(name, "std.collections.", strlen("std.collections.")) == 0) return "std.collections";
   if (strncmp(name, "std.env.", strlen("std.env.")) == 0) return "std.env";
   if (strncmp(name, "std.math.", strlen("std.math.")) == 0) return "std.math";
   if (strncmp(name, "std.path.", strlen("std.path.")) == 0) return "std.path";
+  if (strncmp(name, "std.search.", strlen("std.search.")) == 0) return "std.search";
+  if (strncmp(name, "std.sort.", strlen("std.sort.")) == 0) return "std.sort";
   if (strncmp(name, "std.str.", strlen("std.str.")) == 0) return "std.str";
   if (strncmp(name, "std.io.", strlen("std.io.")) == 0) return "std.io";
   if (strncmp(name, "std.codec.", strlen("std.codec.")) == 0) return "std.codec";
@@ -7228,6 +7315,8 @@ static const char *helper_ownership_notes(const ZStdHelperInfo *helper) {
 
 static const char *helper_example_path(const ZStdHelperInfo *helper) {
   const char *module = helper_module_name(helper);
+  if (strcmp(module, "std.collections") == 0) return "conformance/native/pass/std-collections-algorithms.0";
+  if (strcmp(module, "std.search") == 0 || strcmp(module, "std.sort") == 0) return "conformance/native/pass/std-search-sort-widths.0";
   if (strcmp(module, "std.mem") == 0) return "examples/memory-primitives.0";
   if (helper && helper->name && strncmp(helper->name, "std.str.", strlen("std.str.")) == 0) return "examples/std-str.0";
   if (helper && helper->name && strncmp(helper->name, "std.math.", strlen("std.math.")) == 0) return "examples/std-math.0";

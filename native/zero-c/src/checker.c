@@ -849,14 +849,23 @@ static void scope_clear_moved_resolved_place(Scope *scope, const Place *place) {
   scope_clear_moved_place_with_scope(scope, place->root_scope, place->root, place->path);
 }
 
-static bool scope_borrow_counts_for_place(Scope *scope, const char *root, const char *path, size_t *shared, size_t *mut) {
+static bool scope_binding_is_excluded(Scope *cursor, size_t binding_index, Scope *exclude_scope, const char *exclude_root) {
+  return exclude_root && exclude_root[0] &&
+         (!exclude_scope || cursor == exclude_scope) &&
+         cursor && binding_index < cursor->len &&
+         cursor->names[binding_index] &&
+         strcmp(cursor->names[binding_index], exclude_root) == 0;
+}
+
+static bool scope_borrow_counts_for_place_resolved(Scope *scope, Scope *root_scope, const char *root, const char *path, Scope *exclude_scope, const char *exclude_root, size_t *shared, size_t *mut) {
   if (shared) *shared = 0;
   if (mut) *mut = 0;
   if (!scope || !root) return false;
   bool found = false;
-  Scope *root_scope = scope_binding_scope(scope, root);
+  if (!root_scope) root_scope = scope_binding_scope(scope, root);
   for (Scope *cursor = scope; cursor; cursor = cursor->parent) {
     for (size_t binding_index = 0; binding_index < cursor->len; binding_index++) {
+      if (scope_binding_is_excluded(cursor, binding_index, exclude_scope, exclude_root)) continue;
       ValueProvenance *origins = &cursor->value_provenance[binding_index];
       for (size_t origin_index = 0; origin_index < origins->len; origin_index++) {
         ProvenanceEntry *entry = &origins->items[origin_index];
@@ -873,6 +882,10 @@ static bool scope_borrow_counts_for_place(Scope *scope, const char *root, const 
     }
   }
   return found;
+}
+
+static bool scope_borrow_counts_for_place(Scope *scope, const char *root, const char *path, size_t *shared, size_t *mut) {
+  return scope_borrow_counts_for_place_resolved(scope, NULL, root, path, NULL, NULL, shared, mut);
 }
 
 static bool borrow_trace_equal(const ZBorrowTrace *left, const ZBorrowTrace *right) {
@@ -899,14 +912,15 @@ static bool borrow_trace_push(ZBorrowTrace *out, size_t *out_len, bool *truncate
   return true;
 }
 
-static bool scope_active_borrows_for_place(Scope *scope, const char *root, const char *path, bool mutable_only, ZBorrowTrace *out, size_t *out_len, bool *truncated) {
+static bool scope_active_borrows_for_place_resolved(Scope *scope, Scope *root_scope, const char *root, const char *path, bool mutable_only, Scope *exclude_scope, const char *exclude_root, ZBorrowTrace *out, size_t *out_len, bool *truncated) {
   if (!scope || !root || !out || !out_len) return false;
   *out_len = 0;
   if (truncated) *truncated = false;
   bool found = false;
-  Scope *root_scope = scope_binding_scope(scope, root);
+  if (!root_scope) root_scope = scope_binding_scope(scope, root);
   for (Scope *cursor = scope; cursor; cursor = cursor->parent) {
     for (size_t binding_index = 0; binding_index < cursor->len; binding_index++) {
+      if (scope_binding_is_excluded(cursor, binding_index, exclude_scope, exclude_root)) continue;
       ValueProvenance *origins = &cursor->value_provenance[binding_index];
       for (size_t origin_index = 0; origin_index < origins->len; origin_index++) {
         ProvenanceEntry *entry = &origins->items[origin_index];
@@ -927,6 +941,10 @@ static bool scope_active_borrows_for_place(Scope *scope, const char *root, const
     }
   }
   return found;
+}
+
+static bool scope_active_borrows_for_place(Scope *scope, const char *root, const char *path, bool mutable_only, ZBorrowTrace *out, size_t *out_len, bool *truncated) {
+  return scope_active_borrows_for_place_resolved(scope, NULL, root, path, mutable_only, NULL, NULL, out, out_len, truncated);
 }
 
 static ZDiag *diag_sink_target(DiagSink *sink) {
@@ -1627,10 +1645,10 @@ static bool expr_reference_provenance_as(CheckContext *ctx, const Program *progr
   return ok;
 }
 
-static bool check_borrow_conflict_at(Scope *scope, const char *root, const char *path, bool mut_borrow, ZDiag *diag, const Expr *expr) {
+static bool check_borrow_conflict_at_resolved_excluding(Scope *scope, Scope *root_scope, const char *root, const char *path, bool mut_borrow, ZDiag *diag, const Expr *expr, Scope *exclude_scope, const char *exclude_root) {
   size_t shared = 0;
   size_t mut = 0;
-  scope_borrow_counts_for_place(scope, root, path, &shared, &mut);
+  scope_borrow_counts_for_place_resolved(scope, root_scope, root, path, exclude_scope, exclude_root, &shared, &mut);
   if (mut_borrow ? (shared > 0 || mut > 0) : (mut > 0)) {
     char place[200];
     format_origin_place(place, sizeof(place), root, path);
@@ -1640,12 +1658,68 @@ static bool check_borrow_conflict_at(Scope *scope, const char *root, const char 
     ZBorrowTrace active[Z_BORROW_TRACE_MAX] = {0};
     size_t active_len = 0;
     bool truncated = false;
-    if (scope_active_borrows_for_place(scope, root, path, !mut_borrow, active, &active_len, &truncated)) {
+    if (scope_active_borrows_for_place_resolved(scope, root_scope, root, path, !mut_borrow, exclude_scope, exclude_root, active, &active_len, &truncated)) {
       set_diag_borrow_trace(diag, active, active_len, truncated, "move the conflicting borrow after the active borrow's lexical scope or put the earlier borrow in an inner block");
     }
     return false;
   }
   return true;
+}
+
+static bool check_borrow_conflict_at(Scope *scope, const char *root, const char *path, bool mut_borrow, ZDiag *diag, const Expr *expr) {
+  return check_borrow_conflict_at_resolved_excluding(scope, NULL, root, path, mut_borrow, diag, expr, NULL, NULL);
+}
+
+static bool mutating_fixed_storage_place(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, char *root, size_t root_len, char *path, size_t path_len) {
+  if (!expr || !scope || !root || !path) return false;
+  const Expr *storage = expr && expr->kind == EXPR_SLICE ? expr->left : expr;
+  if (!storage || !expr_binding_path(storage, root, root_len, path, path_len) || !scope_has(scope, root)) return false;
+
+  const char *storage_type = expr_type(ctx, program, storage, scope);
+  char ref_inner[192];
+  if (named_ref_inner_text(storage_type, "ref", ref_inner, sizeof(ref_inner)) ||
+      named_ref_inner_text(storage_type, "mutref", ref_inner, sizeof(ref_inner)) ||
+      type_is_named_generic(storage_type, "MutSpan")) return false;
+
+  char actual_storage[192];
+  if (expr_addressable_storage_type(program, storage, scope, actual_storage, sizeof(actual_storage))) storage_type = actual_storage;
+  char element_type[128];
+  return fixed_array_type_parts(storage_type, NULL, 0, element_type, sizeof(element_type));
+}
+
+static bool check_mutating_fixed_storage_not_borrowed(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag) {
+  char root[128];
+  char path[256];
+  if (mutating_fixed_storage_place(ctx, program, expr, scope, root, sizeof(root), path, sizeof(path))) {
+    return check_borrow_conflict_at(scope, root, path, true, diag, expr);
+  }
+
+  const char *actual = expr_type(ctx, program, expr, scope);
+  if (!type_is_named_generic(actual, "MutSpan")) return true;
+
+  ValueProvenance origins = {0};
+  if (!span_view_expr_provenance(ctx, program, expr, scope, actual, &origins)) {
+    value_provenance_free(&origins);
+    return true;
+  }
+
+  char exclude_root[128] = {0};
+  Scope *exclude_scope = NULL;
+  const Expr *handle = expr && expr->kind == EXPR_SLICE ? expr->left : expr;
+  if (handle && handle->kind == EXPR_IDENT && expr_binding_path(handle, exclude_root, sizeof(exclude_root), path, sizeof(path)) && scope_has(scope, exclude_root)) {
+    exclude_scope = scope_binding_scope(scope, exclude_root);
+  } else {
+    exclude_root[0] = '\0';
+  }
+
+  bool ok = true;
+  for (size_t i = 0; ok && i < origins.len; i++) {
+    ProvenanceEntry *entry = &origins.items[i];
+    if (!entry->origin.root || !entry->origin.root[0]) continue;
+    ok = check_borrow_conflict_at_resolved_excluding(scope, entry->origin.root_scope, entry->origin.root, entry->origin.path, true, diag, expr, exclude_scope, exclude_root);
+  }
+  value_provenance_free(&origins);
+  return ok;
 }
 
 static bool check_place_available(const Expr *expr, Scope *scope, const char *root, const char *path, ZDiag *diag) {
@@ -6287,6 +6361,10 @@ static bool check_stdlib_table_arg_range_expected(CheckContext *ctx, const Progr
       free(expected_type);
       return ok;
     }
+    if (expected_mut_span && !check_mutating_fixed_storage_not_borrowed(ctx, program, expr->args.items[i], scope, diag)) {
+      free(expected_type);
+      return false;
+    }
     free(expected_type);
   }
   return true;
@@ -6378,9 +6456,15 @@ static bool stdlib_mutable_items_arg_element(CheckContext *ctx, const Program *p
   if (!check_expr(ctx, program, expr, scope, diag)) return false;
   const char *actual = expr_type(ctx, program, expr, scope);
   if (actual_type) *actual_type = actual;
-  if (mutspan_element_text(actual, element_type, element_len)) return stdlib_writable_item_element(expr, diag, display_name, element_type);
+  if (mutspan_element_text(actual, element_type, element_len)) {
+    return check_mutating_fixed_storage_not_borrowed(ctx, program, expr, scope, diag) &&
+           stdlib_writable_item_element(expr, diag, display_name, element_type);
+  }
   if (fixed_array_type_parts(actual, NULL, 0, element_type, element_len)) {
-    if (slice_source_is_mutable_storage(expr, scope, actual)) return stdlib_writable_item_element(expr, diag, display_name, element_type);
+    if (slice_source_is_mutable_storage(expr, scope, actual)) {
+      return check_mutating_fixed_storage_not_borrowed(ctx, program, expr, scope, diag) &&
+             stdlib_writable_item_element(expr, diag, display_name, element_type);
+    }
     char message[256];
     snprintf(message, sizeof(message), "%s expects mutable item storage", display_name);
     return set_diag_detail(diag, 3010, message, expr->line, expr->column, "mutable [N]T or MutSpan<T>", "immutable array binding", "declare the array with var or pass a MutSpan<T>");
@@ -6526,6 +6610,191 @@ static bool check_stdlib_mem_slice_call_expected(CheckContext *ctx, const Progra
   return true;
 }
 
+static bool check_stdlib_usize_arg_expected(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, ZCallResolution *resolution, size_t index, const char *message, const char *help) {
+  if (!check_expr_expected(ctx, program, expr->args.items[index], scope, diag, "usize")) return false;
+  const char *actual = expr_type(ctx, program, expr->args.items[index], scope);
+  record_stdlib_arg_fact(resolution, index, expr->args.items[index], "usize", actual);
+  if (!types_compatible_in_scope(program, scope, "usize", actual)) {
+    return set_diag_detail(diag, 3028, message, expr->args.items[index]->line, expr->args.items[index]->column, "usize", actual, help);
+  }
+  return true;
+}
+
+static bool check_stdlib_collections_push_call_expected(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, ZCallResolution *resolution) {
+  const char *items_actual = NULL;
+  char element_type[128];
+  if (!stdlib_mutable_items_arg_element(ctx, program, expr->args.items[0], scope, diag, "std.collections.push", element_type, sizeof(element_type), &items_actual) ||
+      !stdlib_reject_owned_item_element(program, scope, "std.collections.push", element_type, expr->args.items[0], diag, "copy", "push owned values explicitly so ownership is transferred once") ||
+      !stdlib_require_supported_item_element(program, "std.collections.push", element_type, expr->args.items[0], diag)) return false;
+  char expected_items[160];
+  stdlib_span_type_for_element(expected_items, sizeof(expected_items), element_type, true);
+  record_stdlib_arg_fact(resolution, 0, expr->args.items[0], expected_items, items_actual);
+  if (!check_stdlib_usize_arg_expected(ctx, program, expr, scope, diag, resolution, 1, "std.collections.push length must be usize", "track the live item count as a usize")) return false;
+  if (!check_expr_expected(ctx, program, expr->args.items[2], scope, diag, element_type)) return false;
+  const char *value_actual = expr_type(ctx, program, expr->args.items[2], scope);
+  record_stdlib_arg_fact(resolution, 2, expr->args.items[2], element_type, value_actual);
+  if (!types_compatible_in_scope(program, scope, element_type, value_actual)) {
+    return set_diag_detail(diag, 3012, "std.collections.push value type must match item element", expr->args.items[2]->line, expr->args.items[2]->column, element_type, value_actual, "push a value of the same element type");
+  }
+  set_expr_resolved_type(expr, "usize");
+  z_call_resolution_set_return_type(resolution, "usize");
+  stdlib_record_single_type_arg(expr, element_type);
+  return true;
+}
+
+static bool stdlib_direct_place_provenance(Scope *scope, const Expr *expr, ValueProvenance *origins) {
+  char root[128];
+  char path[256];
+  if (!expr_binding_path(expr, root, sizeof(root), path, sizeof(path)) ||
+      !scope_has(scope, root)) return false;
+  return value_provenance_add_full_with_index_exact(origins, root, scope_binding_scope(scope, root), false, reference_source_origin_is_local_storage(scope, root), true, NULL, path);
+}
+
+static bool stdlib_provenance_sets_overlap(Scope *scope, const ValueProvenance *left, const ValueProvenance *right) {
+  if (!left || !right) return false;
+  for (size_t left_index = 0; left_index < left->len; left_index++) {
+    const ProvenanceEntry *left_entry = &left->items[left_index];
+    Scope *left_scope = left_entry->origin.root_scope ? left_entry->origin.root_scope : scope_binding_scope(scope, left_entry->origin.root);
+    for (size_t right_index = 0; right_index < right->len; right_index++) {
+      const ProvenanceEntry *right_entry = &right->items[right_index];
+      Scope *right_scope = right_entry->origin.root_scope ? right_entry->origin.root_scope : scope_binding_scope(scope, right_entry->origin.root);
+      if (left_entry->origin.root &&
+          right_entry->origin.root &&
+          origin_path_equal(left_entry->origin.root, right_entry->origin.root) &&
+          (!left_scope || !right_scope || left_scope == right_scope) &&
+          origin_path_overlaps(left_entry->origin.path, right_entry->origin.path)) return true;
+    }
+  }
+  return false;
+}
+
+static bool stdlib_reject_overlapping_collection_append(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, const char *items_type, const char *values_type) {
+  ValueProvenance dst_origins = {0};
+  ValueProvenance src_origins = {0};
+  bool dst_known = span_view_expr_provenance(ctx, program, expr->args.items[0], scope, items_type, &dst_origins) ||
+                   stdlib_direct_place_provenance(scope, expr->args.items[0], &dst_origins);
+  bool src_known = span_view_expr_provenance(ctx, program, expr->args.items[2], scope, values_type, &src_origins);
+  if (!dst_known || !src_known) {
+    value_provenance_free(&dst_origins);
+    value_provenance_free(&src_origins);
+    return true;
+  }
+  if (stdlib_provenance_sets_overlap(scope, &dst_origins, &src_origins)) {
+    value_provenance_free(&dst_origins);
+    value_provenance_free(&src_origins);
+    return set_diag_detail(diag, 3012, "std.collections.append source must not overlap destination storage", expr->args.items[2]->line, expr->args.items[2]->column, "separate source storage", "overlapping append source", "copy through a separate scratch buffer or append values from distinct storage");
+  }
+  value_provenance_free(&dst_origins);
+  value_provenance_free(&src_origins);
+  return true;
+}
+
+static bool check_stdlib_collections_append_call_expected(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, ZCallResolution *resolution) {
+  const char *items_actual = NULL;
+  char element_type[128];
+  if (!stdlib_mutable_items_arg_element(ctx, program, expr->args.items[0], scope, diag, "std.collections.append", element_type, sizeof(element_type), &items_actual) ||
+      !stdlib_reject_owned_item_element(program, scope, "std.collections.append", element_type, expr->args.items[0], diag, "copy", "append owned values explicitly so ownership is transferred once") ||
+      !stdlib_require_supported_item_element(program, "std.collections.append", element_type, expr->args.items[0], diag)) return false;
+  char expected_items[160];
+  char expected_values[160];
+  stdlib_span_type_for_element(expected_items, sizeof(expected_items), element_type, true);
+  stdlib_span_type_for_element(expected_values, sizeof(expected_values), element_type, false);
+  record_stdlib_arg_fact(resolution, 0, expr->args.items[0], expected_items, items_actual);
+  if (!check_stdlib_usize_arg_expected(ctx, program, expr, scope, diag, resolution, 1, "std.collections.append length must be usize", "track the live item count as a usize")) return false;
+  if (!check_expr_expected(ctx, program, expr->args.items[2], scope, diag, expected_values)) return false;
+  const char *values_actual = expr_type(ctx, program, expr->args.items[2], scope);
+  record_stdlib_arg_fact(resolution, 2, expr->args.items[2], expected_values, values_actual);
+  if (!types_compatible_in_scope(program, scope, expected_values, values_actual)) {
+    return set_diag_detail(diag, 3012, "std.collections.append source element type must match item storage", expr->args.items[2]->line, expr->args.items[2]->column, expected_values, values_actual, "append values with the same element type");
+  }
+  if (!stdlib_reject_overlapping_collection_append(ctx, program, expr, scope, diag, expected_items, expected_values)) return false;
+  set_expr_resolved_type(expr, "usize");
+  z_call_resolution_set_return_type(resolution, "usize");
+  stdlib_record_single_type_arg(expr, element_type);
+  return true;
+}
+
+static bool check_stdlib_collections_view_call_expected(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, ZCallResolution *resolution) {
+  const char *items_actual = NULL;
+  char element_type[128];
+  if (!stdlib_readable_items_arg_element(ctx, program, expr->args.items[0], scope, diag, "std.collections.view", element_type, sizeof(element_type), &items_actual) ||
+      !stdlib_require_supported_item_element(program, "std.collections.view", element_type, expr->args.items[0], diag)) return false;
+  char expected_items[160];
+  char result_type[160];
+  stdlib_span_type_for_element(expected_items, sizeof(expected_items), element_type, false);
+  stdlib_span_type_for_element(result_type, sizeof(result_type), element_type, false);
+  record_stdlib_arg_fact(resolution, 0, expr->args.items[0], expected_items, items_actual);
+  if (!check_stdlib_usize_arg_expected(ctx, program, expr, scope, diag, resolution, 1, "std.collections.view length must be usize", "track the live item count as a usize")) return false;
+  set_expr_resolved_type(expr, result_type);
+  z_call_resolution_set_return_type(resolution, result_type);
+  stdlib_record_single_type_arg(expr, element_type);
+  return true;
+}
+
+static bool check_stdlib_collections_len_value_call_expected(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, ZCallResolution *resolution) {
+  const char *items_actual = NULL;
+  const char *name = resolution && resolution->callee_name ? resolution->callee_name : "std.collections";
+  char element_type[128];
+  if (!stdlib_readable_items_arg_element(ctx, program, expr->args.items[0], scope, diag, name, element_type, sizeof(element_type), &items_actual) ||
+      !stdlib_reject_owned_item_element(program, scope, name, element_type, expr->args.items[0], diag, "compare", "compare a non-owned key or move owned values explicitly") ||
+      !stdlib_require_supported_item_element(program, name, element_type, expr->args.items[0], diag)) return false;
+  char expected_items[160];
+  stdlib_span_type_for_element(expected_items, sizeof(expected_items), element_type, false);
+  record_stdlib_arg_fact(resolution, 0, expr->args.items[0], expected_items, items_actual);
+  if (!check_stdlib_usize_arg_expected(ctx, program, expr, scope, diag, resolution, 1, "collection length must be usize", "track the live item count as a usize")) return false;
+  if (!check_expr_expected(ctx, program, expr->args.items[2], scope, diag, element_type)) return false;
+  const char *needle_actual = expr_type(ctx, program, expr->args.items[2], scope);
+  record_stdlib_arg_fact(resolution, 2, expr->args.items[2], element_type, needle_actual);
+  if (!types_compatible_in_scope(program, scope, element_type, needle_actual)) {
+    return set_diag_detail(diag, 3012, "collection value type must match item element", expr->args.items[2]->line, expr->args.items[2]->column, element_type, needle_actual, "use a value of the same element type");
+  }
+  const char *return_type = name && strcmp(name, "std.collections.contains") == 0 ? "Bool" : "usize";
+  set_expr_resolved_type(expr, return_type);
+  z_call_resolution_set_return_type(resolution, return_type);
+  stdlib_record_single_type_arg(expr, element_type);
+  return true;
+}
+
+static bool check_stdlib_collections_len_index_call_expected(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, ZCallResolution *resolution) {
+  const char *items_actual = NULL;
+  const char *name = resolution && resolution->callee_name ? resolution->callee_name : "std.collections";
+  char element_type[128];
+  if (!stdlib_mutable_items_arg_element(ctx, program, expr->args.items[0], scope, diag, name, element_type, sizeof(element_type), &items_actual) ||
+      !stdlib_reject_owned_item_element(program, scope, name, element_type, expr->args.items[0], diag, "move", "move owned values explicitly so ownership is transferred once") ||
+      !stdlib_require_supported_item_element(program, name, element_type, expr->args.items[0], diag)) return false;
+  char expected_items[160];
+  stdlib_span_type_for_element(expected_items, sizeof(expected_items), element_type, true);
+  record_stdlib_arg_fact(resolution, 0, expr->args.items[0], expected_items, items_actual);
+  if (!check_stdlib_usize_arg_expected(ctx, program, expr, scope, diag, resolution, 1, "collection length must be usize", "track the live item count as a usize") ||
+      !check_stdlib_usize_arg_expected(ctx, program, expr, scope, diag, resolution, 2, "collection index must be usize", "pass a usize index")) return false;
+  set_expr_resolved_type(expr, "usize");
+  z_call_resolution_set_return_type(resolution, "usize");
+  stdlib_record_single_type_arg(expr, element_type);
+  return true;
+}
+
+static bool check_stdlib_search_index_call_expected(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, ZCallResolution *resolution) {
+  const char *items_actual = NULL;
+  const char *name = resolution && resolution->callee_name ? resolution->callee_name : "std.search";
+  char element_type[128];
+  if (!stdlib_readable_items_arg_element(ctx, program, expr->args.items[0], scope, diag, name, element_type, sizeof(element_type), &items_actual) ||
+      !stdlib_reject_owned_item_element(program, scope, name, element_type, expr->args.items[0], diag, "compare", "compare a non-owned key or move owned values explicitly") ||
+      !stdlib_require_supported_item_element(program, name, element_type, expr->args.items[0], diag)) return false;
+  char expected_items[160];
+  stdlib_span_type_for_element(expected_items, sizeof(expected_items), element_type, false);
+  record_stdlib_arg_fact(resolution, 0, expr->args.items[0], expected_items, items_actual);
+  if (!check_expr_expected(ctx, program, expr->args.items[1], scope, diag, element_type)) return false;
+  const char *needle_actual = expr_type(ctx, program, expr->args.items[1], scope);
+  record_stdlib_arg_fact(resolution, 1, expr->args.items[1], element_type, needle_actual);
+  if (!types_compatible_in_scope(program, scope, element_type, needle_actual)) {
+    return set_diag_detail(diag, 3012, "std.search value type must match item element", expr->args.items[1]->line, expr->args.items[1]->column, element_type, needle_actual, "search for a value with the same element type");
+  }
+  set_expr_resolved_type(expr, "usize");
+  z_call_resolution_set_return_type(resolution, "usize");
+  stdlib_record_single_type_arg(expr, element_type);
+  return true;
+}
+
 static bool check_stdlib_allocator_len_call_expected(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, ZCallResolution *resolution, const char *name, const char *result_type, const char *len_message, const char *len_help, const char *mut_help) {
   if (!check_stdlib_allocator_arg(ctx, program, expr, scope, diag, resolution, 0, name, "use std.mem.nullAlloc() or a mut FixedBufAlloc from std.mem.fixedBufAlloc(buffer)", mut_help)) return false;
   if (!check_expr_expected(ctx, program, expr->args.items[1], scope, diag, "usize")) return false;
@@ -6611,6 +6880,18 @@ static bool check_stdlib_known_call_expected(CheckContext *ctx, const Program *p
       return check_stdlib_mem_contains_call_expected(ctx, program, expr, scope, diag, resolution);
     case Z_STD_HELPER_KIND_MEM_SLICE:
       return check_stdlib_mem_slice_call_expected(ctx, program, expr, scope, diag, resolution);
+    case Z_STD_HELPER_KIND_COLLECTIONS_PUSH:
+      return check_stdlib_collections_push_call_expected(ctx, program, expr, scope, diag, resolution);
+    case Z_STD_HELPER_KIND_COLLECTIONS_APPEND:
+      return check_stdlib_collections_append_call_expected(ctx, program, expr, scope, diag, resolution);
+    case Z_STD_HELPER_KIND_COLLECTIONS_VIEW:
+      return check_stdlib_collections_view_call_expected(ctx, program, expr, scope, diag, resolution);
+    case Z_STD_HELPER_KIND_COLLECTIONS_LEN_VALUE:
+      return check_stdlib_collections_len_value_call_expected(ctx, program, expr, scope, diag, resolution);
+    case Z_STD_HELPER_KIND_COLLECTIONS_LEN_INDEX:
+      return check_stdlib_collections_len_index_call_expected(ctx, program, expr, scope, diag, resolution);
+    case Z_STD_HELPER_KIND_SEARCH_INDEX:
+      return check_stdlib_search_index_call_expected(ctx, program, expr, scope, diag, resolution);
     case Z_STD_HELPER_KIND_MEM_ALLOC_BYTES:
       return check_stdlib_allocator_len_call_expected(ctx, program, expr, scope, diag, resolution, name, "Maybe<MutSpan<u8>>", "allocation length must be an integer", "pass an integer byte count", "store the fixed buffer allocator in a var binding before allocating");
     case Z_STD_HELPER_KIND_MEM_BYTE_BUF:
@@ -7085,6 +7366,7 @@ static bool check_expr_expected(CheckContext *ctx, const Program *program, const
           if (!types_compatible_in_scope(program, scope, expected_element, actual_element)) {
             return set_diag_detail(diag, 3006, "MutSpan element type does not match array element", expr->line, expr->column, expected_element, actual_element, "use a MutSpan with the same element type as the array");
           }
+          if (!check_mutating_fixed_storage_not_borrowed(ctx, program, expr, scope, diag)) return false;
           set_expr_resolved_type(expr, expected);
           return true;
         }
@@ -7307,6 +7589,8 @@ static bool check_expr_expected(CheckContext *ctx, const Program *program, const
         slice_source_is_mutable_storage(expr->left, scope, base_type) ? "MutSpan" : "Span",
         element_type
       );
+      if (expected && type_is_named_generic(expected, "MutSpan") && type_is_named_generic(slice_type, "MutSpan") &&
+          !check_mutating_fixed_storage_not_borrowed(ctx, program, expr, scope, diag)) return false;
       set_expr_resolved_type(expr, slice_type);
       return true;
     }
@@ -10737,7 +11021,7 @@ static bool is_builtin_type_name(const char *name) {
   const char *names[] = {
     "Void", "Bool", "bool", "String", "char", "Type",
     "World", "WorldStream", "Fs", "File", "ByteBuf", "NullAlloc", "FixedBufAlloc", "PageAlloc", "GeneralAlloc",
-    "Vec", "Map", "Set", "Duration", "RandSource", "ProcStatus", "Address", "Net", "Conn", "Listener",
+    "Vec", "Duration", "RandSource", "ProcStatus", "Address", "Net", "Conn", "Listener",
     "HttpMethod", "HttpClient", "HttpServer", "HttpResult", "HttpError", "HttpHeaderValue", "JsonDoc", "BufferedReader", "BufferedWriter",
     "Env", "Args", "Clock", "Rand", "Proc", "Alloc",
     "Maybe", "Span", "MutSpan", "ref", "mutref", "owned",
