@@ -692,7 +692,7 @@ static size_t ir_scan_identifier_bytes(const unsigned char *bytes, size_t len) {
   while (count < len) {
     unsigned char ch = bytes[count];
     bool ident = (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') ||
-                 (ch >= '0' && ch <= '9') || ch == '_';
+                 (count > 0 && ch >= '0' && ch <= '9') || ch == '_';
     if (!ident) break;
     count++;
   }

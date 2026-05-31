@@ -16,6 +16,7 @@ pub fn main(world: World) -> Void raises {
     let whitespace: Bool = std.parse.isWhitespace(" ")
     let ident_start: Bool = std.parse.isIdentifierStart("_")
     let ident_len: usize = std.parse.scanIdentifier("name_1!")
+    let digit_prefixed_ident_len: usize = std.parse.scanIdentifier("1abc")
     let digit_len: usize = std.parse.scanDigits("123abc")
     let space_len: usize = std.parse.scanWhitespace(" \ntext")
     let until: usize = std.parse.scanUntilByte("abc:def", 58_u8)
@@ -23,7 +24,7 @@ pub fn main(world: World) -> Void raises {
     let unsigned_ok: Bool = byte.has && byte.value == 255 && !too_big_byte.has && port.has && port.value == 8080 && count.has && count.value == 4294967295_u32
     let signed_ok: Bool = parsed_usize.has && parsed_usize.value == 12345 && signed.has && signed.value == min_i32 && positive.has && positive.value == 42
     let text_ok: Bool = bool_value.has && bool_value.value && !trailing.has && runtime_usize.has && runtime_usize.value == 12345 && std.mem.eql(token, "zero")
-    let scan_ok: Bool = alpha && digit && whitespace && ident_start && ident_len == 6 && digit_len == 3 && space_len == 2 && until == 3
+    let scan_ok: Bool = alpha && digit && whitespace && ident_start && ident_len == 6 && digit_prefixed_ident_len == 0 && digit_len == 3 && space_len == 2 && until == 3
     if unsigned_ok && signed_ok && text_ok && scan_ok {
         check world.out.write("std parse text ok\n")
     }
