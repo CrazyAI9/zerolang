@@ -13,12 +13,18 @@ static bool build_const_u32_value(const IrValue *value, unsigned *out) {
 
 static bool build_byte_view_const_len(const IrValue *view, unsigned *out) {
   if (!view) return false;
-  if (view->kind == IR_VALUE_STRING_LITERAL || view->kind == IR_VALUE_ARRAY_BYTE_VIEW) { if (out) *out = view->data_len; return true; }
+  if (view->kind == IR_VALUE_STRING_LITERAL || view->kind == IR_VALUE_ARRAY_BYTE_VIEW) {
+    if (out) *out = view->data_len;
+    return true;
+  }
   if (view->kind != IR_VALUE_BYTE_SLICE) return false;
-  unsigned base_len = 0, start = 0, end = 0; if (!build_byte_view_const_len(view->left, &base_len)) return false;
+  unsigned base_len = 0, start = 0, end = 0;
+  if (!build_byte_view_const_len(view->left, &base_len)) return false;
   end = base_len;
   if ((view->index && !build_const_u32_value(view->index, &start)) || (view->right && !build_const_u32_value(view->right, &end))) return false;
-  if (start > end || end > base_len) return false; if (out) *out = end - start; return true;
+  if (start > end || end > base_len) return false;
+  if (out) *out = end - start;
+  return true;
 }
 
 static IrTypeKind build_view_element_type(const IrValue *view) {
