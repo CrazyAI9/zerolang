@@ -942,6 +942,42 @@ const coffU64CopyBytes = await assertCoffX64Object(coffU64CopyPath, "main");
 assert(coffU64CopyBytes.includes(Buffer.from([0x48, 0x8b, 0x00])));
 assert(coffU64CopyBytes.includes(Buffer.from([0x48, 0x89, 0x02])));
 
+const coffU64ContainsFixture = "conformance/native/pass/std-mem-u64-contains.0";
+const coffU64ContainsReadiness = await execFileAsync(zero, [
+  "check",
+  "--json",
+  "--emit",
+  "obj",
+  "--target",
+  "win32-x64.exe",
+  coffU64ContainsFixture,
+]);
+const coffU64ContainsReadinessBody = JSON.parse(coffU64ContainsReadiness.stdout);
+assert.equal(coffU64ContainsReadinessBody.ok, true);
+assert.equal(coffU64ContainsReadinessBody.targetReadiness.ok, true);
+assert.equal(coffU64ContainsReadinessBody.targetReadiness.buildable, true);
+assert.equal(coffU64ContainsReadinessBody.targetReadiness.backend, "zero-coff-x64");
+const coffU64ContainsPath = `${outDir}/coff-u64-contains.obj`;
+const coffU64ContainsBuild = await execFileAsync(zero, [
+  "build",
+  "--json",
+  "--emit",
+  "obj",
+  "--target",
+  "win32-x64.exe",
+  coffU64ContainsFixture,
+  "--out",
+  coffU64ContainsPath,
+]);
+const coffU64ContainsBuildBody = JSON.parse(coffU64ContainsBuild.stdout);
+assert.equal(coffU64ContainsBuildBody.compiler, "zero-coff-x64");
+assert.equal(coffU64ContainsBuildBody.generatedCBytes, 0);
+assert.equal(coffU64ContainsBuildBody.objectBackend.objectEmission.path, "direct-coff-x64-object");
+const coffU64ContainsBytes = await assertCoffX64Object(coffU64ContainsPath, "main");
+assert(coffU64ContainsBytes.includes(Buffer.from([0x48, 0xb8, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00])));
+assert(coffU64ContainsBytes.includes(Buffer.from([0x48, 0x8b, 0x00])));
+assert(coffU64ContainsBytes.includes(Buffer.from([0x48, 0x39, 0xc8])));
+
 const coffBoolCopyFixture = "conformance/native/pass/std-mem-bool-copy-items.0";
 const coffBoolCopyReadiness = await execFileAsync(zero, [
   "check",
@@ -3740,6 +3776,10 @@ const memCopyItemsReferenceEscape = await execFileAsync(zero, ["check", "conform
 assert.notEqual(memCopyItemsReferenceEscape.code, 0);
 assert.match(memCopyItemsReferenceEscape.stderr, /BOR002/);
 
+const memCopyItemsEmptyReferenceEscape = await execFileAsync(zero, ["check", "conformance/native/fail/std-mem-copy-items-empty-reference-escape.0"]).catch((error) => error);
+assert.notEqual(memCopyItemsEmptyReferenceEscape.code, 0);
+assert.match(memCopyItemsEmptyReferenceEscape.stderr, /BOR002/);
+
 const memFillItemsMismatch = await execFileAsync(zero, ["check", "conformance/native/fail/std-mem-fill-items-mismatch.0"]).catch((error) => error);
 assert.notEqual(memFillItemsMismatch.code, 0);
 assert.match(memFillItemsMismatch.stderr, /TYP002|STD003/);
@@ -3760,6 +3800,10 @@ const memFillItemsReferenceEscape = await execFileAsync(zero, ["check", "conform
 assert.notEqual(memFillItemsReferenceEscape.code, 0);
 assert.match(memFillItemsReferenceEscape.stderr, /BOR002/);
 
+const memFillItemsSliceReferenceEscape = await execFileAsync(zero, ["check", "conformance/native/fail/std-mem-fill-items-slice-reference-escape.0"]).catch((error) => error);
+assert.notEqual(memFillItemsSliceReferenceEscape.code, 0);
+assert.match(memFillItemsSliceReferenceEscape.stderr, /BOR002/);
+
 const memContainsOwned = await execFileAsync(zero, ["check", "conformance/native/fail/std-mem-contains-owned.0"]).catch((error) => error);
 assert.notEqual(memContainsOwned.code, 0);
 assert.match(memContainsOwned.stderr, /OWN001/);
@@ -3771,6 +3815,14 @@ assert.match(memContainsGenericOwned.stderr, /OWN001/);
 const memContainsRecord = await execFileAsync(zero, ["check", "conformance/native/fail/std-mem-contains-record.0"]).catch((error) => error);
 assert.notEqual(memContainsRecord.code, 0);
 assert.match(memContainsRecord.stderr, /STD003/);
+
+const memPrefixCountI32 = await execFileAsync(zero, ["check", "conformance/native/fail/std-mem-prefix-count-i32.0"]).catch((error) => error);
+assert.notEqual(memPrefixCountI32.code, 0);
+assert.match(memPrefixCountI32.stderr, /TYP022/);
+
+const memDropPrefixCountI32 = await execFileAsync(zero, ["check", "conformance/native/fail/std-mem-drop-prefix-count-i32.0"]).catch((error) => error);
+assert.notEqual(memDropPrefixCountI32.code, 0);
+assert.match(memDropPrefixCountI32.stderr, /TYP022/);
 
 const mutspanFromSpan = await execFileAsync(zero, ["check", "conformance/native/fail/mutspan-from-span.0"]).catch((error) => error);
 assert.notEqual(mutspanFromSpan.code, 0);

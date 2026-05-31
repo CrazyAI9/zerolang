@@ -6517,8 +6517,8 @@ static bool check_stdlib_mem_slice_call_expected(CheckContext *ctx, const Progra
   if (!check_expr_expected(ctx, program, expr->args.items[1], scope, diag, "usize")) return false;
   const char *count_actual = expr_type(ctx, program, expr->args.items[1], scope);
   record_stdlib_arg_fact(resolution, 1, expr->args.items[1], "usize", count_actual);
-  if (!is_int_type(count_actual)) {
-    return set_diag_detail(diag, 3028, "std.mem slice count must be an integer", expr->args.items[1]->line, expr->args.items[1]->column, "usize count", count_actual, "pass an integer count");
+  if (!types_compatible_in_scope(program, scope, "usize", count_actual)) {
+    return set_diag_detail(diag, 3028, "std.mem slice count must be usize", expr->args.items[1]->line, expr->args.items[1]->column, "usize count", count_actual, "pass a usize count");
   }
   set_expr_resolved_type(expr, result_type);
   z_call_resolution_set_return_type(resolution, result_type);
@@ -9326,7 +9326,7 @@ static bool function_provenance_summary(CheckContext *ctx, const Program *progra
     const Param *param = &fun->params.items[param_index];
     if (!param->name) continue;
     char *param_type = call_param_type_text(program, fun, param_index, bindings, binding_len);
-    bool mutating_param = type_is_named_generic(param_type, "mutref") || type_is_named_generic(param_type, "MutSpan");
+    bool mutspan_param = type_is_named_generic(param_type, "MutSpan"), mutating_param = type_is_named_generic(param_type, "mutref") || mutspan_param;
     free(param_type);
     if (!mutating_param) continue;
     ValueProvenance value = {0};
@@ -9334,7 +9334,7 @@ static bool function_provenance_summary(CheckContext *ctx, const Program *progra
       for (size_t i = 0; i < value.len; i++) {
         if (!function_param_index_by_name(fun, value.items[i].origin.root, NULL)) summary->callee_local_storage = true;
       }
-      provenance_storage_effect_vec_add(&summary->storage_effects, param->name, NULL, NULL, &value, true);
+      provenance_storage_effect_vec_add(&summary->storage_effects, param->name, NULL, NULL, &value, !mutspan_param);
     }
     value_provenance_free(&value);
   }
