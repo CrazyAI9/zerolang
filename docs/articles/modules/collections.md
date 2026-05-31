@@ -11,12 +11,12 @@ types as the generic `std.mem` item helpers: `Bool`, `u8`, `u16`, `usize`,
 | API | Return | Notes |
 | --- | --- | --- |
 | `std.collections.push(items, len, value)` | `usize` | Writes `value` at `len` when capacity remains and returns the next length. Returns the unchanged length on overflow. |
-| `std.collections.append(items, len, values)` | `usize` | Copies all `values` into `items` at `len` when the full append fits. Returns the unchanged length on overflow or invalid length. |
+| `std.collections.append(items, len, values)` | `usize` | Copies all non-overlapping `values` into `items` at `len` when the full append fits. Returns the unchanged length on overflow or invalid length. |
 | `std.collections.view(items, len)` | `Span<T>` | Returns a clamped read-only prefix view over the live collection items. |
 | `std.collections.contains(items, len, needle)` | `Bool` | Searches only the live prefix for `needle`. |
 | `std.collections.count(items, len, needle)` | `usize` | Counts matching values in the live prefix. |
-| `std.collections.removeSwap(items, len, index)` | `usize` | Replaces `index` with the last live item and returns the next length. Returns the unchanged length for an invalid index. |
-| `std.collections.moveToFront(items, len, index)` | `usize` | Moves the item at `index` to the front by shifting the live prefix. Returns the unchanged length. |
+| `std.collections.removeSwap(items, len, index)` | `usize` | Replaces `index` with the last live item and returns the next length. Returns the unchanged length for invalid length or index. |
+| `std.collections.moveToFront(items, len, index)` | `usize` | Moves the item at `index` to the front by shifting the live prefix. Returns the unchanged length for invalid length or index. |
 
 ## Example
 
@@ -41,6 +41,10 @@ Allocation behavior: no allocation.
 
 Error behavior: capacity and index failures are value-level. Helpers return the
 unchanged length instead of growing or raising.
+
+`append` rejects source spans that the checker can prove overlap the destination
+storage. Use separate storage when copying a live prefix back into the same
+collection.
 
 Ownership: helpers reject owned item elements; move or transfer owned values
 explicitly.

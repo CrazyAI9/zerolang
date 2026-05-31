@@ -192,6 +192,9 @@ run_native_or_gap conformance/native/pass/primitive-stdlib.0 .zero/native-test/p
 run_native_or_gap conformance/native/pass/variants-defer-stdlib.0 .zero/native-test/variants-defer-stdlib "native variants std"
 run_native_or_gap conformance/native/pass/payload-match.0 .zero/native-test/payload-match "native payload match"
 run_native_or_gap conformance/native/pass/std-mem-arrays.0 .zero/native-test/std-mem-arrays "native std mem arrays"
+run_native_or_gap conformance/native/pass/std-collections-algorithms.0 .zero/native-test/std-collections-algorithms "std collections algorithms ok"
+run_native_or_gap conformance/native/pass/std-collections-u8.0 .zero/native-test/std-collections-u8 "std collections u8 ok"
+run_native_or_gap conformance/native/pass/std-search-sort-widths.0 .zero/native-test/std-search-sort-widths "std search sort widths ok"
 run_native_or_gap conformance/native/pass/memory-types.0 .zero/native-test/memory-types "native memory types"
 run_native_or_gap conformance/native/pass/recursive-fibonacci.0 .zero/native-test/recursive-fibonacci "recursive fibonacci ok"
 run_native_or_gap conformance/native/pass/scratch-nested-index.0 .zero/native-test/scratch-nested-index "scratch nested index ok"
@@ -509,6 +512,12 @@ if bin/zero check conformance/native/fail/mem-copy-immutable-dst.0 2>.zero/nativ
   exit 1
 fi
 grep -q "TYP009" .zero/native-test/mem-copy-immutable-dst.err
+
+if bin/zero check conformance/native/fail/std-collections-append-overlap.0 2>.zero/native-test/std-collections-append-overlap.err; then
+  echo "expected std-collections-append-overlap fixture to fail" >&2
+  exit 1
+fi
+grep -q "STD003" .zero/native-test/std-collections-append-overlap.err
 
 if bin/zero check conformance/native/fail/std-fs-create-error-set-mismatch.0 2>.zero/native-test/std-fs-create-error-set-mismatch.err; then
   echo "expected std-fs-create-error-set-mismatch fixture to fail" >&2

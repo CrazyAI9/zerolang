@@ -475,6 +475,9 @@ for (const fixture of [
   "conformance/native/pass/allocator-primitives.0",
   "conformance/native/pass/std-mem-arena.0",
   "conformance/native/pass/std-mem-collections.0",
+  "conformance/native/pass/std-collections-algorithms.0",
+  "conformance/native/pass/std-collections-u8.0",
+  "conformance/native/pass/std-search-sort-widths.0",
   "conformance/native/pass/owned-byte-buffer.0",
   "conformance/check/pass/generic-function-basic.0",
   "conformance/check/pass/generic-array-inference.0",
@@ -1803,6 +1806,12 @@ assert.match(checkJsonFailureBody.diagnostics[0].actual, /Bool as i32/);
 assert.match(checkJsonFailureBody.diagnostics[0].help, /cast only/);
 assert.equal(checkJsonFailureBody.diagnostics[0].fixSafety, "requires-human-review");
 assert.equal(checkJsonFailureBody.diagnostics[0].repair.id, "manual-review");
+
+const collectionsOverlapJson = await execFileAsync(zero, ["check", "--json", "conformance/native/fail/std-collections-append-overlap.0"]).catch((error) => error);
+assert.notEqual(collectionsOverlapJson.code, 0);
+const collectionsOverlapBody = JSON.parse(collectionsOverlapJson.stdout);
+assert.equal(collectionsOverlapBody.diagnostics[0].code, "STD003");
+assert.match(collectionsOverlapBody.diagnostics[0].message, /append source must not overlap/);
 
 for (const [fixture, message] of [
   ["conformance/check/fail/parse-missing-brace.0", /unbalanced expression delimiters/],
