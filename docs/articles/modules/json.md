@@ -17,7 +17,7 @@ Runnable today:
 | `std.json.errorTrailing()` | `u32` | Validation status for trailing non-whitespace bytes. |
 | `std.json.validateError(bytes)` | `u32` | Validates a byte span and returns a structured status code. |
 | `std.json.field(bytes, key)` | `Maybe<Span<u8>>` | Returns the raw top-level object field value. |
-| `std.json.stringDecode(buffer, value)` | `Maybe<Span<u8>>` | Decodes a JSON string value into caller storage. |
+| `std.json.stringDecode(buffer, value)` | `Maybe<Span<u8>>` | Decodes a JSON string value, including Unicode escapes as UTF-8, into caller storage. |
 | `std.json.string(buffer, bytes, key)` | `Maybe<Span<u8>>` | Looks up and decodes a top-level string field. |
 | `std.json.u32(bytes, key)` | `Maybe<u32>` | Looks up and decodes a top-level unsigned integer field. |
 | `std.json.bool(bytes, key)` | `Maybe<Bool>` | Looks up and decodes a top-level boolean field. |
@@ -85,7 +85,8 @@ pub fn main(world: World) -> Void raises {
 ## Design Notes
 
 JSON should not fake allocation-free semantics. Validation, field lookup,
-string decode, and writing stay allocation-free.
+string decode, and writing stay allocation-free. String decode writes UTF-8 for
+Unicode escapes and rejects malformed surrogate pairs.
 
 Parsing into an owned document requires an explicit allocator. The current
 `JsonDoc` value is opaque; examples inspect `Maybe.has` and use token streaming

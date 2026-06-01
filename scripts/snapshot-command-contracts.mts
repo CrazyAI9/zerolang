@@ -3901,6 +3901,11 @@ assert.match(graphMemCopyHelper.ownershipNotes, /caller-owned storage/);
 assert.equal(graphMemCopyHelper.example, "examples/memory-primitives.0");
 assert.equal(graphMemCopyHelper.apiStability, "bootstrap-stable");
 
+const stdDataSize = json(["size", "--json", "conformance/native/pass/std-codec-json-url.0"]).body;
+const sizeUrlHostHelper = stdDataSize.stdlibHelpers.find((helper) => helper.name === "std.url.host");
+assert.equal(sizeUrlHostHelper.module, "std.url");
+assert.equal(sizeUrlHostHelper.example, "conformance/native/pass/std-codec-json-url.0");
+
 const httpErrorsGraph = json(["graph", "--json", "conformance/native/pass/std-http-errors.0"]).body;
 assert.deepEqual(httpErrorsGraph.requiresCapabilities, []);
 const httpTimeoutHelper = httpErrorsGraph.stdlibHelpers.find((helper) => helper.name === "std.http.errorTimeout");

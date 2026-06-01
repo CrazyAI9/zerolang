@@ -134,7 +134,7 @@ pub fn main(world: World) -> Void raises {
     if std.json.errorNone() != 0_u32 || std.json.errorInvalid() != 1_u32 || std.json.errorTrailing() != 2_u32 {
         ok = false
     }
-    if std.json.validateError(json) != std.json.errorNone() || std.json.validateError("\"\\u20ac\"") != std.json.errorNone() || std.json.validateError("{") != std.json.errorInvalid() || std.json.validateError("{} x") != std.json.errorTrailing() || std.json.validateError("[1,]") != std.json.errorInvalid() || std.json.validateError("{\"a\":1,}") != std.json.errorInvalid() {
+    if std.json.validateError(json) != std.json.errorNone() || std.json.validateError("\"\\u20ac\"") != std.json.errorNone() || std.json.validateError("\"\\ud834\\udd1e\"") != std.json.errorNone() || std.json.validateError("\"\\ud800\"") != std.json.errorInvalid() || std.json.validateError("{") != std.json.errorInvalid() || std.json.validateError("{} x") != std.json.errorTrailing() || std.json.validateError("[1,]") != std.json.errorInvalid() || std.json.validateError("{\"a\":1,}") != std.json.errorInvalid() {
         ok = false
     }
     let count_field: Maybe<Span<u8>> = std.json.field(json, "count")
@@ -150,9 +150,14 @@ pub fn main(world: World) -> Void raises {
 
     var decoded_string_buf: [8]u8 = [0_u8; 8]
     let decoded_string: Maybe<Span<u8>> = std.json.stringDecode(decoded_string_buf, "\"a\\\"b\"")
+    var decoded_unicode_buf: [8]u8 = [0_u8; 8]
+    let decoded_unicode: Maybe<Span<u8>> = std.json.stringDecode(decoded_unicode_buf, "\"\\u20ac\"")
+    var decoded_pair_buf: [8]u8 = [0_u8; 8]
+    let decoded_pair: Maybe<Span<u8>> = std.json.stringDecode(decoded_pair_buf, "\"\\ud834\\udd1e\"")
+    let unicode_key_field: Maybe<Span<u8>> = std.json.field("{\"\\u20ac\":1}", "\xe2\x82\xac")
     var string_out_buf: [16]u8 = [0_u8; 16]
     let string_out: Maybe<Span<u8>> = std.json.writeStringBytes(string_out_buf, "a\nb")
-    if !decoded_string.has || !std.mem.eql(decoded_string.value, "a\"b") || !string_out.has || !std.mem.eql(string_out.value, "\"a\\nb\"") {
+    if !decoded_string.has || !std.mem.eql(decoded_string.value, "a\"b") || !decoded_unicode.has || !std.mem.eql(decoded_unicode.value, "\xe2\x82\xac") || !decoded_pair.has || !std.mem.eql(decoded_pair.value, "\xf0\x9d\x84\x9e") || !unicode_key_field.has || !std.mem.eql(unicode_key_field.value, "1") || !string_out.has || !std.mem.eql(string_out.value, "\"a\\nb\"") {
         ok = false
     }
 
