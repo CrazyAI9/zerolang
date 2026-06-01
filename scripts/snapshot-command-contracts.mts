@@ -3918,6 +3918,44 @@ const crcOnlySize = json(["size", "--json", crcOnlySource]).body;
 assert(!crcOnlySize.incrementalInvalidation.changedInputs.sourceFiles.some((path) => path.endsWith("std/codec.0")));
 assert(!crcOnlySize.retentionReasons.some((item) => item.name === "__zero_std_codec_hex_decode"));
 
+const codecReadOnlySource = join(outDir, "std-codec-read-only.0");
+writeFileSync(codecReadOnlySource, `export c fn main() -> i32 {
+    let value: Maybe<u16> = std.codec.readU16Le("AB")
+    if value.has {
+        return 0
+    }
+    return 1
+}
+`);
+const codecReadOnlyGraph = json(["graph", "--json", codecReadOnlySource]).body;
+assert(codecReadOnlyGraph.sourceFiles.some((path) => path.endsWith("std/codec.0")));
+assert(!codecReadOnlyGraph.sourceFiles.some((path) => path.endsWith("std/ascii.0")));
+assert(!codecReadOnlyGraph.requiresCapabilities.includes("parse"));
+const codecReadOnlySize = json(["size", "--json", codecReadOnlySource]).body;
+assert.equal(codecReadOnlySize.objectBackend.directFacts.functionCount, 2);
+assert(!codecReadOnlySize.retentionReasons.some((item) => item.name === "__zero_std_codec_hex_decode"));
+assert(!codecReadOnlySize.retentionReasons.some((item) => item.name === "std.ascii.hexValue"));
+
+const jsonStatusOnlySource = join(outDir, "std-json-status-only.0");
+writeFileSync(jsonStatusOnlySource, `export c fn main() -> i32 {
+    let status: u32 = std.json.errorNone()
+    if status == 0_u32 {
+        return 0
+    }
+    return 1
+}
+`);
+const jsonStatusOnlyGraph = json(["graph", "--json", jsonStatusOnlySource]).body;
+assert(jsonStatusOnlyGraph.sourceFiles.some((path) => path.endsWith("std/json.0")));
+assert(!jsonStatusOnlyGraph.sourceFiles.some((path) => path.endsWith("std/ascii.0")));
+assert(!jsonStatusOnlyGraph.sourceFiles.some((path) => path.endsWith("std/fmt.0")));
+assert(!jsonStatusOnlyGraph.sourceFiles.some((path) => path.endsWith("std/parse.0")));
+assert.equal(jsonStatusOnlyGraph.functions.filter((fun) => fun.name.startsWith("__zero_std_json_")).length, 1);
+const jsonStatusOnlySize = json(["size", "--json", jsonStatusOnlySource]).body;
+assert.equal(jsonStatusOnlySize.objectBackend.directFacts.functionCount, 2);
+assert(!jsonStatusOnlySize.retentionReasons.some((item) => item.name === "__zero_std_json_validate_error"));
+assert(!jsonStatusOnlySize.retentionReasons.some((item) => item.name === "std.parse.parseU32"));
+
 const httpErrorsGraph = json(["graph", "--json", "conformance/native/pass/std-http-errors.0"]).body;
 assert.deepEqual(httpErrorsGraph.requiresCapabilities, []);
 const httpTimeoutHelper = httpErrorsGraph.stdlibHelpers.find((helper) => helper.name === "std.http.errorTimeout");
