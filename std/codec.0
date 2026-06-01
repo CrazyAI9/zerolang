@@ -90,6 +90,17 @@ fn __zero_std_codec_base64_decoded_len(text: Span<u8>) -> Maybe<usize> {
         }
         index = index + 1
     }
+    if padding == 2 {
+        let c1: Maybe<u8> = __zero_std_codec_base64_value(text[len - 3])
+        if !c1.has || c1.value % 16_u8 != 0_u8 {
+            return null
+        }
+    } else if padding == 1 {
+        let c2: Maybe<u8> = __zero_std_codec_base64_value(text[len - 2])
+        if !c2.has || c2.value % 4_u8 != 0_u8 {
+            return null
+        }
+    }
     return (len / 4) * 3 - padding
 }
 

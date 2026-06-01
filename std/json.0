@@ -57,6 +57,17 @@ fn __zero_std_json_hex_byte(bytes: Span<u8>, start: usize) -> Maybe<u8> {
     return h2.value * 16_u8 + h3.value
 }
 
+fn __zero_std_json_unicode_escape_valid(bytes: Span<u8>, start: usize) -> Bool {
+    if start + 3 >= std.mem.len(bytes) {
+        return false
+    }
+    let h0: Maybe<u8> = std.ascii.hexValue(bytes[start])
+    let h1: Maybe<u8> = std.ascii.hexValue(bytes[start + 1])
+    let h2: Maybe<u8> = std.ascii.hexValue(bytes[start + 2])
+    let h3: Maybe<u8> = std.ascii.hexValue(bytes[start + 3])
+    return h0.has && h1.has && h2.has && h3.has
+}
+
 fn __zero_std_json_string_end(bytes: Span<u8>, start: usize) -> Maybe<usize> {
     if start >= std.mem.len(bytes) || bytes[start] != 34_u8 {
         return null
@@ -80,8 +91,7 @@ fn __zero_std_json_string_end(bytes: Span<u8>, start: usize) -> Maybe<usize> {
                 if index + 4 >= std.mem.len(bytes) {
                     return null
                 }
-                let escaped_byte: Maybe<u8> = __zero_std_json_hex_byte(bytes, index + 1)
-                if !escaped_byte.has {
+                if !__zero_std_json_unicode_escape_valid(bytes, index + 1) {
                     return null
                 }
                 index = index + 5

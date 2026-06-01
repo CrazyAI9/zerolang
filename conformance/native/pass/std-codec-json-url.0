@@ -13,7 +13,11 @@ pub fn main(world: World) -> Void raises {
     var b64_buf: [4]u8 = [0_u8; 4]
     let b64: Maybe<Span<u8>> = std.codec.base64Decode(b64_buf, "emVybw==")
     let bad_b64: Maybe<Span<u8>> = std.codec.base64Decode(b64_buf, "abc")
-    if !b64_len.has || b64_len.value != 4_usize || !b64.has || !std.mem.eql(b64.value, "zero") || bad_b64.has {
+    var b64_one_buf: [1]u8 = [0_u8; 1]
+    var b64_two_buf: [2]u8 = [0_u8; 2]
+    let bad_b64_one_pad_bits: Maybe<Span<u8>> = std.codec.base64Decode(b64_one_buf, "AB==")
+    let bad_b64_two_pad_bits: Maybe<Span<u8>> = std.codec.base64Decode(b64_two_buf, "AAB=")
+    if !b64_len.has || b64_len.value != 4_usize || !b64.has || !std.mem.eql(b64.value, "zero") || bad_b64.has || bad_b64_one_pad_bits.has || bad_b64_two_pad_bits.has {
         ok = false
     }
 
@@ -94,9 +98,11 @@ pub fn main(world: World) -> Void raises {
     let authority: Maybe<Span<u8>> = std.url.authority(url)
     let host: Maybe<Span<u8>> = std.url.host(url)
     let path: Span<u8> = std.url.path(url)
+    let relative_path: Span<u8> = std.url.path("search?q=zero")
+    let rootless_scheme_path: Span<u8> = std.url.path("mailto:user@example.com")
     let query: Maybe<Span<u8>> = std.url.query(url)
     let fragment_query: Maybe<Span<u8>> = std.url.query("https://example.com/path#frag?q=1")
-    if !scheme.has || !std.mem.eql(scheme.value, "https") || !authority.has || !std.mem.eql(authority.value, "user@example.com:443") || !host.has || !std.mem.eql(host.value, "example.com") || !std.mem.eql(path, "/path/to") || !query.has {
+    if !scheme.has || !std.mem.eql(scheme.value, "https") || !authority.has || !std.mem.eql(authority.value, "user@example.com:443") || !host.has || !std.mem.eql(host.value, "example.com") || !std.mem.eql(path, "/path/to") || !std.mem.eql(relative_path, "search") || !std.mem.eql(rootless_scheme_path, "user@example.com") || !query.has {
         ok = false
     }
     if query.has {
@@ -128,7 +134,7 @@ pub fn main(world: World) -> Void raises {
     if std.json.errorNone() != 0_u32 || std.json.errorInvalid() != 1_u32 || std.json.errorTrailing() != 2_u32 {
         ok = false
     }
-    if std.json.validateError(json) != std.json.errorNone() || std.json.validateError("{") != std.json.errorInvalid() || std.json.validateError("{} x") != std.json.errorTrailing() || std.json.validateError("[1,]") != std.json.errorInvalid() || std.json.validateError("{\"a\":1,}") != std.json.errorInvalid() {
+    if std.json.validateError(json) != std.json.errorNone() || std.json.validateError("\"\\u20ac\"") != std.json.errorNone() || std.json.validateError("{") != std.json.errorInvalid() || std.json.validateError("{} x") != std.json.errorTrailing() || std.json.validateError("[1,]") != std.json.errorInvalid() || std.json.validateError("{\"a\":1,}") != std.json.errorInvalid() {
         ok = false
     }
     let count_field: Maybe<Span<u8>> = std.json.field(json, "count")
