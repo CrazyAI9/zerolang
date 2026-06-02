@@ -245,6 +245,26 @@ function findStringLiteral(graph, value) {
   return literal;
 }
 
+function findNodeById(graph, id) {
+  const node = graph.nodes.find((item) => item.id === id);
+  assert(node, `missing graph node ${id}`);
+  return node;
+}
+
+function findOwnerNode(graph, nodeId, edgeKind) {
+  const edge = graph.edges.find((item) => item.target === "node" && item.to === nodeId && item.kind === edgeKind);
+  assert(edge, `missing ${edgeKind} owner edge for ${nodeId}`);
+  return findNodeById(graph, edge.from);
+}
+
+function findCheckForStringLiteral(graph, value) {
+  const literal = findStringLiteral(graph, value);
+  const call = findOwnerNode(graph, literal.id, "arg");
+  const check = findOwnerNode(graph, call.id, "expr");
+  assert.equal(check.kind, "Check", `expected check owner for ${JSON.stringify(value)}`);
+  return { check, literal };
+}
+
 async function assertSourceEditIdentityBaseline() {
   const fixture = `${outDir}/identity-edit.0`;
   const original = [
@@ -283,10 +303,10 @@ async function assertSourceEditIdentityBaseline() {
   assert.notEqual(renamedHelper.symbolId, beforeHelper.symbolId, "renaming a declaration should change symbolId");
   if (requireStableNodeIds) assert.equal(renamedHelper.id, beforeHelper.id, "strict stable node id check");
 
-  await writeFile(fixture, `fn inserted() -> i32 {\n    return 0\n}\n\n${original}`);
+  await writeFile(fixture, `fn aaa() -> i32 {\n    return 0\n}\n\n${original}`);
   const sameShapeSiblingGraph = await zeroJson(["graph", "dump", "--json", fixture]);
   const sameShapeHelper = sameShapeSiblingGraph.nodes.find((node) => node.kind === "Function" && node.name === "helper");
-  const insertedHelper = sameShapeSiblingGraph.nodes.find((node) => node.kind === "Function" && node.name === "inserted");
+  const insertedHelper = sameShapeSiblingGraph.nodes.find((node) => node.kind === "Function" && node.name === "aaa");
   assert(sameShapeHelper, "missing helper after same-shape sibling insertion");
   assert(insertedHelper, "missing inserted same-shape sibling");
   assert.equal(sameShapeHelper.id, beforeHelper.id, "inserting a same-shape sibling should not steal the existing declaration ID");
@@ -298,6 +318,15 @@ async function assertSourceEditIdentityBaseline() {
   const insertedLiteral = findStringLiteral(insertedGraph, "hello from zero\n");
   assert.equal(insertedCheck?.id, beforeCheck.id, "inserting before a statement should not churn the existing statement ID");
   assert.equal(insertedLiteral.id, before.id, "inserting before a statement should not churn nested expression IDs");
+
+  await writeFile(fixture, original.replace("    check world.out.write(\"hello from zero\\n\")", "    check world.out.write(\"inserted\\n\")\n    check world.out.write(\"hello from zero\\n\")"));
+  const sameKindStatementGraph = await zeroJson(["graph", "dump", "--json", fixture]);
+  const sameKindExisting = findCheckForStringLiteral(sameKindStatementGraph, "hello from zero\n");
+  const sameKindInserted = findCheckForStringLiteral(sameKindStatementGraph, "inserted\n");
+  assert.equal(sameKindExisting.check.id, beforeCheck.id, "inserting a same-kind statement should not steal the existing statement ID");
+  assert.equal(sameKindExisting.literal.id, before.id, "inserting a same-kind statement should not churn nested expression IDs");
+  assert.notEqual(sameKindInserted.check.id, beforeCheck.id, "inserted same-kind statement should get a collision-resolved ID");
+  assert.notEqual(sameKindInserted.literal.id, before.id, "inserted same-kind expression should not reuse the existing expression ID");
 }
 
 try {
