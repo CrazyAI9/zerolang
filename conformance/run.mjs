@@ -895,6 +895,43 @@ for (const key of ["code", "path", "line", "column", "length", "expected", "actu
 }
 assert.equal(directCallExeGraphBody.targetReadiness.diagnostics[0].backendBlocker.stage, "buildability");
 
+const llvmLoopIrPath = `${outDir}/llvm-direct-while-sum.ll`;
+await execFileAsync(zero, [
+  "build",
+  "--emit",
+  "llvm-ir",
+  "--backend",
+  "llvm",
+  "examples/direct-while-sum.0",
+  "--out",
+  llvmLoopIrPath,
+]);
+const llvmLoopIr = await readFile(llvmLoopIrPath, "utf8");
+assert.match(llvmLoopIr, /^; zero llvm-ir v1\n/);
+assert.match(llvmLoopIr, /target triple = "/);
+assert.match(llvmLoopIr, /define i32 @main\(\) \{/);
+assert.match(llvmLoopIr, /br label %L0\nL0:\n/);
+assert.match(llvmLoopIr, /icmp slt i32 %v[0-9]+, 5/);
+assert.match(llvmLoopIr, /add i32 %v[0-9]+, %v[0-9]+/);
+assert.match(llvmLoopIr, /ret i32 %v[0-9]+/);
+
+const llvmAddIrPath = `${outDir}/llvm-add.ll`;
+await execFileAsync(zero, [
+  "build",
+  "--emit",
+  "llvm-ir",
+  "--backend",
+  "llvm",
+  "examples/add.0",
+  "--out",
+  llvmAddIrPath,
+]);
+const llvmAddIr = await readFile(llvmAddIrPath, "utf8");
+assert.match(llvmAddIr, /@\.zero\.data\.0 = private unnamed_addr constant \[12 x i8\] c"math works\\0A\\00", align 1/);
+assert.match(llvmAddIr, /declare i32 @zero_world_write\(i32, ptr, i64\)/);
+assert.match(llvmAddIr, /define i32 @z_fn_0_answer\(\) \{/);
+assert.match(llvmAddIr, /call i32 @zero_world_write\(i32 1, ptr %v[0-9]+, i64 11\)/);
+
 const directStringMachOExe = await execFileAsync(zero, [
   "build",
   "--json",

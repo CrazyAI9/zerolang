@@ -5007,7 +5007,7 @@ static void init_direct_llvm_ir_unavailable_diag(ZDiag *diag, const Command *com
   snprintf(diag->message, sizeof(diag->message), "direct backend does not support --emit llvm-ir");
   snprintf(diag->expected, sizeof(diag->expected), "LLVM backend for --emit llvm-ir");
   snprintf(diag->actual, sizeof(diag->actual), "backend=%s emit=llvm-ir", backend);
-  snprintf(diag->help, sizeof(diag->help), "use --backend llvm to request LLVM IR; LLVM IR emission is not implemented yet");
+  snprintf(diag->help, sizeof(diag->help), "use --backend llvm --emit llvm-ir to write textual LLVM IR");
   ZBackendBlocker blocker;
   z_backend_blocker_set(&blocker,
                         target && target->name ? target->name : "unknown",
@@ -5015,6 +5015,27 @@ static void init_direct_llvm_ir_unavailable_diag(ZDiag *diag, const Command *com
                         backend,
                         "buildability",
                         "llvm-ir");
+  z_diag_set_backend_blocker(diag, &blocker);
+}
+
+static void init_llvm_ir_build_only_diag(ZDiag *diag, const Command *command, const ZTargetInfo *target, const char *path) {
+  memset(diag, 0, sizeof(*diag));
+  diag->code = 2004;
+  diag->path = path;
+  diag->line = 1;
+  diag->column = 1;
+  diag->length = 1;
+  snprintf(diag->message, sizeof(diag->message), "LLVM IR emission writes artifacts only through zero build");
+  snprintf(diag->expected, sizeof(diag->expected), "zero build --backend llvm --emit llvm-ir");
+  snprintf(diag->actual, sizeof(diag->actual), "%s --backend llvm --emit llvm-ir", command && command->command ? command->command : "command");
+  snprintf(diag->help, sizeof(diag->help), "use zero build for textual LLVM IR; native LLVM run and ship are not wired yet");
+  ZBackendBlocker blocker;
+  z_backend_blocker_set(&blocker,
+                        target && target->name ? target->name : "unknown",
+                        target && target->object_format ? target->object_format : "unknown",
+                        "llvm",
+                        "buildability",
+                        "llvm-ir command");
   z_diag_set_backend_blocker(diag, &blocker);
 }
 
@@ -5992,6 +6013,31 @@ static void append_object_backend_json(ZBuf *buf, const SourceInput *input, cons
   zbuf_append(buf, "}");
 }
 
+static void append_llvm_ir_backend_json(ZBuf *buf, const SourceInput *input, const ZTargetInfo *target, const char *emit_kind) {
+  zbuf_append(buf, "{\"internalIr\":{\"typeRepresentation\":\"Zero MIR scalar values\",\"controlFlowRepresentation\":\"LLVM textual IR blocks\",\"callRepresentation\":\"direct MIR calls\",\"debugRepresentation\":\"source spans retained on diagnostics\"}");
+  zbuf_append(buf, ",\"objectEmission\":{\"path\":\"llvm-ir\",\"functions\":true,\"dataSections\":");
+  zbuf_append(buf, input && input->direct_readonly_data_bytes > 0 ? "true" : "false");
+  zbuf_appendf(buf, ",\"symbols\":true,\"relocations\":\"none\",\"symbolCount\":%zu,\"internalHelperCount\":0}", input ? input->direct_function_count + input->direct_runtime_helper_count : 0);
+  zbuf_append(buf, ",\"linking\":{\"linkerFlavor\":\"none\",\"objectFormat\":");
+  append_json_string(buf, target && target->object_format ? target->object_format : "unknown");
+  zbuf_append(buf, ",\"targetLibraries\":\"none\",\"symbolMap\":\"llvm-module\",\"externalToolchain\":\"none\",\"toolchainSource\":\"textual-llvm-ir\",\"stripArtifacts\":false}");
+  zbuf_append(buf, ",\"linkerPlan\":{\"format\":\"llvm-ir\",\"flavor\":\"none\",\"archives\":[],\"staticLibraries\":[],\"importLibraries\":[],\"systemLibraries\":[],\"rpaths\":[],\"loadPaths\":[],\"visibility\":\"exported-c-and-main-only\",\"crossLinking\":false,\"externalToolchain\":\"none\",\"reproducible\":true,\"libcMode\":\"none\",\"requiresSysroot\":false,\"sysrootStatus\":\"not-required\"}");
+  zbuf_append(buf, ",\"targetFacts\":{\"directAvailable\":false,\"llvmAvailable\":true,\"status\":\"ir-only\",\"selectedEmitter\":\"llvm-ir\",\"objectFormat\":");
+  append_json_string(buf, target && target->object_format ? target->object_format : "unknown");
+  zbuf_append(buf, ",\"arch\":");
+  append_json_string(buf, target && target->arch ? target->arch : "unknown");
+  zbuf_append(buf, ",\"abi\":");
+  append_json_string(buf, target && target->abi ? target->abi : "");
+  zbuf_append(buf, ",\"libcMode\":");
+  append_json_string(buf, z_target_libc_mode(target));
+  zbuf_append(buf, ",\"requiresSysroot\":false,\"capabilities\":");
+  append_target_capability_names_json(buf, target);
+  zbuf_append(buf, ",\"fallbackPolicy\":\"none\",\"reason\":\"LLVM textual IR emission is available; native LLVM artifacts are not wired yet\"}");
+  zbuf_appendf(buf, ",\"moduleCount\":%zu,\"emitKind\":", input ? input->module_count : 0);
+  append_json_string(buf, emit_kind ? emit_kind : "llvm-ir");
+  zbuf_append(buf, ",\"backendFamily\":\"llvm\"}");
+}
+
 static size_t z_max_size(size_t a, size_t b) {
   return a > b ? a : b;
 }
@@ -6234,6 +6280,7 @@ static void append_direct_memory_json(ZBuf *buf, const SourceInput *input, const
 }
 
 static void print_build_json(const Command *command, const SourceInput *input, const Program *program, const ZTargetInfo *target, const char *emit_kind, const char *artifact_path, long long artifact_bytes, long long generated_c_bytes, long long elapsed_ms) {
+  bool llvm_ir_output = command && z_backend_request_is_llvm(command->backend, emit_kind) && strcmp(emit_kind ? emit_kind : "", "llvm-ir") == 0;
   printf("{\n  \"schemaVersion\": 1,\n  \"sourceFile\": ");
   print_json_string(input->source_file);
   if (command && z_program_graph_artifact_source_present(&command->graph_source)) {
@@ -6262,10 +6309,15 @@ static void print_build_json(const Command *command, const SourceInput *input, c
   ZToolchainPlan direct_plan;
   bool linked_executable = source_uses_linked_executable_path(input, emit_kind);
   bool direct_toolchain = !linked_executable && z_direct_backend_toolchain_plan_for_emit_kind(target, emit_kind, z_backend_direct_request_name(command ? command->backend : NULL), &direct_plan);
-  if (direct_toolchain) print_json_string(direct_plan.driver_kind);
+  if (llvm_ir_output) print_json_string("zero-c-llvm-ir");
+  else if (direct_toolchain) print_json_string(direct_plan.driver_kind);
   else print_json_string(build_compiler_label(command, target));
   printf(",\n  \"toolchain\": ");
-  if (direct_toolchain) {
+  if (llvm_ir_output) {
+    printf("{\"driverKind\":\"none\",\"selectionSource\":\"not-required\",\"compiler\":\"zero-c\",\"targetTriple\":");
+    print_json_string(target && target->zig_target ? target->zig_target : "");
+    printf(",\"linkerFlavor\":\"none\",\"libcMode\":\"none\",\"requiresSysroot\":false,\"sysrootEnv\":\"\",\"sysrootStatus\":\"not-required\",\"usesTargetFlag\":false,\"usesToolchainCache\":false,\"stripArtifact\":false}");
+  } else if (direct_toolchain) {
     ZBuf direct_toolchain_json;
     zbuf_init(&direct_toolchain_json);
     append_toolchain_plan_value_json(&direct_toolchain_json, &direct_plan);
@@ -6316,7 +6368,8 @@ static void print_build_json(const Command *command, const SourceInput *input, c
   zbuf_append(&extra, ",\n  \"releaseTargetContract\": ");
   append_release_target_contract_json(&extra, input, target, command, emit_kind);
   zbuf_append(&extra, ",\n  \"objectBackend\": ");
-  append_object_backend_json(&extra, input, target, command, emit_kind);
+  if (llvm_ir_output) append_llvm_ir_backend_json(&extra, input, target, emit_kind);
+  else append_object_backend_json(&extra, input, target, command, emit_kind);
   CapabilitySummary routing_caps = program_capabilities(program);
   zbuf_append(&extra, ",\n  \"selfHostRouting\": ");
   append_self_host_routing_json(&extra, "build", emit_kind, program, &routing_caps, target);
@@ -9626,8 +9679,8 @@ static bool target_readiness_select_emit_target(const Command *command, const So
   EmitKind emit = command ? command->emit : EMIT_EXE;
   const char *emit_kind = emit_kind_name(emit);
   if (emit == EMIT_LLVM_IR) {
-    if (z_backend_request_is_llvm(command ? command->backend : NULL, emit_kind)) z_backend_init_llvm_unavailable_diag(diag, target, emit_kind, input ? input->source_file : NULL);
-    else init_direct_llvm_ir_unavailable_diag(diag, command, target, input ? input->source_file : NULL);
+    if (z_backend_request_is_llvm(command ? command->backend : NULL, emit_kind)) return true;
+    init_direct_llvm_ir_unavailable_diag(diag, command, target, input ? input->source_file : NULL);
     return false;
   }
   if (z_backend_request_is_llvm(command ? command->backend : NULL, emit_kind)) { z_backend_init_llvm_unavailable_diag(diag, target, emit_kind, input ? input->source_file : NULL); return false; }
@@ -9660,6 +9713,12 @@ static bool target_readiness_buildability_check(const Command *command, const ZT
 static bool target_readiness_select_diag(const Command *command, const SourceInput *input, const Program *program, const ZTargetInfo *target, const IrProgram *ir, ZDiag *diag) {
   EmitKind emit = command ? command->emit : EMIT_EXE;
   const char *emit_kind = emit_kind_name(emit);
+  if (emit == EMIT_LLVM_IR && z_backend_request_is_llvm(command ? command->backend : NULL, emit_kind)) {
+    ZBuf scratch;
+    bool ok = z_emit_llvm_ir_from_ir(ir, &scratch, diag);
+    if (ok) zbuf_free(&scratch);
+    return ok;
+  }
   if (emit == EMIT_OBJ) return target_readiness_buildability_check(command, target, ir, diag);
   if (emit == EMIT_C) {
     init_direct_backend_diag(diag, command, input, target, emit_kind, "use --emit exe or --emit obj for target readiness");
@@ -9762,7 +9821,10 @@ static void append_target_readiness_json(ZBuf *buf, SourceInput *input, const Pr
   zbuf_append(buf, ",\"objectFormat\":");
   append_json_string(buf, target && target->object_format ? target->object_format : "unknown");
   zbuf_append(buf, ",\"backend\":");
-  append_json_string(buf, ready || !diag.backend_blocker.present ? z_direct_backend_name_for_emit_kind(target, emit_kind, z_backend_direct_request_name(command ? command->backend : NULL)) : diag.backend_blocker.backend);
+  const char *ready_backend = z_backend_request_is_llvm(command ? command->backend : NULL, emit_kind)
+    ? "llvm"
+    : z_direct_backend_name_for_emit_kind(target, emit_kind, z_backend_direct_request_name(command ? command->backend : NULL));
+  append_json_string(buf, ready || !diag.backend_blocker.present ? ready_backend : diag.backend_blocker.backend);
   zbuf_append(buf, ",\"stage\":");
   append_json_string(buf, ready ? "ready" : (diag.backend_blocker.present && diag.backend_blocker.stage[0] ? diag.backend_blocker.stage : "select"));
   zbuf_append(buf, ",\"diagnostics\":[");
@@ -11556,7 +11618,7 @@ int main(int argc, char **argv) {
     snprintf(diag.message, sizeof(diag.message), "unknown emit kind '%s'", command.invalid_emit);
     snprintf(diag.expected, sizeof(diag.expected), "one of exe, obj, llvm-ir");
     snprintf(diag.actual, sizeof(diag.actual), "--emit %s", command.invalid_emit);
-    snprintf(diag.help, sizeof(diag.help), "use --emit exe or --emit obj; --emit llvm-ir is recognized but not available");
+    snprintf(diag.help, sizeof(diag.help), "use --emit exe or --emit obj, or use --backend llvm --emit llvm-ir for textual LLVM IR");
     if (command.json) print_command_diag_json(&command, command.input, &diag);
     else print_diag(command.input, &diag);
     return 1;
@@ -12048,9 +12110,56 @@ int main(int argc, char **argv) {
     return rc;
   }
   if (artifact_command && command.emit == EMIT_LLVM_IR) {
-    if (z_backend_request_is_llvm(command.backend, emit_kind_name(command.emit))) z_backend_init_llvm_unavailable_diag(&diag, target, emit_kind_name(command.emit), input.source_file);
-    else init_direct_llvm_ir_unavailable_diag(&diag, &command, target, input.source_file);
-    int rc = return_buildability_error(&command, &input, &diag, &ir, &program); z_free_source(&input); return rc;
+    if (!z_backend_request_is_llvm(command.backend, emit_kind_name(command.emit))) {
+      init_direct_llvm_ir_unavailable_diag(&diag, &command, target, input.source_file);
+      int rc = return_buildability_error(&command, &input, &diag, &ir, &program); z_free_source(&input); return rc;
+    }
+    if (!build_command) {
+      init_llvm_ir_build_only_diag(&diag, &command, target, input.source_file);
+      int rc = return_buildability_error(&command, &input, &diag, &ir, &program); z_free_source(&input); return rc;
+    }
+    if (!ir.mir_valid) {
+      init_lowering_backend_diag(&diag, &input, target, &command, &ir);
+      int rc = return_buildability_error(&command, &input, &diag, &ir, &program);
+      z_free_source(&input);
+      return rc;
+    }
+    ZBuf llvm_ir;
+    phase_started = now_ms();
+    bool emitted_llvm_ir = z_emit_llvm_ir_from_ir(&ir, &llvm_ir, &diag);
+    input.codegen_ms = now_ms() - phase_started;
+    if (!emitted_llvm_ir) {
+      int rc = return_buildability_error(&command, &input, &diag, &ir, &program);
+      z_free_source(&input);
+      return rc;
+    }
+    char *base_llvm_file = command.out ? z_strdup(command.out) : z_default_out_path(input.source_file);
+    char *llvm_file = command.out ? base_llvm_file : path_with_suffix(base_llvm_file, ".ll");
+    if (!command.out) free(base_llvm_file);
+    phase_started = now_ms();
+    input.emitted_object_cache_hit = compiler_cache_touch("emitted-llvm-ir", compile_cache_key(&input, target, command.profile, "llvm-ir"));
+    bool wrote_llvm_ir = z_write_file(llvm_file, llvm_ir.data ? llvm_ir.data : "", &diag);
+    input.object_ms = now_ms() - phase_started;
+    input.link_ms = 0;
+    if (!wrote_llvm_ir) {
+      if (command.json) print_diag_json(llvm_file, &diag);
+      else print_diag(llvm_file, &diag);
+      free(llvm_file);
+      zbuf_free(&llvm_ir);
+      z_free_ir_program(&ir);
+      z_free_program(&program);
+      z_free_source(&input);
+      return 1;
+    }
+    long long elapsed_ms = now_ms() - command_started_ms;
+    if (command.json) print_build_json(&command, &input, &program, target, "llvm-ir", llvm_file, file_size_or_negative(llvm_file), 0, elapsed_ms);
+    else print_artifact(llvm_file, elapsed_ms);
+    free(llvm_file);
+    zbuf_free(&llvm_ir);
+    z_free_ir_program(&ir);
+    z_free_program(&program);
+    z_free_source(&input);
+    return 0;
   }
   if (artifact_command && z_backend_request_is_llvm(command.backend, emit_kind_name(command.emit))) {
     z_backend_init_llvm_unavailable_diag(&diag, target, emit_kind_name(command.emit), input.source_file);
