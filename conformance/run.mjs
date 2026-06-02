@@ -992,9 +992,9 @@ await execFileAsync(zero, [
 ]);
 const llvmShortCircuitIr = await readFile(llvmShortCircuitIrPath, "utf8");
 assertLlvmPhiPredecessors(llvmShortCircuitIr);
-assert.match(llvmShortCircuitIr, /br i1 0, label %L[0-9]+, label %L[0-9]+\nL[0-9]+:\n  %v[0-9]+ = call i1 @z_fn_[0-9]+_rhsAnd\(\)/);
+assert.match(llvmShortCircuitIr, /br i1 0, label %L[0-9]+, label %L[0-9]+\nL[0-9]+:\n  %v[0-9]+ = call i1 @\.zero\.fn\.[0-9]+\.rhsAnd\(\)/);
 assert.match(llvmShortCircuitIr, /%v[0-9]+ = phi i1 \[%v[0-9]+, %L[0-9]+\], \[0, %L[0-9]+\]/);
-assert.match(llvmShortCircuitIr, /br i1 1, label %L[0-9]+, label %L[0-9]+\nL[0-9]+:\n  %v[0-9]+ = call i1 @z_fn_[0-9]+_rhsOr\(\)/);
+assert.match(llvmShortCircuitIr, /br i1 1, label %L[0-9]+, label %L[0-9]+\nL[0-9]+:\n  %v[0-9]+ = call i1 @\.zero\.fn\.[0-9]+\.rhsOr\(\)/);
 assert.match(llvmShortCircuitIr, /%v[0-9]+ = phi i1 \[%v[0-9]+, %L[0-9]+\], \[1, %L[0-9]+\]/);
 
 const llvmAddIrPath = `${outDir}/llvm-add.ll`;
@@ -1016,8 +1016,38 @@ assert.deepEqual(llvmAddBuildBody.objectBackend.linkerPlan.staticLibraries, ["ze
 const llvmAddIr = await readFile(llvmAddIrPath, "utf8");
 assert.match(llvmAddIr, /@\.zero\.data\.0 = private unnamed_addr constant \[12 x i8\] c"math works\\0A\\00", align 1/);
 assert.match(llvmAddIr, /declare i32 @zero_world_write\(i32, ptr, i64\)/);
-assert.match(llvmAddIr, /define i32 @z_fn_0_answer\(\) \{/);
+assert.match(llvmAddIr, /define i32 @\.zero\.fn\.[0-9]+\.answer\(\) \{/);
 assert.match(llvmAddIr, /call i32 @zero_world_write\(i32 1, ptr %v[0-9]+, i64 11\)/);
+
+const llvmSymbolCollisionSourcePath = `${outDir}/llvm-symbol-collision.0`;
+const llvmSymbolCollisionIrPath = `${outDir}/llvm-symbol-collision.ll`;
+await writeFile(llvmSymbolCollisionSourcePath, `fn foo() -> i32 {
+    return 1
+}
+
+export c fn z_fn_0_foo() -> i32 {
+    return 2
+}
+
+export c fn main() -> i32 {
+    return foo() + z_fn_0_foo()
+}
+`);
+await execFileAsync(zero, [
+  "build",
+  "--emit",
+  "llvm-ir",
+  "--backend",
+  "llvm",
+  llvmSymbolCollisionSourcePath,
+  "--out",
+  llvmSymbolCollisionIrPath,
+]);
+const llvmSymbolCollisionIr = await readFile(llvmSymbolCollisionIrPath, "utf8");
+assert.match(llvmSymbolCollisionIr, /define i32 @\.zero\.fn\.[0-9]+\.foo\(\) \{/);
+assert.match(llvmSymbolCollisionIr, /define i32 @z_fn_0_foo\(\) \{/);
+assert.match(llvmSymbolCollisionIr, /call i32 @\.zero\.fn\.[0-9]+\.foo\(\)/);
+assert.equal((llvmSymbolCollisionIr.match(/define i32 @z_fn_0_foo\(\) \{/g) || []).length, 1);
 
 const directStringMachOExe = await execFileAsync(zero, [
   "build",

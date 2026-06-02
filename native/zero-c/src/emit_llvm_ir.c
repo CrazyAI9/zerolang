@@ -105,7 +105,7 @@ static void llvm_symbol_for_function(const IrProgram *program, unsigned index, c
     snprintf(buf, len, "%s", name);
     return;
   }
-  size_t at = (size_t)snprintf(buf, len, "z_fn_%u_", index);
+  size_t at = (size_t)snprintf(buf, len, ".zero.fn.%u.", index);
   if (at >= len) return;
   for (size_t i = 0; name[i] && at + 1 < len; i++) {
     unsigned char ch = (unsigned char)name[i];
