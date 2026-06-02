@@ -1015,11 +1015,11 @@ assert.equal(llvmAddBuildBody.objectBackend.linking.toolchainSource, "textual-ll
 assert.deepEqual(llvmAddBuildBody.objectBackend.linkerPlan.staticLibraries, ["zero_runtime.o"]);
 const llvmAddIr = await readFile(llvmAddIrPath, "utf8");
 assert.match(llvmAddIr, /@\.zero\.data\.0 = private unnamed_addr constant \[12 x i8\] c"math works\\0A\\00", align 1/);
-assert.match(llvmAddIr, /declare i32 @zero_world_write\(i32, ptr, i64\)/);
+assert.match(llvmAddIr, /declare i32 @zero_world_write\(i32, ptr, i32\)/);
 assert.match(llvmAddIr, /declare void @llvm\.trap\(\)/);
 assert.match(llvmAddIr, /define i32 @\.zero\.fn\.[0-9]+\.answer\(\) \{/);
-assert.match(llvmAddIr, /call i32 @zero_world_write\(i32 1, ptr %v[0-9]+, i64 11\)/);
-assert.match(llvmAddIr, /%v[0-9]+ = call i32 @zero_world_write\(i32 1, ptr %v[0-9]+, i64 11\)\n  %v[0-9]+ = icmp eq i32 %v[0-9]+, 0\n  br i1 %v[0-9]+, label %L[0-9]+, label %L[0-9]+\nL[0-9]+:\n  call void @llvm\.trap\(\)\n  unreachable\nL[0-9]+:/);
+assert.match(llvmAddIr, /call i32 @zero_world_write\(i32 1, ptr %v[0-9]+, i32 11\)/);
+assert.match(llvmAddIr, /%v[0-9]+ = call i32 @zero_world_write\(i32 1, ptr %v[0-9]+, i32 11\)\n  %v[0-9]+ = icmp eq i32 %v[0-9]+, 0\n  br i1 %v[0-9]+, label %L[0-9]+, label %L[0-9]+\nL[0-9]+:\n  call void @llvm\.trap\(\)\n  unreachable\nL[0-9]+:/);
 
 const llvmSymbolCollisionSourcePath = `${outDir}/llvm-symbol-collision.0`;
 const llvmSymbolCollisionIrPath = `${outDir}/llvm-symbol-collision.ll`;
@@ -1050,6 +1050,47 @@ assert.match(llvmSymbolCollisionIr, /define i32 @\.zero\.fn\.[0-9]+\.foo\(\) \{/
 assert.match(llvmSymbolCollisionIr, /define i32 @z_fn_0_foo\(\) \{/);
 assert.match(llvmSymbolCollisionIr, /call i32 @\.zero\.fn\.[0-9]+\.foo\(\)/);
 assert.equal((llvmSymbolCollisionIr.match(/define i32 @z_fn_0_foo\(\) \{/g) || []).length, 1);
+
+const llvmRuntimeCollisionSourcePath = `${outDir}/llvm-runtime-symbol-collision.0`;
+await writeFile(llvmRuntimeCollisionSourcePath, `export c fn zero_world_write() -> i32 {
+    return 7
+}
+
+pub fn main(world: World) -> Void raises {
+    check world.out.write("hello\\n")
+}
+`);
+const llvmRuntimeCollisionReadiness = await execFileAsync(zero, [
+  "check",
+  "--json",
+  "--emit",
+  "llvm-ir",
+  "--backend",
+  "llvm",
+  llvmRuntimeCollisionSourcePath,
+]);
+const llvmRuntimeCollisionReadinessBody = JSON.parse(llvmRuntimeCollisionReadiness.stdout);
+assert.equal(llvmRuntimeCollisionReadinessBody.ok, true);
+assert.equal(llvmRuntimeCollisionReadinessBody.targetReadiness.ok, false);
+assert.equal(llvmRuntimeCollisionReadinessBody.targetReadiness.diagnostics[0].code, "BLD004");
+assert.equal(llvmRuntimeCollisionReadinessBody.targetReadiness.diagnostics[0].actual, "zero_world_write");
+assert.equal(llvmRuntimeCollisionReadinessBody.targetReadiness.diagnostics[0].backendBlocker.backend, "llvm");
+assert.equal(llvmRuntimeCollisionReadinessBody.targetReadiness.diagnostics[0].backendBlocker.stage, "lower");
+const llvmRuntimeCollisionBuild = await execFileAsync(zero, [
+  "build",
+  "--json",
+  "--emit",
+  "llvm-ir",
+  "--backend",
+  "llvm",
+  llvmRuntimeCollisionSourcePath,
+  "--out",
+  `${outDir}/llvm-runtime-symbol-collision.ll`,
+]).catch((error) => error);
+assert.notEqual(llvmRuntimeCollisionBuild.code, 0);
+const llvmRuntimeCollisionBuildBody = JSON.parse(llvmRuntimeCollisionBuild.stdout);
+assert.equal(llvmRuntimeCollisionBuildBody.diagnostics[0].actual, "zero_world_write");
+assert.equal(llvmRuntimeCollisionBuildBody.diagnostics[0].backendBlocker.backend, "llvm");
 
 const llvmLongExportName = `llvm_export_${"a".repeat(200)}`;
 const llvmLongExportSourcePath = `${outDir}/llvm-long-export.0`;

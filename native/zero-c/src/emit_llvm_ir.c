@@ -99,6 +99,10 @@ static bool llvm_name_is_ident(const char *name) {
   return true;
 }
 
+static bool llvm_name_is_reserved_runtime_symbol(const char *name) {
+  return name && strcmp(name, "zero_world_write") == 0;
+}
+
 static char *llvm_symbol_for_function(const IrProgram *program, unsigned index) {
   const IrFunction *fun = program && index < program->function_len ? &program->functions[index] : NULL;
   const char *name = fun && fun->name ? fun->name : "function";
@@ -352,7 +356,7 @@ static bool llvm_emit_world_write(LlvmEmit *emit, const IrInstr *instr, ZDiag *d
   const IrDataSegment *segment = &emit->program->data_segments[segment_index];
   zbuf_appendf(emit->out, "  %s = getelementptr inbounds [%u x i8], ptr @.zero.data.%zu, i64 0, i64 %u\n", ptr.text, segment->len, segment_index, delta);
   LlvmValue status, ok; llvm_temp(emit, &status, IR_TYPE_I32);
-  zbuf_appendf(emit->out, "  %s = call i32 @zero_world_write(i32 %u, ptr %s, i64 %u)\n", status.text, instr->field_offset == 2 ? 2u : 1u, ptr.text, view->data_len);
+  zbuf_appendf(emit->out, "  %s = call i32 @zero_world_write(i32 %u, ptr %s, i32 %u)\n", status.text, instr->field_offset == 2 ? 2u : 1u, ptr.text, view->data_len);
   llvm_temp(emit, &ok, IR_TYPE_BOOL); unsigned ok_label = llvm_label(emit), trap_label = llvm_label(emit);
   zbuf_appendf(emit->out, "  %s = icmp eq i32 %s, 0\n", ok.text, status.text);
   zbuf_appendf(emit->out, "  br i1 %s, label %%L%u, label %%L%u\n", ok.text, ok_label, trap_label);
@@ -457,6 +461,10 @@ static bool llvm_emit_instrs(LlvmEmit *emit, const IrInstr *instrs, size_t len, 
 }
 
 static bool llvm_validate_function(const IrProgram *program, const IrFunction *fun, ZDiag *diag) {
+  if (fun->is_exported && llvm_name_is_reserved_runtime_symbol(fun->name)) {
+    llvm_set_diag(diag, program, fun->line, fun->column, "LLVM IR backend export collides with a reserved runtime symbol", fun->name ? fun->name : "reserved runtime symbol", "lower");
+    return false;
+  }
   if (!llvm_type_supported(fun->return_type)) {
     llvm_set_diag(diag, program, fun->line, fun->column, "LLVM IR backend return type is unsupported", "unsupported return type", "lower");
     return false;
@@ -521,7 +529,7 @@ bool z_emit_llvm_ir_from_ir(const IrProgram *program, ZBuf *out, ZDiag *diag) {
   zbuf_append(out, "; zero llvm-ir v1\n");
   zbuf_appendf(out, "target triple = \"%s\"\n\n", llvm_target_triple(program->target));
   llvm_append_data_globals(out, program);
-  if (program->data_segment_len > 0) zbuf_append(out, "declare i32 @zero_world_write(i32, ptr, i64)\ndeclare void @llvm.trap()\n\n");
+  if (program->data_segment_len > 0) zbuf_append(out, "declare i32 @zero_world_write(i32, ptr, i32)\ndeclare void @llvm.trap()\n\n");
   for (unsigned i = 0; i < program->function_len; i++) {
     if (!llvm_emit_function(program, i, out, diag)) {
       zbuf_free(out);
