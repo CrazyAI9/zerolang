@@ -202,10 +202,10 @@ static int graph_collision_node_cmp(const ZProgramGraphNode *left, const ZProgra
   if (cmp != 0) return cmp;
   int left_line = left && left->line > 0 ? left->line : 0;
   int right_line = right && right->line > 0 ? right->line : 0;
-  if (left_line != right_line) return left_line > right_line ? -1 : 1;
+  if (left_line != right_line) return left_line < right_line ? -1 : 1;
   int left_column = left && left->column > 0 ? left->column : 0;
   int right_column = right && right->column > 0 ? right->column : 0;
-  if (left_column != right_column) return left_column > right_column ? -1 : 1;
+  if (left_column != right_column) return left_column < right_column ? -1 : 1;
   cmp = graph_text_cmp(left ? left->name : NULL, right ? right->name : NULL);
   if (cmp != 0) return cmp;
   cmp = graph_text_cmp(left ? left->value : NULL, right ? right->value : NULL);
