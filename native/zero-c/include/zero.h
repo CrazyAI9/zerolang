@@ -578,6 +578,8 @@ typedef struct {
 
 typedef struct {
   char *symbol;
+  char *import_header;
+  char *import_resolved_header;
   IrTypeKind return_type;
   IrTypeKind *param_types;
   size_t param_len;
@@ -693,6 +695,9 @@ typedef struct {
   size_t direct_http_runtime_import_count;
   size_t direct_c_import_call_count;
   size_t direct_c_import_symbol_count;
+  char **direct_c_import_headers;
+  char **direct_c_import_resolved_headers;
+  size_t direct_c_import_header_count;
   bool parse_cache_hit;
   bool interface_cache_hit;
   bool check_cache_hit;

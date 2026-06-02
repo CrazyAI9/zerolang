@@ -86,6 +86,8 @@ static void c_import_function_vec_push(ZCImportFunctionVec *vec, ZCImportFunctio
 void z_c_import_function_free(ZCImportFunction *function) {
   if (!function) return;
   free(function->name);
+  free(function->import_header);
+  free(function->import_resolved_header);
   free(function->return_c_type);
   free(function->return_zero_type);
   for (size_t i = 0; i < function->param_len; i++) {
@@ -386,6 +388,8 @@ bool z_c_header_parse_functions(const char *header, ZCImportFunctionVec *out) {
 static void c_import_function_clone(ZCImportFunction *out, const ZCImportFunction *source) {
   *out = (ZCImportFunction){
     .name = z_strdup(source->name),
+    .import_header = source->import_header ? z_strdup(source->import_header) : NULL,
+    .import_resolved_header = source->import_resolved_header ? z_strdup(source->import_resolved_header) : NULL,
     .return_c_type = z_strdup(source->return_c_type),
     .return_zero_type = z_strdup(source->return_zero_type),
     .old_style_params = source->old_style_params,
@@ -439,6 +443,10 @@ bool z_c_import_find_function(const Program *program, const char *alias, const c
     for (size_t fn = 0; fn < functions.len; fn++) {
       if (functions.items[fn].name && strcmp(functions.items[fn].name, symbol) == 0) {
         c_import_function_clone(out, &functions.items[fn]);
+        free(out->import_header);
+        free(out->import_resolved_header);
+        out->import_header = import->header ? z_strdup(import->header) : NULL;
+        out->import_resolved_header = import->resolved_header ? z_strdup(import->resolved_header) : NULL;
         z_c_import_function_vec_free(&functions);
         return true;
       }

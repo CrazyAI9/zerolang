@@ -1026,6 +1026,10 @@ void z_free_source(SourceInput *input) {
     free(input->dependencies[i].targets_json);
     free(input->dependencies[i].status);
   }
+  for (size_t i = 0; i < input->direct_c_import_header_count; i++) {
+    free(input->direct_c_import_headers[i]);
+    free(input->direct_c_import_resolved_headers[i]);
+  }
   free(input->source_files);
   free(input->source_line_paths);
   free(input->source_line_numbers);
@@ -1043,6 +1047,8 @@ void z_free_source(SourceInput *input) {
   free(input->symbol_modules);
   free(input->symbol_kinds);
   free(input->dependencies);
+  free(input->direct_c_import_headers);
+  free(input->direct_c_import_resolved_headers);
   free(input->symbol_public);
 }
 

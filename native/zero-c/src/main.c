@@ -746,6 +746,69 @@ static bool runtime_path_is_absolute(const char *path) {
   return path[0] == '/' || (strlen(path) > 2 && path[1] == ':');
 }
 
+static void source_input_clear_direct_c_import_headers(SourceInput *input) {
+  if (!input) return;
+  for (size_t i = 0; i < input->direct_c_import_header_count; i++) {
+    free(input->direct_c_import_headers[i]);
+    free(input->direct_c_import_resolved_headers[i]);
+  }
+  free(input->direct_c_import_headers);
+  free(input->direct_c_import_resolved_headers);
+  input->direct_c_import_headers = NULL;
+  input->direct_c_import_resolved_headers = NULL;
+  input->direct_c_import_header_count = 0;
+}
+
+static bool c_import_header_text_equal(const char *left, const char *right) {
+  return left && left[0] && right && right[0] && strcmp(left, right) == 0;
+}
+
+static bool source_input_has_direct_c_import_header(const SourceInput *input, const char *header, const char *resolved_header) {
+  for (size_t i = 0; input && i < input->direct_c_import_header_count; i++) {
+    const char *candidate_header = input->direct_c_import_headers[i];
+    const char *candidate_resolved = input->direct_c_import_resolved_headers[i];
+    if (c_import_header_text_equal(candidate_header, header) ||
+        c_import_header_text_equal(candidate_header, resolved_header) ||
+        c_import_header_text_equal(candidate_resolved, header) ||
+        c_import_header_text_equal(candidate_resolved, resolved_header)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static void source_input_add_direct_c_import_header(SourceInput *input, const char *header, const char *resolved_header) {
+  if (!input || ((!header || !header[0]) && (!resolved_header || !resolved_header[0]))) return;
+  if (source_input_has_direct_c_import_header(input, header, resolved_header)) return;
+  size_t next = input->direct_c_import_header_count + 1;
+  input->direct_c_import_headers = z_checked_reallocarray(input->direct_c_import_headers, next, sizeof(char *));
+  input->direct_c_import_resolved_headers = z_checked_reallocarray(input->direct_c_import_resolved_headers, next, sizeof(char *));
+  input->direct_c_import_headers[input->direct_c_import_header_count] = header && header[0] ? z_strdup(header) : NULL;
+  input->direct_c_import_resolved_headers[input->direct_c_import_header_count] = resolved_header && resolved_header[0] ? z_strdup(resolved_header) : NULL;
+  input->direct_c_import_header_count = next;
+}
+
+static bool c_lib_header_matches_direct_c_imports(const SourceInput *input, const char *manifest_header) {
+  if (!input || input->direct_c_import_header_count == 0) return true;
+  if (!manifest_header || !manifest_header[0]) return false;
+  char *resolved = runtime_path_is_absolute(manifest_header)
+    ? z_strdup(manifest_header)
+    : runtime_join_path(input->package_root && input->package_root[0] ? input->package_root : ".", manifest_header);
+  bool matches = source_input_has_direct_c_import_header(input, manifest_header, resolved);
+  free(resolved);
+  return matches;
+}
+
+static bool c_lib_matches_direct_c_imports(const SourceInput *input, const ZManifestCLib *lib) {
+  if (!input || input->direct_c_import_header_count == 0) return true;
+  const char *cursor = lib && lib->headers_json ? lib->headers_json : "";
+  char header[512];
+  while (json_array_next_string(&cursor, header, sizeof(header))) {
+    if (c_lib_header_matches_direct_c_imports(input, header)) return true;
+  }
+  return false;
+}
+
 static void append_c_link_file_flags(ZBuf *flags, const char *package_root, const char *lib_json) {
   const char *cursor = lib_json ? lib_json : "";
   char item[512];
@@ -784,6 +847,7 @@ static void append_manifest_c_link_plan_items_json(ZBuf *static_libraries, bool 
   }
   for (size_t i = 0; i < parsed.c_lib_count; i++) {
     const ZManifestCLib *lib = &parsed.c_libs[i];
+    if (!c_lib_matches_direct_c_imports(input, lib)) continue;
     const char *lib_cursor = lib->lib_json ? lib->lib_json : "";
     char lib_item[512];
     while (json_array_next_string(&lib_cursor, lib_item, sizeof(lib_item))) {
@@ -813,6 +877,7 @@ static void append_manifest_c_link_flags(ZBuf *flags, const SourceInput *input) 
   }
   for (size_t i = 0; i < parsed.c_lib_count; i++) {
     const ZManifestCLib *lib = &parsed.c_libs[i];
+    if (!c_lib_matches_direct_c_imports(input, lib)) continue;
     append_c_link_file_flags(flags, input->package_root, lib->lib_json);
     append_c_link_name_flags(flags, lib->link_json);
   }
@@ -2880,7 +2945,7 @@ static const char *diag_repair_summary(int code) {
     case 6002: return "Build for a target that provides the required capability, or move that capability behind a target-specific entry point.";
     case 8003: return "Use package-relative vendored headers/libraries or set the target sysroot instead of relying on host include, lib, or pkg-config discovery.";
     case 8004: return "Call a function declared by the imported C header, or wrap unsupported C ABI types behind a scalar C shim.";
-    case 8005: return "Add package-relative C libraries or safe system library names to zero.json for extern C calls.";
+    case 8005: return "Add matching c.libs headers plus package-relative C libraries or safe system library names to zero.json for extern C calls.";
     case 9001: return "Create the local dependency package or update the path in zero.json.";
     case 9002: return "Remove the package cycle or move shared code into an acyclic dependency.";
     case 9003: return "Resolve the graph to one version of each package name.";
@@ -3223,7 +3288,7 @@ static const ExplainInfo explain_infos[] = {
     "C import link plan missing or unsafe",
     "An extern C call needs package manifest link metadata, or the manifest contains a system library name that is unsafe to pass to the linker.",
     "Zero reports C dependency audit facts before linking so agents can inspect and repair native C surfaces deterministically.",
-    "Add package-relative `c.libs.*.lib` entries or safe `c.libs.*.link` names using only letters, digits, `_`, `-`, `.`, and `+`.",
+    "Add the imported header to `c.libs.*.headers`, then add package-relative `lib` entries or safe `link` names using only letters, digits, `_`, `-`, `.`, and `+`.",
     "extern c \"vendor/include/ext.h\" as c\nlet value: i32 = c.ext_add(1, 2)",
     "\"c\": {\"libs\": {\"ext\": {\"headers\": [\"vendor/include/ext.h\"], \"include\": [\"vendor/include\"], \"lib\": [\"vendor/lib/ext.o\"], \"link\": []}}}",
   },
@@ -9199,9 +9264,9 @@ static void set_c_import_link_plan_diag(ZDiag *diag, const char *manifest_path, 
   diag->column = 1;
   diag->length = 1;
   snprintf(diag->message, sizeof(diag->message), "%s", message ? message : "extern C link plan is not configured");
-  snprintf(diag->expected, sizeof(diag->expected), "package-relative c.libs.*.lib entries or safe c.libs.*.link names");
+  snprintf(diag->expected, sizeof(diag->expected), "matching c.libs.*.headers with package-relative lib entries or safe link names");
   snprintf(diag->actual, sizeof(diag->actual), "%s", actual ? actual : "missing C link metadata");
-  snprintf(diag->help, sizeof(diag->help), "add vendored object/archive paths under c.libs.*.lib or system library names using only letters, digits, _, -, ., and +");
+  snprintf(diag->help, sizeof(diag->help), "add the imported header to c.libs.*.headers, then add vendored object/archive paths under lib or safe system names under link");
 }
 
 static void manifest_path_for_input(const SourceInput *input, char *manifest_path, size_t manifest_path_len) {
@@ -9318,7 +9383,8 @@ static bool validate_c_libraries_for_target(const SourceInput *input, const ZTar
       free(manifest);
       return false;
     }
-    if (require_link_plan) {
+    bool matches_used_c_import = !require_link_plan || c_lib_matches_direct_c_imports(input, lib);
+    if (require_link_plan && matches_used_c_import) {
       const char *lib_cursor = lib->lib_json ? lib->lib_json : "";
       char lib_item[512];
       while (json_array_next_string(&lib_cursor, lib_item, sizeof(lib_item))) {
@@ -9348,7 +9414,7 @@ static bool validate_c_libraries_for_target(const SourceInput *input, const ZTar
     }
   }
   if (require_link_plan && !has_link_inputs) {
-    set_c_import_link_plan_diag(diag, manifest_path, "extern C calls require C link metadata", "no c.libs.*.lib or c.libs.*.link entries were found");
+    set_c_import_link_plan_diag(diag, manifest_path, "extern C calls require C link metadata", "no matching c.libs.*.headers entry with lib or link inputs was found");
     z_free_manifest(&parsed_manifest);
     free(manifest);
     return false;
@@ -9446,6 +9512,7 @@ static void append_self_host_routing_json(ZBuf *buf, const char *command_name, c
 
 static void apply_ir_metrics_to_input(SourceInput *input, const IrProgram *ir, const ZTargetInfo *target) {
   if (!input || !ir) return;
+  source_input_clear_direct_c_import_headers(input);
   input->lowered_ir_bytes = ir->mir_bytes;
   input->direct_function_count = ir->direct_function_count;
   input->direct_export_count = ir->direct_export_count;
@@ -9459,6 +9526,10 @@ static void apply_ir_metrics_to_input(SourceInput *input, const IrProgram *ir, c
   input->direct_http_runtime_import_count = ir->direct_http_runtime_import_count;
   input->direct_c_import_call_count = ir->direct_c_import_call_count;
   input->direct_c_import_symbol_count = ir->external_function_len;
+  for (size_t i = 0; i < ir->external_function_len; i++) {
+    const IrExternalFunction *external = &ir->external_functions[i];
+    source_input_add_direct_c_import_header(input, external->import_header, external->import_resolved_header);
+  }
 }
 
 static void init_lowering_backend_diag(ZDiag *diag, const SourceInput *input, const ZTargetInfo *target, const Command *command, const IrProgram *ir) {

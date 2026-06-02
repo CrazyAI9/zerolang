@@ -11,6 +11,8 @@ typedef struct {
 
 typedef struct {
   char *name;
+  char *import_header;
+  char *import_resolved_header;
   char *return_c_type;
   char *return_zero_type;
   bool old_style_params;

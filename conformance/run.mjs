@@ -3575,7 +3575,10 @@ if (externCallDirtyAsm) {
 await writeFile(`${externCallRoot}/zero.json`, JSON.stringify({
   package: { name: "extern-c-call", version: "0.1.0" },
   targets: { cli: { kind: "exe", main: "src/main.0" } },
-  c: { libs: { ext: { headers: ["vendor/include/zero_ext.h"], include: ["vendor/include"], lib: [externCallObjectRel, ...(externCallDirtyAsm ? [externCallDirtyObjectRel] : [])], link: [], mode: "static" } } }
+  c: { libs: {
+    ext: { headers: ["vendor/include/zero_ext.h"], include: ["vendor/include"], lib: [externCallObjectRel, ...(externCallDirtyAsm ? [externCallDirtyObjectRel] : [])], link: [], mode: "static" },
+    unused: { headers: ["vendor/include/unused.h"], include: ["vendor/include"], lib: ["vendor/lib/missing-unused.o"], link: [], mode: "static" }
+  } }
 }, null, 2));
 await writeFile(`${externCallScalarRoot}/zero.json`, JSON.stringify({
   package: { name: "extern-c-scalar", version: "0.1.0" },
@@ -3648,6 +3651,7 @@ assert.match(externCallBuildBody.objectBackend.linking.targetLibraries, /zero-ru
 assert.match(externCallBuildBody.objectBackend.linking.targetLibraries, /c-imports/);
 assert(externCallBuildBody.objectBackend.linkerPlan.staticLibraries.some((item) => item.endsWith(externCallObjectRel)));
 if (externCallDirtyAsm) assert(externCallBuildBody.objectBackend.linkerPlan.staticLibraries.some((item) => item.endsWith(externCallDirtyObjectRel)));
+assert(!externCallBuildBody.objectBackend.linkerPlan.staticLibraries.some((item) => item.endsWith("vendor/lib/missing-unused.o")));
 const externCallObjectOverhead = externCallBuildBody.objectBackend.linking.objectFormat === "coff"
   ? (externCallBuildBody.objectBackend.objectEmission.dataSections ? 2 : 1)
   : (externCallBuildBody.objectBackend.objectEmission.dataSections ? 1 : 0);

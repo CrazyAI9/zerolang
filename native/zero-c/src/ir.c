@@ -884,7 +884,11 @@ static bool ir_find_external_function_index(const IrProgram *ir, const ZCImportF
   if (!ir || !function || !function->name) return false;
   for (size_t i = 0; i < ir->external_function_len; i++) {
     const IrExternalFunction *candidate = &ir->external_functions[i];
+    const char *candidate_header = candidate->import_resolved_header && candidate->import_resolved_header[0] ? candidate->import_resolved_header : candidate->import_header;
+    const char *function_header = function->import_resolved_header && function->import_resolved_header[0] ? function->import_resolved_header : function->import_header;
     if (!candidate->symbol || strcmp(candidate->symbol, function->name) != 0 || candidate->return_type != ir_type_kind(function->return_zero_type) || candidate->param_len != function->param_len) continue;
+    if ((candidate_header && !function_header) || (!candidate_header && function_header) ||
+        (candidate_header && function_header && strcmp(candidate_header, function_header) != 0)) continue;
     bool params_match = true;
     for (size_t p = 0; p < function->param_len; p++) {
       if (candidate->param_types[p] != ir_type_kind(function->params[p].zero_type)) {
@@ -905,7 +909,12 @@ static unsigned ir_add_external_function(IrProgram *ir, const ZCImportFunction *
   if (ir_find_external_function_index(ir, function, &index)) return index;
   ir->external_functions = ir_grow_tracked_items(ir, ir->external_functions, ir->external_function_len, &ir->external_function_cap, 4, sizeof(IrExternalFunction));
   IrExternalFunction *external = &ir->external_functions[ir->external_function_len];
-  *external = (IrExternalFunction){.symbol = z_strdup(function->name), .return_type = ir_type_kind(function->return_zero_type)};
+  *external = (IrExternalFunction){
+    .symbol = z_strdup(function->name),
+    .import_header = function->import_header ? z_strdup(function->import_header) : NULL,
+    .import_resolved_header = function->import_resolved_header ? z_strdup(function->import_resolved_header) : NULL,
+    .return_type = ir_type_kind(function->return_zero_type)
+  };
   for (size_t i = 0; i < function->param_len; i++) {
     ir_external_function_push_param(ir, external, ir_type_kind(function->params[i].zero_type));
   }
@@ -4187,6 +4196,8 @@ void z_free_ir_program(IrProgram *program) {
   free(program->functions);
   for (size_t i = 0; i < program->external_function_len; i++) {
     free(program->external_functions[i].symbol);
+    free(program->external_functions[i].import_header);
+    free(program->external_functions[i].import_resolved_header);
     free(program->external_functions[i].param_types);
   }
   free(program->external_functions);
