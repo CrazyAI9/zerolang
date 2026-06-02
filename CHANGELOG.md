@@ -1,8 +1,25 @@
 # Changelog
 
-## 0.2.0
+## 0.2.1
 
 <!-- release:start -->
+
+- Adds extern C call support with target-aware header preprocessing, stricter link-plan validation, direct object linking, graph metadata fixes, and diagnostics for missing or unsafe C import inputs.
+- Expands the standard library across memory, collections, search, sort, ASCII, formatting, text, parsing, math, random, time, codec, JSON, URL, hosted I/O, filesystem, HTTP, testing, and logging helpers.
+- Strengthens memory-safety diagnostics for `Maybe` guards, owned moves, mutable span aliases, span lifetime escapes, aggregate reassignment, scalar match fallthrough, and exported safety facts.
+- Improves direct backend correctness across Mach-O, ELF64, COFF, x64, and AArch64 paths, including byte-view bounds, checksum helpers, open slices, usize runtime returns, and indexed store handling.
+- Retires row source parsing from the public source boundary, keeps canonical `.0` text as the supported input surface, and rejects stale row graph artifact paths.
+- Refreshes docs, examples, skills, command contracts, conformance fixtures, stdlib contracts, target-matrix checks, compiler metrics, and reliability smoke coverage around the current workflows.
+
+### Contributors
+
+- @ctate
+- @ihasq
+- @PeterXMR
+
+<!-- release:end -->
+
+## 0.2.0
 
 - Makes canonical `.0` text the native source surface, with a parser, formatter, Program import path, diagnostics, docs, examples, stdlib sources, benchmarks, conformance fixtures, and command snapshots aligned around that format.
 - Promotes ProgramGraph from inspection output into an editable artifact workflow with deterministic dump, validate, view, check, roundtrip, import, patch, build, run, test, size, and package entrypoint support.
@@ -15,8 +32,6 @@
 ### Contributors
 
 - @ctate
-
-<!-- release:end -->
 
 ## 0.1.4
 
