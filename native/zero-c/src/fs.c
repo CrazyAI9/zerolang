@@ -1088,9 +1088,15 @@ static void append_shell_quoted_arg(ZBuf *cmd, const char *value) {
   zbuf_append_char(cmd, '\'');
 }
 
-static bool dir_exists_for_cc(const char *path) {
+static bool path_exists_for_cc(const char *path, bool directory) {
   struct stat st;
-  return path && stat(path, &st) == 0 && S_ISDIR(st.st_mode);
+  return path && path[0] && stat(path, &st) == 0 && (directory ? S_ISDIR(st.st_mode) : S_ISREG(st.st_mode));
+}
+
+static bool remove_existing_tool_output(const char *path) {
+  if (!path || !path[0]) return false;
+  if (remove(path) == 0) return true;
+  return errno == ENOENT;
 }
 
 static bool profile_should_strip_artifact(const char *profile);
@@ -1099,7 +1105,7 @@ static const char *sysroot_status_for(const ZTargetInfo *target, const char *env
   if (!z_target_requires_sysroot(target)) return "not-required";
   if (!env_name || !env_name[0] || !sysroot || !sysroot[0]) return "missing";
   if (strstr(sysroot, "/usr/include") || strstr(sysroot, "/usr/lib")) return "host-leakage";
-  if (!dir_exists_for_cc(sysroot)) return "missing";
+  if (!path_exists_for_cc(sysroot, true)) return "missing";
   return "present";
 }
 
@@ -1207,6 +1213,8 @@ static void append_toolchain_driver_command(ZBuf *cmd, const ZToolchainPlan *pla
 
 bool z_toolchain_compile_c_object(const ZToolchainPlan *plan, const char *profile, const ZTargetInfo *target, const char *c_file, const char *object_file, const char *include_dir, const char *extra_c_flags) {
   if (!validate_toolchain_plan(plan, target)) return false;
+  if (!c_file || !object_file || strcmp(c_file, object_file) == 0) return false;
+  if (!remove_existing_tool_output(object_file)) return false;
 
   ZBuf cmd;
   zbuf_init(&cmd);
@@ -1221,13 +1229,18 @@ bool z_toolchain_compile_c_object(const ZToolchainPlan *plan, const char *profil
   append_shell_quoted_arg(&cmd, c_file);
   zbuf_append(&cmd, " -o ");
   append_shell_quoted_arg(&cmd, object_file);
-  bool ok = system(cmd.data) == 0;
+  bool ok = system(cmd.data) == 0 && path_exists_for_cc(object_file, false);
   zbuf_free(&cmd);
   return ok;
 }
 
 bool z_toolchain_link_objects(const ZToolchainPlan *plan, const ZTargetInfo *target, const char *const *object_files, size_t object_count, const char *exe_file, const char *pre_link_flags, const char *post_object_flags) {
   if (!validate_toolchain_plan(plan, target)) return false;
+  if (!exe_file || !exe_file[0]) return false;
+  for (size_t i = 0; i < object_count; i++) {
+    if (object_files[i] && strcmp(object_files[i], exe_file) == 0) return false;
+  }
+  if (!remove_existing_tool_output(exe_file)) return false;
 
   ZBuf cmd;
   zbuf_init(&cmd);
@@ -1242,7 +1255,7 @@ bool z_toolchain_link_objects(const ZToolchainPlan *plan, const ZTargetInfo *tar
   zbuf_append(&cmd, " -o ");
   append_shell_quoted_arg(&cmd, exe_file);
   if (post_object_flags && post_object_flags[0]) zbuf_appendf(&cmd, " %s", post_object_flags);
-  bool ok = system(cmd.data) == 0;
+  bool ok = system(cmd.data) == 0 && path_exists_for_cc(exe_file, false);
   zbuf_free(&cmd);
   return ok;
 }
@@ -1250,6 +1263,8 @@ bool z_toolchain_link_objects(const ZToolchainPlan *plan, const ZTargetInfo *tar
 bool z_run_cc(const char *c_file, const char *exe_file, const char *cc, const char *profile, const ZTargetInfo *target) {
   ZToolchainPlan plan = z_plan_toolchain(cc, profile, target);
   if (!validate_toolchain_plan(&plan, target)) return false;
+  if (!c_file || !exe_file || strcmp(c_file, exe_file) == 0) return false;
+  if (!remove_existing_tool_output(exe_file)) return false;
 
   ZBuf cmd;
   zbuf_init(&cmd);
@@ -1258,7 +1273,7 @@ bool z_run_cc(const char *c_file, const char *exe_file, const char *cc, const ch
   append_shell_quoted_arg(&cmd, c_file);
   zbuf_append(&cmd, " -o ");
   append_shell_quoted_arg(&cmd, exe_file);
-  bool ok = system(cmd.data) == 0;
+  bool ok = system(cmd.data) == 0 && path_exists_for_cc(exe_file, false);
   zbuf_free(&cmd);
   if (!ok) {
     fprintf(

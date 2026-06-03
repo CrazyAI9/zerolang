@@ -786,6 +786,18 @@ typedef struct {
 } ZToolchainPlan;
 
 typedef struct {
+  const char *driver_kind;
+  const char *selection_source;
+  const char *compiler;
+  const char *target_triple;
+  const char *status;
+  const char *reason;
+  bool target_supported;
+  bool tool_available;
+  bool native_executable;
+} ZLlvmToolchainPlan;
+
+typedef struct {
   const char *selected_emitter;
   const char *artifact_kind;
   const char *linker_flavor;
@@ -929,6 +941,15 @@ const char *z_backend_direct_request_name(const char *requested_backend);
 const char *z_backend_request_expected(void);
 void z_backend_init_unknown_diag(ZDiag *diag, const char *requested_backend, const char *path);
 void z_backend_init_llvm_unavailable_diag(ZDiag *diag, const ZTargetInfo *target, const char *emit_kind, const char *path);
+const char *z_llvm_target_triple(const ZTargetInfo *target);
+ZLlvmToolchainPlan z_llvm_toolchain_plan(const ZTargetInfo *target);
+ZToolchainPlan z_llvm_c_toolchain_plan(const ZTargetInfo *target);
+bool z_llvm_native_executable_ready(const ZTargetInfo *target, const char *path, ZDiag *diag);
+bool z_llvm_link_executable(const char *llvm_file, const char *runtime_object_file, const char *exe_file, const ZToolchainPlan *plan, const ZTargetInfo *target, bool links_zero_runtime, ZDiag *diag);
+void z_append_llvm_toolchain_plan_json(ZBuf *buf, const ZTargetInfo *target);
+void z_append_llvm_target_backend_json(ZBuf *buf, const ZTargetInfo *target);
+void z_append_llvm_ir_backend_json(ZBuf *buf, const SourceInput *input, const ZTargetInfo *target, const char *emit_kind);
+void z_append_llvm_native_backend_json(ZBuf *buf, const SourceInput *input, const ZTargetInfo *target, const char *emit_kind);
 const char *z_direct_backend_status(const ZTargetInfo *target);
 const char *z_direct_object_emitter(const ZTargetInfo *target);
 const char *z_direct_exe_emitter(const ZTargetInfo *target);

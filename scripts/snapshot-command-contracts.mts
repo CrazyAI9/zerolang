@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 if (process.env.ZERO_NATIVE_TEST_SANDBOX !== "1" && process.env.ZERO_NATIVE_TEST_ALLOW_LOCAL !== "1") {
@@ -13,9 +13,9 @@ if (process.env.ZERO_NATIVE_TEST_SANDBOX !== "1" && process.env.ZERO_NATIVE_TEST
 const outDir = ".zero/command-contracts";
 mkdirSync(outDir, { recursive: true });
 
-function zero(args, options: { allowFailure?: boolean } = {}) {
+function zero(args, options: { allowFailure?: boolean; env?: Record<string, string> } = {}) {
   try {
-    const stdout = execFileSync("bin/zero", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    const stdout = execFileSync("bin/zero", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: options.env ? { ...process.env, ...options.env } : process.env });
     return { code: 0, stdout };
   } catch (error) {
     if (!options.allowFailure) throw error;
@@ -528,6 +528,9 @@ assert.equal(doctor.schemaVersion, 1);
 assert(["ok", "warning", "error"].includes(doctor.status));
 assert(doctor.checks.some((check) => check.name === "native-c-compiler"));
 assert(doctor.checks.some((check) => check.name === "target-c-compiler"));
+assert(doctor.checks.some((check) => check.name === "llvm-toolchain"));
+assert(["ready", "tool-missing", "unsupported-target"].includes(doctor.llvmToolchain.status));
+assert.equal(typeof doctor.llvmToolchain.compiler, "string");
 assert(doctor.checks.some((check) => check.name === "cross-executable-builds" && /non-host executable builds|target-capable C compiler available/.test(check.message)));
 assert(doctor.checks.some((check) => check.name === "path" && /PATH/.test(check.message)));
 assert(doctor.checks.some((check) => check.name === "host-target" && /host target/.test(check.message)));
@@ -587,7 +590,11 @@ assert.match(graphHelp, /zero graph build \[--json\] \[--emit exe\|obj\|llvm-ir\
 assert.match(graphHelp, /zero graph run \[--target <host-target>\].*<program-graph-or-package> \[-- args\.\.\.\]/);
 assert.match(graphHelp, /zero graph test \[--json\] \[--filter <name>\] \[--target <target>\] <program-graph-or-package>/);
 assert.doesNotMatch(graphHelp, /zero graph check[^\n]*--out/);
+const runHelp = zero(["run", "--help"]).stdout;
+assert.match(runHelp, /Usage: zero run \[--backend direct\|llvm\|<direct-emitter>\]/);
+assert.match(runHelp, /LLVM is explicit and requires clang/);
 const rootHelp = zero(["--help"]).stdout;
+assert.match(rootHelp, /zero run \[--backend direct\|llvm\|<direct-emitter>\].*<file\.0\|project\|zero\.json> \[-- args\.\.\.\]/);
 assert.match(rootHelp, /zero graph \[dump\|import\|validate\|roundtrip\] \[--json\] --out <program-graph-artifact> <input>/);
 assert.match(rootHelp, /zero graph view \[--json\] \[--out <file\.0>\] <program-graph-or-source>/);
 assert.match(rootHelp, /zero graph source-map --json <program-graph-or-source>/);
@@ -3730,17 +3737,35 @@ assert.equal(unknownBackendWithLlvmEmit.body.diagnostics[0].code, "BLD002");
 assert.equal(unknownBackendWithLlvmEmit.body.diagnostics[0].actual, "--backend bogus");
 const llvmReadiness = json(["check", "--json", "--backend", "llvm", "examples/add.0"]).body;
 assert.equal(llvmReadiness.ok, true);
-assert.equal(llvmReadiness.targetReadiness.ok, false);
+const llvmHostReady = llvmReadiness.targetReadiness.ok;
 assert.equal(llvmReadiness.targetReadiness.backend, "llvm");
-assert.equal(llvmReadiness.targetReadiness.stage, "buildability");
-assert.equal(llvmReadiness.targetReadiness.diagnostics[0].code, "BLD004");
-assert.deepEqual(llvmReadiness.targetReadiness.diagnostics[0].backendBlocker, {
-  target: version.host,
-  objectFormat: version.host.startsWith("win32") ? "coff" : (version.host.startsWith("linux") ? "elf" : "macho"),
-  backend: "llvm",
-  stage: "buildability",
-  unsupportedFeature: "llvm native artifact",
-});
+assert.equal(llvmReadiness.targetReadiness.emit, "exe");
+if (llvmHostReady) {
+  assert.equal(llvmReadiness.targetReadiness.stage, "ready");
+  assert.equal(llvmReadiness.targetReadiness.diagnostics.length, 0);
+} else {
+  assert.equal(llvmReadiness.targetReadiness.diagnostics[0].code, "BLD004");
+  assert.equal(llvmReadiness.targetReadiness.diagnostics[0].backendBlocker.backend, "llvm");
+  assert(["toolchain", "target-selection"].includes(llvmReadiness.targetReadiness.stage));
+}
+const llvmMissingToolReadiness = json(["check", "--json", "--backend", "llvm", "examples/add.0"], { env: { ZERO_LLVM_CLANG: "/tmp/zero-missing-clang" } }).body;
+assert.equal(llvmMissingToolReadiness.ok, true);
+assert.equal(llvmMissingToolReadiness.targetReadiness.ok, false);
+assert.equal(llvmMissingToolReadiness.targetReadiness.backend, "llvm");
+assert.equal(llvmMissingToolReadiness.targetReadiness.stage, "toolchain");
+assert.equal(llvmMissingToolReadiness.targetReadiness.diagnostics[0].code, "BLD004");
+assert.equal(llvmMissingToolReadiness.targetReadiness.diagnostics[0].backendBlocker.unsupportedFeature, "clang");
+const llvmNonExecutableToolPath = join(outDir, "not-executable-clang");
+writeFileSync(llvmNonExecutableToolPath, "");
+chmodSync(llvmNonExecutableToolPath, 0o644);
+const llvmNonExecutableToolReadiness = json(["check", "--json", "--backend", "llvm", "examples/add.0"], { env: { ZERO_LLVM_CLANG: llvmNonExecutableToolPath } }).body;
+assert.equal(llvmNonExecutableToolReadiness.ok, true);
+assert.equal(llvmNonExecutableToolReadiness.targetReadiness.ok, false);
+assert.equal(llvmNonExecutableToolReadiness.targetReadiness.backend, "llvm");
+assert.equal(llvmNonExecutableToolReadiness.targetReadiness.stage, "toolchain");
+assert.equal(llvmNonExecutableToolReadiness.targetReadiness.diagnostics[0].code, "BLD004");
+assert.match(llvmNonExecutableToolReadiness.targetReadiness.diagnostics[0].actual, /not executable or not found/);
+assert.equal(llvmNonExecutableToolReadiness.targetReadiness.diagnostics[0].backendBlocker.unsupportedFeature, "clang");
 const llvmIrReadiness = json(["check", "--json", "--emit", "llvm-ir", "--backend", "llvm", "examples/add.0"]).body;
 assert.equal(llvmIrReadiness.ok, true);
 assert.equal(llvmIrReadiness.targetReadiness.ok, true);
@@ -3763,11 +3788,85 @@ assert.deepEqual(llvmIrLoweringBlockedReadiness.targetReadiness.diagnostics[0].b
   stage: "lower",
   unsupportedFeature: "owned<Tracked>",
 });
-const llvmBuild = json(["build", "--json", "--backend", "llvm", "examples/add.0", "--out", join(outDir, "add-llvm")], { allowFailure: true });
-assert.notEqual(llvmBuild.code, 0);
-assert.equal(llvmBuild.body.diagnostics[0].code, "BLD004");
-assert.equal(llvmBuild.body.diagnostics[0].backendBlocker.backend, "llvm");
-assert.equal(llvmBuild.body.diagnostics[0].backendBlocker.stage, "buildability");
+const llvmNativeLoweringBlockedReadiness = json(["check", "--json", "--backend", "llvm", "conformance/agent-surface/fixtures/owned-drop-direct-backend-unsupported.0"]).body;
+assert.equal(llvmNativeLoweringBlockedReadiness.ok, true);
+assert.equal(llvmNativeLoweringBlockedReadiness.targetReadiness.ok, false);
+assert.equal(llvmNativeLoweringBlockedReadiness.targetReadiness.backend, "llvm");
+assert.equal(llvmNativeLoweringBlockedReadiness.targetReadiness.stage, "lower");
+assert.equal(llvmNativeLoweringBlockedReadiness.targetReadiness.diagnostics[0].code, "BLD004");
+assert.equal(llvmNativeLoweringBlockedReadiness.targetReadiness.diagnostics[0].expected, "LLVM IR scalar MIR subset");
+assert.doesNotMatch(llvmNativeLoweringBlockedReadiness.targetReadiness.diagnostics[0].message, /direct backend/);
+const llvmBuild = json(["build", "--json", "--backend", "llvm", "examples/add.0", "--out", join(outDir, "add-llvm")], { allowFailure: !llvmHostReady });
+if (llvmHostReady) {
+  assert.equal(llvmBuild.code, 0);
+  assert.equal(llvmBuild.body.emit, "exe");
+  assert.equal(llvmBuild.body.compiler, llvmBuild.body.toolchain.compiler);
+  assert.equal(llvmBuild.body.toolchain.driverKind, "clang");
+  assert.equal(llvmBuild.body.toolchain.status, "ready");
+  assert.equal(llvmBuild.body.releaseTargetContract.backendFamily, "llvm");
+  assert.equal(llvmBuild.body.releaseTargetContract.artifactKind, "native-executable");
+  assert.equal(llvmBuild.body.releaseTargetContract.selectedEmitter, "llvm-clang-exe");
+  assert.equal(llvmBuild.body.releaseTargetContract.fallbackPolicy, "none");
+  assert.equal(llvmBuild.body.releaseTargetContract.readiness.llvmArtifact, true);
+  assert.equal(llvmBuild.body.releaseTargetContract.determinism.reproducible, false);
+  assert.equal(llvmBuild.body.releaseTargetContract.determinism.repeatBuildHash, "external-toolchain-not-claimed");
+  assert.equal(llvmBuild.body.objectBackend.backendFamily, "llvm");
+  assert.equal(llvmBuild.body.objectBackend.targetFacts.status, "ready");
+  assert.equal(llvmBuild.body.objectBackend.linking.externalToolchain, llvmBuild.body.toolchain.compiler);
+  assert.equal(llvmBuild.body.objectBackend.linking.toolchainSource, "llvm-ir-clang-link-plan");
+  assert.deepEqual(llvmBuild.body.objectBackend.linkerPlan.staticLibraries, ["zero_runtime.o"]);
+  assert.equal(llvmBuild.body.objectBackend.linkerPlan.reproducible, false);
+  assert.equal(llvmBuild.body.targetSupport.backendFamily, "llvm");
+  assert.equal(llvmBuild.body.targetSupport.fallbackPolicy, "none");
+  assert(llvmBuild.body.artifactBytes > 0);
+  assert.equal(execFileSync(llvmBuild.body.artifactPath, [], { encoding: "utf8" }), "math works\n");
+} else {
+  assert.notEqual(llvmBuild.code, 0);
+  assert.equal(llvmBuild.body.diagnostics[0].code, "BLD004");
+  assert.equal(llvmBuild.body.diagnostics[0].backendBlocker.backend, "llvm");
+}
+const llvmMissingToolBuild = json(["build", "--json", "--backend", "llvm", "examples/add.0", "--out", join(outDir, "add-llvm-missing")], { allowFailure: true, env: { ZERO_LLVM_CLANG: "/tmp/zero-missing-clang" } });
+assert.notEqual(llvmMissingToolBuild.code, 0);
+assert.equal(llvmMissingToolBuild.body.diagnostics[0].code, "BLD004");
+assert.equal(llvmMissingToolBuild.body.diagnostics[0].backendBlocker.stage, "toolchain");
+assert.equal(llvmMissingToolBuild.body.diagnostics[0].backendBlocker.unsupportedFeature, "clang");
+const llvmNativeLoweringBlockedBuild = json(["build", "--json", "--backend", "llvm", "conformance/agent-surface/fixtures/owned-drop-direct-backend-unsupported.0", "--out", join(outDir, "owned-drop-llvm")], { allowFailure: true });
+assert.notEqual(llvmNativeLoweringBlockedBuild.code, 0);
+assert.equal(llvmNativeLoweringBlockedBuild.body.diagnostics[0].code, "BLD004");
+assert.equal(llvmNativeLoweringBlockedBuild.body.diagnostics[0].expected, "LLVM IR scalar MIR subset");
+assert.doesNotMatch(llvmNativeLoweringBlockedBuild.body.diagnostics[0].message, /direct backend/);
+assert.equal(llvmNativeLoweringBlockedBuild.body.diagnostics[0].backendBlocker.backend, "llvm");
+assert.equal(llvmNativeLoweringBlockedBuild.body.diagnostics[0].backendBlocker.stage, "lower");
+const llvmFailingToolPath = join(outDir, "failing-clang");
+writeFileSync(llvmFailingToolPath, "#!/bin/sh\nexit 1\n");
+chmodSync(llvmFailingToolPath, 0o755);
+const llvmFailingToolRuntimeBuild = json(["build", "--json", "--backend", "llvm", "examples/hello.0", "--out", join(outDir, "hello-llvm-failing-tool")], { allowFailure: true, env: { ZERO_LLVM_CLANG: llvmFailingToolPath } });
+assert.notEqual(llvmFailingToolRuntimeBuild.code, 0);
+assert.equal(llvmFailingToolRuntimeBuild.body.diagnostics[0].code, "BLD004");
+assert.match(llvmFailingToolRuntimeBuild.body.diagnostics[0].message, /LLVM runtime object build failed/);
+assert.equal(llvmFailingToolRuntimeBuild.body.diagnostics[0].backendBlocker.backend, "llvm");
+assert.equal(llvmFailingToolRuntimeBuild.body.diagnostics[0].backendBlocker.stage, "toolchain");
+assert.equal(llvmFailingToolRuntimeBuild.body.diagnostics[0].backendBlocker.unsupportedFeature, "clang");
+const llvmFailingToolLinkBuild = json(["build", "--json", "--backend", "llvm", "examples/direct-exe-return.0", "--out", join(outDir, "return-llvm-failing-tool")], { allowFailure: true, env: { ZERO_LLVM_CLANG: llvmFailingToolPath } });
+assert.notEqual(llvmFailingToolLinkBuild.code, 0);
+assert.equal(llvmFailingToolLinkBuild.body.diagnostics[0].code, "BLD004");
+assert.match(llvmFailingToolLinkBuild.body.diagnostics[0].message, /LLVM executable link failed/);
+assert.equal(llvmFailingToolLinkBuild.body.diagnostics[0].backendBlocker.backend, "llvm");
+assert.equal(llvmFailingToolLinkBuild.body.diagnostics[0].backendBlocker.stage, "toolchain");
+assert.equal(llvmFailingToolLinkBuild.body.diagnostics[0].backendBlocker.unsupportedFeature, "clang");
+const llvmNoOutputToolPath = join(outDir, "no-output-clang");
+const llvmNoOutputArtifactPath = join(outDir, "return-llvm-no-output-tool");
+writeFileSync(llvmNoOutputToolPath, "#!/bin/sh\nexit 0\n");
+chmodSync(llvmNoOutputToolPath, 0o755);
+writeFileSync(llvmNoOutputArtifactPath, "stale executable\n");
+const llvmNoOutputToolBuild = json(["build", "--json", "--backend", "llvm", "examples/direct-exe-return.0", "--out", llvmNoOutputArtifactPath], { allowFailure: true, env: { ZERO_LLVM_CLANG: llvmNoOutputToolPath } });
+assert.notEqual(llvmNoOutputToolBuild.code, 0);
+assert.equal(llvmNoOutputToolBuild.body.diagnostics[0].code, "BLD004");
+assert.match(llvmNoOutputToolBuild.body.diagnostics[0].message, /LLVM executable link failed/);
+assert.equal(llvmNoOutputToolBuild.body.diagnostics[0].backendBlocker.backend, "llvm");
+assert.equal(llvmNoOutputToolBuild.body.diagnostics[0].backendBlocker.stage, "toolchain");
+assert.equal(llvmNoOutputToolBuild.body.diagnostics[0].backendBlocker.unsupportedFeature, "clang");
+assert.equal(existsSync(llvmNoOutputArtifactPath), false);
 const llvmIrBuild = json(["build", "--json", "--emit", "llvm-ir", "examples/add.0", "--out", join(outDir, "add.ll")], { allowFailure: true });
 assert.notEqual(llvmIrBuild.code, 0);
 assert.equal(llvmIrBuild.body.diagnostics[0].code, "BLD004");
@@ -3796,6 +3895,7 @@ assert.equal(explicitLlvmIrBuild.body.objectBackend.linking.targetLibraries, "ze
 assert.equal(explicitLlvmIrBuild.body.objectBackend.linking.externalToolchain, "none");
 assert.equal(explicitLlvmIrBuild.body.objectBackend.linking.toolchainSource, "textual-llvm-ir-runtime-link-plan");
 assert.deepEqual(explicitLlvmIrBuild.body.objectBackend.linkerPlan.staticLibraries, ["zero_runtime.o"]);
+assert.match(explicitLlvmIrBuild.body.objectBackend.targetFacts.reason, /native host executable output/);
 assert.equal(explicitLlvmIrBuild.body.artifactPath, join(outDir, "add-explicit.ll"));
 assert(explicitLlvmIrBuild.body.artifactBytes > 0);
 const explicitLlvmIrText = readFileSync(explicitLlvmIrBuild.body.artifactPath, "utf8");
@@ -3824,9 +3924,14 @@ assert.notEqual(directLlvmIrBuild.code, 0);
 assert.equal(directLlvmIrBuild.body.diagnostics[0].actual, "backend=direct emit=llvm-ir");
 const llvmGraphCheck = json(["graph", "check", "--json", "--backend", "llvm", "examples/add.0"]).body;
 assert.equal(llvmGraphCheck.ok, true);
-assert.equal(llvmGraphCheck.targetReadiness.ok, false);
-assert.equal(llvmGraphCheck.targetReadiness.diagnostics[0].backendBlocker.backend, "llvm");
-assert.equal(llvmGraphCheck.targetReadiness.diagnostics[0].backendBlocker.stage, "buildability");
+assert.equal(llvmGraphCheck.targetReadiness.ok, llvmHostReady);
+assert.equal(llvmGraphCheck.targetReadiness.backend, "llvm");
+if (llvmHostReady) {
+  assert.equal(llvmGraphCheck.targetReadiness.stage, "ready");
+  assert.equal(llvmGraphCheck.targetReadiness.diagnostics.length, 0);
+} else {
+  assert.equal(llvmGraphCheck.targetReadiness.diagnostics[0].backendBlocker.backend, "llvm");
+}
 const llvmIrGraphCheck = json(["graph", "check", "--json", "--emit", "llvm-ir", "--backend", "llvm", "examples/add.0"]).body;
 assert.equal(llvmIrGraphCheck.ok, true);
 assert.equal(llvmIrGraphCheck.targetReadiness.ok, true);
@@ -4349,6 +4454,19 @@ const darwinX64Target = targets.targets.find((target) => target.name === "darwin
 const winX64Target = targets.targets.find((target) => target.name === "win32-x64.exe");
 const winArm64Target = targets.targets.find((target) => target.name === "win32-arm64.exe");
 const linuxArm64Target = targets.targets.find((target) => target.name === "linux-arm64");
+const hostTarget = targets.targets.find((target) => target.name === targets.host);
+assert(hostTarget);
+for (const target of targets.targets) {
+  assert.deepEqual(target.backendFamilies.known, ["direct", "llvm"]);
+  assert.equal(target.backendFamilies.fallbackPolicy, "none");
+  assert(target.backendFamilies.llvm.emit.includes("llvm-ir"));
+  assert(["ready", "tool-missing", "unsupported-target"].includes(target.backendFamilies.llvm.status));
+}
+assert.equal(hostTarget.backendFamilies.llvm.status, doctor.llvmToolchain.status);
+assert.equal(hostTarget.backendFamilies.llvm.buildable, doctor.llvmToolchain.nativeExecutable);
+if (doctor.llvmToolchain.nativeExecutable) assert(hostTarget.backendFamilies.llvm.emit.includes("exe"));
+assert.equal(winX64Target.backendFamilies.llvm.emit.includes("exe"), false);
+assert.equal(winArm64Target.backendFamilies.llvm.emit.includes("exe"), false);
 assert.equal(linuxMuslTarget.directBackend.exeSupported, true);
 assert.equal(linuxMuslTarget.directBackend.exeEmitter, "zero-elf64-exe");
 assert.equal(linuxGnuTarget.directBackend.objectEmitter, "zero-elf64");
@@ -4372,17 +4490,6 @@ assert.equal(linuxArm64Target.directBackend.status, "native-exe");
 assert.equal(linuxArm64Target.directBackend.objectEmitter, "zero-elf-aarch64");
 assert.equal(linuxArm64Target.directBackend.exeEmitter, "zero-elf-aarch64-exe");
 assert.match(linuxArm64Target.directBackend.reason, /direct object and executable backend available/);
-for (const target of targets.targets) {
-  assert.equal(target.backendFamilies.default, "direct");
-  assert.deepEqual(target.backendFamilies.known, ["direct", "llvm"]);
-  assert.deepEqual(target.backendFamilies.available, ["direct", "llvm"]);
-  assert.equal(target.backendFamilies.fallbackPolicy, "none");
-  assert.equal(target.backendFamilies.llvm.status, "ir-only");
-  assert.equal(target.backendFamilies.llvm.buildable, false);
-  assert.deepEqual(target.backendFamilies.llvm.emit, ["llvm-ir"]);
-  assert.match(target.backendFamilies.llvm.reason, /LLVM textual IR emission is available/);
-}
-
 const cAbiExport = zero(["check", "conformance/native/pass/c-abi-export.0"]);
 assert.match(cAbiExport.stdout, /ok/);
 const cAbiDump = json(["abi", "dump", "--json", "conformance/native/pass/c-abi-export.0"]).body;

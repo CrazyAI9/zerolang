@@ -152,19 +152,6 @@ static void llvm_append_data_globals(ZBuf *buf, const IrProgram *program) {
   if (program && program->data_segment_len > 0) zbuf_append_char(buf, '\n');
 }
 
-static const char *llvm_target_triple(const ZTargetInfo *target) {
-  if (!target || !target->name) return "unknown-unknown-unknown";
-  if (strcmp(target->name, "darwin-arm64") == 0) return "arm64-apple-darwin";
-  if (strcmp(target->name, "darwin-x64") == 0) return "x86_64-apple-darwin";
-  if (strcmp(target->name, "linux-arm64") == 0) return "aarch64-unknown-linux-gnu";
-  if (strcmp(target->name, "linux-x64") == 0) return "x86_64-unknown-linux-gnu";
-  if (strcmp(target->name, "linux-musl-arm64") == 0) return "aarch64-unknown-linux-musl";
-  if (strcmp(target->name, "linux-musl-x64") == 0) return "x86_64-unknown-linux-musl";
-  if (strcmp(target->name, "win32-arm64.exe") == 0) return "aarch64-pc-windows-msvc";
-  if (strcmp(target->name, "win32-x64.exe") == 0) return "x86_64-pc-windows-msvc";
-  return "unknown-unknown-unknown";
-}
-
 static bool llvm_emit_value(LlvmEmit *emit, const IrValue *value, LlvmValue *out, ZDiag *diag);
 
 static bool llvm_cast_value(LlvmEmit *emit, const IrValue *source, LlvmValue inner, IrTypeKind target, LlvmValue *out, ZDiag *diag) {
@@ -527,7 +514,7 @@ bool z_emit_llvm_ir_from_ir(const IrProgram *program, ZBuf *out, ZDiag *diag) {
   }
   zbuf_init(out);
   zbuf_append(out, "; zero llvm-ir v1\n");
-  zbuf_appendf(out, "target triple = \"%s\"\n\n", llvm_target_triple(program->target));
+  zbuf_appendf(out, "target triple = \"%s\"\n\n", z_llvm_target_triple(program->target));
   llvm_append_data_globals(out, program);
   if (program->data_segment_len > 0) zbuf_append(out, "declare i32 @zero_world_write(i32, ptr, i32)\ndeclare void @llvm.trap()\n\n");
   for (unsigned i = 0; i < program->function_len; i++) {

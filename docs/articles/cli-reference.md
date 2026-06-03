@@ -15,7 +15,7 @@ Most commands accept the same input forms:
 | Command | Use it for |
 | --- | --- |
 | `zero check <input>` | Parse, typecheck, and report diagnostics. |
-| `zero run <input>` | Build and run a host executable. |
+| `zero run <input>` | Build and run a host executable with the selected backend. |
 | `zero test <input>` | Run inline `test` blocks. |
 | `zero fmt <input>` | Print formatted source. Add `--check` in CI. |
 | `zero build <input>` | Emit an executable or object file. |
@@ -58,8 +58,9 @@ zero doctor --json
 
 ## Run
 
-`zero run` builds a host executable with the direct backend, runs it, passes
-through program stdout/stderr, and exits with the program status.
+`zero run` builds a host executable, runs it, passes through program
+stdout/stderr, and exits with the program status. Direct output is the default;
+pass `--backend llvm` for explicit LLVM host execution when `clang` is ready.
 
 Pass program arguments after `--`:
 
@@ -175,16 +176,19 @@ valid ProgramGraph patch text.
 | Native executable | `zero build --emit exe --target linux-musl-x64 <input>` |
 | Native object | `zero build --emit obj --target linux-musl-x64 <input>` |
 | LLVM IR | `zero build --emit llvm-ir --backend llvm --target linux-musl-x64 <input>` |
+| LLVM host executable | `zero build --backend llvm --emit exe --target host <input>` |
 
 Removed backend flags report `BLD003`. Use direct emitters; the removed C
 backend is not a compatibility path.
 
-`direct` is the default backend family. `llvm` is an explicit backend family
-for textual LLVM IR: use `--backend llvm --emit llvm-ir` to write a `.ll`
-artifact. Native LLVM object and executable outputs are not wired yet; those
-requests report `BLD004` with `backendBlocker.backend: "llvm"` and do not fall
-back to direct emitters. If the `.ll` artifact references Zero runtime helpers,
-the JSON build report lists the required runtime object in `objectBackend`.
+`direct` is the default backend family. `llvm` is an explicit backend family.
+Use `--backend llvm --emit llvm-ir` to write a `.ll` artifact. On a supported
+host with `clang`, `zero build --backend llvm --emit exe` and
+`zero run --backend llvm` compile that IR into a native executable through an
+external LLVM toolchain plan. Native LLVM object output and unsupported targets
+report `BLD004` with `backendBlocker.backend: "llvm"` and do not fall back to
+direct emitters. If the LLVM artifact references Zero runtime helpers, the JSON
+build report lists the required runtime object in `objectBackend`.
 
 ## Tests
 
@@ -232,7 +236,7 @@ zero new cli|lib|package <path>
 zero doctor [--json]
 zero check [--json] [--target <target>] [--emit exe|obj|llvm-ir] [--backend direct|llvm|<direct-emitter>] <input>
 zero dev [--json] [--trace] [--target <target>] <input>
-zero run [--target <target>] [--profile dev|release] [--out <file>] <input> [-- args...]
+zero run [--backend direct|llvm|<direct-emitter>] [--target <target>] [--profile dev|release] [--out <file>] <input> [-- args...]
 zero build [--emit exe|obj|llvm-ir] [--backend direct|llvm|<direct-emitter>] [--target <target>] [--profile dev|release] [--out <file>] <input>
 zero ship [--json] [--target <target>] [--profile release-small|tiny|audit] [--out <file>] <input>
 zero test [--json] [--filter <name>] [--target <target>] [--cc <path>] [--out <file>] <input>
