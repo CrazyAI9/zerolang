@@ -360,6 +360,33 @@ size_t z_program_graph_source_map_count(const ZProgramGraph *graph) {
   return graph ? graph->node_len : 0;
 }
 
+void z_program_graph_source_range_context_init(ZProgramGraphSourceRangeContext *context, const ZProgramGraph *graph) {
+  if (!context) return;
+  *context = (ZProgramGraphSourceRangeContext){0};
+  GraphSourceMapFile *files = NULL;
+  size_t file_len = 0;
+  size_t file_cap = 0;
+  for (size_t i = 0; graph && i < graph->node_len; i++) {
+    source_map_collect_file(&files, &file_len, &file_cap, graph->nodes[i].path);
+  }
+  for (size_t i = 0; i < file_len; i++) source_map_load_file(&files[i]);
+  context->files = files;
+  context->file_len = file_len;
+  context->file_cap = file_cap;
+}
+
+void z_program_graph_source_range_context_free(ZProgramGraphSourceRangeContext *context) {
+  if (!context) return;
+  GraphSourceMapFile *files = (GraphSourceMapFile *)context->files;
+  for (size_t i = 0; i < context->file_len; i++) {
+    free(files[i].path);
+    free(files[i].text);
+    z_free_canonical_text_tokens(&files[i].tokens);
+  }
+  free(files);
+  *context = (ZProgramGraphSourceRangeContext){0};
+}
+
 void z_program_graph_append_source_map_json(ZBuf *buf, const ZProgramGraph *graph, const char *input_path) {
   GraphSourceMapFile *files = NULL;
   size_t file_len = 0;
@@ -397,6 +424,13 @@ void z_program_graph_append_source_map_json(ZBuf *buf, const ZProgramGraph *grap
 
 void z_program_graph_append_source_range_json(ZBuf *buf, const ZProgramGraphNode *node, const char *fallback_path) {
   z_program_graph_append_source_range_for_graph_json(buf, NULL, node, fallback_path);
+}
+
+void z_program_graph_append_source_range_from_context_json(ZBuf *buf, const ZProgramGraphSourceRangeContext *context, const ZProgramGraph *graph, const ZProgramGraphNode *node, const char *fallback_path) {
+  const GraphSourceMapFile *files = context ? (const GraphSourceMapFile *)context->files : NULL;
+  const ZCanonicalTokenVec *tokens = source_map_tokens_for_node(files, context ? context->file_len : 0, node);
+  GraphSourceRange range = source_map_resolve_range(node, fallback_path, tokens, source_map_node_occurrence(graph, node));
+  source_map_append_range_value_json(buf, &range);
 }
 
 void z_program_graph_append_source_range_for_graph_json(ZBuf *buf, const ZProgramGraph *graph, const ZProgramGraphNode *node, const char *fallback_path) {

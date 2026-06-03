@@ -453,6 +453,8 @@ async function assertSemanticFacts() {
   assert.equal(helloMain.fallible, true, "hello function fallibility");
   assert.deepEqual(helloMain.params.map((item) => [item.name, item.type]), [["world", "World"]], "hello function params");
   assert.equal(helloMain.sourceRange.path, "examples/hello.0", "hello function semantic source range");
+  assert.deepEqual(helloMain.sourceRange.start, { line: 1, column: 8 }, "hello function semantic source range start should target the function name");
+  assert.deepEqual(helloMain.sourceRange.end, { line: 1, column: 12 }, "hello function semantic source range end should target the function name");
   assert(hello.semantics.ownership.some((item) => item.name === "world" && item.ownership === "resource-handle" && item.resource === true), "world parameter should be represented as a resource handle");
   const write = findSemanticCall(hello, (item) => item.qualifiedName === "world.out.write", "world write semantic call fact");
   assert.equal(write.returnType, "Void", "world write return type");
@@ -469,6 +471,8 @@ async function assertSemanticFacts() {
   assert.equal(write.contract.requiresCheck, false, "checked world write should not require repair");
   assert.equal(write.contract.repair.id, "check-fallible-call", "world write repair shape");
   assert.equal(write.sourceRange.path, "examples/hello.0", "world write source range");
+  assert.deepEqual(write.sourceRange.start, { line: 2, column: 21 }, "world write semantic source range start should target the call member");
+  assert.deepEqual(write.sourceRange.end, { line: 2, column: 26 }, "world write semantic source range end should target the call member");
   assert(hello.semantics.resources.some((item) => item.kind === "capabilityUse" && item.resourceKind === "world-io" && item.qualifiedName === "world.out.write"), "world write resource fact");
   assert(hello.semantics.targetRequirements.some((item) => item.qualifiedName === "world.out.write" && item.capability === "io" && item.targetSupport === "world-io"), "world write target requirement fact");
   assert(hello.semantics.repairs.some((item) => item.qualifiedName === "world.out.write" && item.requiresCheck === false && item.repair.id === "check-fallible-call"), "world write top-level repair fact");
@@ -527,10 +531,40 @@ async function assertSemanticFacts() {
   assert(borrowGraph.semantics.borrowing.some((item) => item.borrowKind === "mut-borrow" && item.mutable === true && item.target), "mutable borrow target fact");
   assert.equal(borrowGraph.semantics.resources.length, 0, "borrow-only fixture should not invent resource facts");
 
+  const userResourceNameFixture = `${outDir}/semantic-user-resource-names.0`;
+  await writeFile(userResourceNameFixture, [
+    "type File {",
+    "    fd: i32,",
+    "}",
+    "",
+    "type UserFileRecord {",
+    "    value: i32,",
+    "}",
+    "",
+    "pub fn main() -> Void {",
+    "    let record: UserFileRecord = UserFileRecord { value: 1 }",
+    "    let file: File = File { fd: record.value }",
+    "    expect file.fd == 1",
+    "}",
+    "",
+  ].join("\n"));
+  const userResourceNames = await zeroJson(["graph", "dump", "--json", userResourceNameFixture]);
+  assert.equal(userResourceNames.semantics.resources.length, 0, "user-defined type names containing resource words should not emit resource facts");
+  assert(!userResourceNames.semantics.ownership.some((item) => item.type === "File" || item.type === "UserFileRecord"), "user-defined type names containing resource words should not emit ownership resource facts");
+
   const callResolution = await zeroJson(["graph", "dump", "--json", "conformance/check/pass/call-resolution-inspection.0"]);
   const resolverCallReferences = callResolution.resolution.references.filter((item) => item.kind === "call");
   assert.equal(callResolution.semantics.calls.length, resolverCallReferences.length, "semantic calls should mirror resolver call references and skip operators");
   for (const call of callResolution.semantics.calls) assertSemanticCallResolutionMatches(callResolution, call, `call resolution semantic fact ${call.qualifiedName}`);
+  const receiverCall = findSemanticCall(callResolution, (item) => item.qualifiedName === "counter.checkedRead", "receiver method semantic call fact");
+  assert.equal(receiverCall.args.length, 0, "receiver method source-visible args");
+  assert.equal(receiverCall.contract.expectedArgCount, 0, "receiver method expected arg count should exclude implicit self");
+  assert.equal(receiverCall.receiver?.implicit, true, "receiver method should expose implicit receiver");
+  assert.equal(receiverCall.receiver?.type, "Counter", "receiver method receiver type");
+  const staticRead = findSemanticCall(callResolution, (item) => item.qualifiedName === "Counter.read", "static method call semantic fact");
+  assert.equal(staticRead.receiver, null, "static method namespace calls should not report implicit receivers");
+  assert.equal(staticRead.args.length, 1, "static method call source-visible args");
+  assert.equal(staticRead.contract.expectedArgCount, 1, "static method expected arg count should keep explicit self arg");
   const interfaceRead = findSemanticCall(callResolution, (item) => item.qualifiedName === "T.read", "interface method semantic call fact");
   assert.equal(interfaceRead.resolution.targetKind, "interfaceMethod", "interface method semantic target kind");
   assert.equal(interfaceRead.resolution.symbolId, "symbol:call-resolution-inspection::type.Readable/method.read", "interface method semantic symbol");
