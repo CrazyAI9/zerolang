@@ -148,9 +148,27 @@ async function assertCommandStateContracts() {
   assert.equal(sourceMap.canonicalSource, true, "graph source-map should report canonical source input");
   const mainMapping = sourceMap.mappings.find((mapping) => mapping.kind === "Function" && mapping.name === "main");
   assert(mainMapping && mainMapping.sourceRange.path === "examples/hello.0", "graph source-map should map function nodes to source ranges");
+  assert.equal(mainMapping.sourceAvailable, true, "graph source-map should report tokenized source availability");
   assert.deepEqual(mainMapping.sourceRange.start, { line: 1, column: 8 }, "graph source-map should start function ranges at the name token");
   assert.deepEqual(mainMapping.sourceRange.end, { line: 1, column: 12 }, "graph source-map should end function ranges at the name token");
   assert.equal(await zeroText(["graph", "source-map", "examples/hello.0"]), `program graph source map ok: ${sourceMap.counts.mappings} mappings\n`, "graph source-map text output");
+
+  const repeatedTypesFixture = `${outDir}/source-map-repeated-types.0`;
+  await writeFile(repeatedTypesFixture, [
+    "fn double(value: i32) -> i32 {",
+    "    return value + value",
+    "}",
+    "",
+    "pub fn main(world: World) -> Void raises {",
+    "    check world.out.write(\"source map repeated types\\n\")",
+    "}",
+    "",
+  ].join("\n"));
+  const repeatedTypesMap = await zeroJson(["graph", "source-map", "--json", repeatedTypesFixture]);
+  const repeatedTypeRanges = repeatedTypesMap.mappings
+    .filter((mapping) => mapping.kind === "TypeRef" && mapping.type === "i32" && mapping.sourceRange.start.line === 1)
+    .map((mapping) => mapping.sourceRange.start);
+  assert.deepEqual(repeatedTypeRanges, [{ line: 1, column: 18 }, { line: 1, column: 26 }], "graph source-map should disambiguate repeated type tokens");
 }
 
 async function assertUnconstrainedGenericTypeParams() {

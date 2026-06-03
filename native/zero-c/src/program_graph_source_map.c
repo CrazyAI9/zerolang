@@ -152,8 +152,70 @@ static int source_map_column_distance(int left, int right) {
   return delta < 0 ? -delta : delta;
 }
 
-static const ZCanonicalToken *source_map_find_token(const ZProgramGraphNode *node, const ZCanonicalTokenVec *tokens) {
+static const char *source_map_node_signature_text(const ZProgramGraphNode *node) {
+  if (!node) return NULL;
+  if (node->kind == Z_PROGRAM_GRAPH_NODE_LITERAL && node->value && node->value[0]) return node->value;
+  if (node->name && node->name[0]) return node->name;
+  if (node->value && node->value[0]) return node->value;
+  if (node->type && node->type[0]) return node->type;
+  return source_map_node_keyword(node);
+}
+
+static bool source_map_same_node_signature(const ZProgramGraphNode *left, const ZProgramGraphNode *right) {
+  const char *left_text = source_map_node_signature_text(left);
+  const char *right_text = source_map_node_signature_text(right);
+  return left &&
+         right &&
+         left->kind == right->kind &&
+         source_map_text_eq(left->path, right->path) &&
+         source_map_start_line(left) == source_map_start_line(right) &&
+         left_text &&
+         left_text[0] &&
+         source_map_text_eq(left_text, right_text);
+}
+
+static size_t source_map_node_occurrence(const ZProgramGraph *graph, const ZProgramGraphNode *node) {
+  size_t occurrence = 0;
+  for (size_t i = 0; graph && node && i < graph->node_len; i++) {
+    const ZProgramGraphNode *candidate = &graph->nodes[i];
+    if (candidate == node || source_map_text_eq(candidate->id, node->id)) return occurrence;
+    if (source_map_same_node_signature(candidate, node)) occurrence++;
+  }
+  return 0;
+}
+
+static const ZCanonicalToken *source_map_find_occurrence_token(const ZProgramGraphNode *node, const ZCanonicalTokenVec *tokens, size_t occurrence) {
+  if (!node || !tokens || tokens->len == 0 || occurrence == 0) return NULL;
+  bool found_priority = false;
+  int best_priority = 0;
+  int line = source_map_start_line(node);
+  for (size_t i = 0; i < tokens->len; i++) {
+    const ZCanonicalToken *token = &tokens->items[i];
+    int priority = 0;
+    if (token->line != line || !source_map_token_candidate(node, token, &priority)) continue;
+    if (!found_priority || priority < best_priority) {
+      found_priority = true;
+      best_priority = priority;
+    }
+  }
+  if (!found_priority) return NULL;
+
+  size_t seen = 0;
+  for (size_t i = 0; i < tokens->len; i++) {
+    const ZCanonicalToken *token = &tokens->items[i];
+    int priority = 0;
+    if (token->line != line || !source_map_token_candidate(node, token, &priority) || priority != best_priority) continue;
+    if (seen == occurrence) return token;
+    seen++;
+  }
+  return NULL;
+}
+
+static const ZCanonicalToken *source_map_find_token(const ZProgramGraphNode *node, const ZCanonicalTokenVec *tokens, size_t occurrence) {
   if (!node || !tokens || tokens->len == 0) return NULL;
+  const ZCanonicalToken *occurrence_token = source_map_find_occurrence_token(node, tokens, occurrence);
+  if (occurrence_token) return occurrence_token;
+
   const ZCanonicalToken *best = NULL;
   int line = source_map_start_line(node);
   int column = source_map_start_column(node);
@@ -174,7 +236,7 @@ static const ZCanonicalToken *source_map_find_token(const ZProgramGraphNode *nod
   return best;
 }
 
-static GraphSourceRange source_map_resolve_range(const ZProgramGraphNode *node, const char *fallback_path, const ZCanonicalTokenVec *tokens) {
+static GraphSourceRange source_map_resolve_range(const ZProgramGraphNode *node, const char *fallback_path, const ZCanonicalTokenVec *tokens, size_t occurrence) {
   GraphSourceRange range = {
     .path = node && node->path && node->path[0] ? node->path : (fallback_path ? fallback_path : ""),
     .start_line = source_map_start_line(node),
@@ -182,7 +244,7 @@ static GraphSourceRange source_map_resolve_range(const ZProgramGraphNode *node, 
     .end_line = source_map_start_line(node),
     .end_column = source_map_start_column(node) + 1,
   };
-  const ZCanonicalToken *token = source_map_find_token(node, tokens);
+  const ZCanonicalToken *token = source_map_find_token(node, tokens, occurrence);
   if (token) {
     range.start_line = token->line > 0 ? token->line : range.start_line;
     range.start_column = token->column > 0 ? token->column : range.start_column;
@@ -207,8 +269,8 @@ static void source_map_append_range_value_json(ZBuf *buf, const GraphSourceRange
                end_column);
 }
 
-static void source_map_append_range_json(ZBuf *buf, const ZProgramGraphNode *node, const char *fallback_path, const ZCanonicalTokenVec *tokens) {
-  GraphSourceRange range = source_map_resolve_range(node, fallback_path, tokens);
+static void source_map_append_range_json(ZBuf *buf, const ZProgramGraphNode *node, const char *fallback_path, const ZCanonicalTokenVec *tokens, size_t occurrence) {
+  GraphSourceRange range = source_map_resolve_range(node, fallback_path, tokens, occurrence);
   source_map_append_range_value_json(buf, &range);
 }
 
@@ -268,7 +330,7 @@ static const ZCanonicalTokenVec *source_map_tokens_for_node(const GraphSourceMap
   return NULL;
 }
 
-static void source_map_append_node_json(ZBuf *buf, const ZProgramGraphNode *node, const char *input_path, const ZCanonicalTokenVec *tokens) {
+static void source_map_append_node_json(ZBuf *buf, const ZProgramGraph *graph, const ZProgramGraphNode *node, const char *input_path, const ZCanonicalTokenVec *tokens) {
   zbuf_append(buf, "{\"nodeId\":");
   source_map_json_string(buf, node ? node->id : "");
   zbuf_append(buf, ",\"kind\":");
@@ -288,9 +350,9 @@ static void source_map_append_node_json(ZBuf *buf, const ZProgramGraphNode *node
   zbuf_append(buf, ",\"effectId\":");
   source_map_json_string(buf, node ? node->effect_id : "");
   zbuf_append(buf, ",\"sourceAvailable\":");
-  zbuf_append(buf, node && node->path && node->path[0] ? "true" : "false");
+  zbuf_append(buf, tokens ? "true" : "false");
   zbuf_append(buf, ",\"sourceRange\":");
-  source_map_append_range_json(buf, node, node && node->path && node->path[0] ? node->path : input_path, tokens);
+  source_map_append_range_json(buf, node, node && node->path && node->path[0] ? node->path : input_path, tokens, source_map_node_occurrence(graph, node));
   zbuf_append(buf, "}");
 }
 
@@ -321,7 +383,7 @@ void z_program_graph_append_source_map_json(ZBuf *buf, const ZProgramGraph *grap
   zbuf_append(buf, "],\n  \"mappings\": [");
   for (size_t i = 0; graph && i < graph->node_len; i++) {
     if (i > 0) zbuf_append(buf, ", ");
-    source_map_append_node_json(buf, &graph->nodes[i], input_path, source_map_tokens_for_node(files, file_len, &graph->nodes[i]));
+    source_map_append_node_json(buf, graph, &graph->nodes[i], input_path, source_map_tokens_for_node(files, file_len, &graph->nodes[i]));
   }
   zbuf_append(buf, "],\n  \"diagnostics\": []\n}\n");
 
@@ -334,6 +396,10 @@ void z_program_graph_append_source_map_json(ZBuf *buf, const ZProgramGraph *grap
 }
 
 void z_program_graph_append_source_range_json(ZBuf *buf, const ZProgramGraphNode *node, const char *fallback_path) {
+  z_program_graph_append_source_range_for_graph_json(buf, NULL, node, fallback_path);
+}
+
+void z_program_graph_append_source_range_for_graph_json(ZBuf *buf, const ZProgramGraph *graph, const ZProgramGraphNode *node, const char *fallback_path) {
   char *text = NULL;
   ZCanonicalTokenVec tokens = {0};
   const char *path = node && node->path && node->path[0] ? node->path : fallback_path;
@@ -346,7 +412,7 @@ void z_program_graph_append_source_range_json(ZBuf *buf, const ZProgramGraphNode
       if (token_diag.code != 0) z_free_canonical_text_tokens(&tokens);
     }
   }
-  GraphSourceRange range = source_map_resolve_range(node, fallback_path, tokens.len > 0 ? &tokens : NULL);
+  GraphSourceRange range = source_map_resolve_range(node, fallback_path, tokens.len > 0 ? &tokens : NULL, source_map_node_occurrence(graph, node));
   source_map_append_range_value_json(buf, &range);
   z_free_canonical_text_tokens(&tokens);
   free(text);

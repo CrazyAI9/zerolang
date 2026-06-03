@@ -887,6 +887,7 @@ assert.equal(graphSourceMapJson.ok, true);
 assert.equal(graphSourceMapJson.graphHash, graphDumpJson.graphHash);
 const graphMainSourceMapping = graphSourceMapJson.mappings.find((mapping) => mapping.nodeId === graphMainFunctionNode.id);
 assert(graphMainSourceMapping && graphMainSourceMapping.sourceRange.path === "examples/hello.0");
+assert.equal(graphMainSourceMapping.sourceAvailable, true);
 assert.deepEqual(graphMainSourceMapping.sourceRange.start, { line: 1, column: 8 });
 assert.deepEqual(graphMainSourceMapping.sourceRange.end, { line: 1, column: 12 });
 assert.equal(zero(["graph", "source-map", "examples/hello.0"]).stdout, `program graph source map ok: ${graphSourceMapJson.counts.mappings} mappings\n`);

@@ -203,6 +203,7 @@ static void reconcile_append_decision_json(ZBuf *buf,
                                            const char *status,
                                            const ZProgramGraphNode *before,
                                            const ZProgramGraphNode *after,
+                                           const ZProgramGraph *range_graph,
                                            const char *path) {
   zbuf_append(buf, "{\"status\":");
   reconcile_json_string(buf, status);
@@ -220,7 +221,7 @@ static void reconcile_append_decision_json(ZBuf *buf,
   zbuf_append(buf, ",\"afterHash\":");
   reconcile_json_string(buf, after ? after->node_hash : "");
   zbuf_append(buf, ",\"sourceRange\":");
-  z_program_graph_append_source_range_json(buf, after ? after : before, path);
+  z_program_graph_append_source_range_for_graph_json(buf, range_graph, after ? after : before, path);
   zbuf_append(buf, "}");
 }
 
@@ -274,13 +275,13 @@ static void reconcile_append_decisions_json(ZBuf *buf, const ZProgramGraph *base
       }
     }
     if (wrote) zbuf_append(buf, ", ");
-    reconcile_append_decision_json(buf, status, before, after, edited_path);
+    reconcile_append_decision_json(buf, status, before, after, after ? edited : base, edited_path);
     wrote = true;
   }
   for (size_t i = 0; edited && i < edited->node_len; i++) {
     if (reconcile_find_node(base, edited->nodes[i].id) || reconcile_is_candidate_for_missing_base(base, edited, &edited->nodes[i])) continue;
     if (wrote) zbuf_append(buf, ", ");
-    reconcile_append_decision_json(buf, "inserted", NULL, &edited->nodes[i], edited_path);
+    reconcile_append_decision_json(buf, "inserted", NULL, &edited->nodes[i], edited, edited_path);
     wrote = true;
   }
   zbuf_append(buf, "]");
