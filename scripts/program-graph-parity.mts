@@ -221,6 +221,7 @@ async function assertResolutionFacts() {
   const shadowedCounterCall = findResolutionReference(cImportTypeShadow, (item) => item.kind === "call" && item.qualifiedName === "Counter.zero_c_add", "static method should resolve when a C import alias shares the type name");
   assert.equal(shadowedCounterCall.targetKind, "method", "C import/type shadow static method target kind");
   assert.equal(shadowedCounterCall.symbolId, "symbol:c-import-type-shadowing::type.Counter/method.zero_c_add", "C import/type shadow static method symbol");
+  assert.equal(shadowedCounterCall.viaImport, "", "same-module static method should not report an import binding");
   const counterIdentifier = findResolutionReference(cImportTypeShadow, (item) => item.kind === "identifier" && item.name === "Counter", "call-chain base should resolve to the type namespace");
   assert.equal(counterIdentifier.targetKind, "shape", "call-chain base should prefer the type binding for static method chains");
 
@@ -247,8 +248,19 @@ async function assertResolutionFacts() {
   assert.equal(forRange.resolution.ok, true, "for range graph resolution");
   const forIndexBinding = resolutionBindings(forRange).find((item) => item.name === "index" && item.kind === "local");
   assert(forIndexBinding, "for range iterator should create a local binding");
+  assert.match(forIndexBinding.symbolId, /local\.index@_stmt_/, "for range iterator symbol should include its node id");
   const forIndexRef = findResolutionReference(forRange, (item) => item.kind === "identifier" && item.name === "index" && item.targetKind === "local", "for range body should resolve iterator references");
   assert.equal(forIndexRef.symbolId, forIndexBinding.symbolId, "for range iterator reference symbol");
+
+  const resultChoice = await zeroJson(["graph", "dump", "--json", "examples/result-choice.0"]);
+  assert.equal(resultChoice.resolution.ok, true, "choice constructor graph resolution");
+  const choiceConstructor = findResolutionReference(resultChoice, (item) => item.kind === "call" && item.qualifiedName === "Result.ok", "choice constructor should resolve to its case binding");
+  assert.equal(choiceConstructor.targetKind, "variant", "choice constructor target kind");
+  assert.equal(choiceConstructor.symbolId, "symbol:result-choice::type.Result/variant.ok", "choice constructor target symbol");
+  assert.equal(choiceConstructor.viaImport, "", "same-module choice constructor should not report an import binding");
+  const patternBinding = resolutionBindings(resultChoice).find((item) => item.name === "value" && item.kind === "pattern");
+  assert(patternBinding, "choice match payload should create a pattern binding");
+  assert.match(patternBinding.symbolId, /pattern\.value@_stmt_/, "choice match payload symbol should include its node id");
 
   const testBlocks = await zeroJson(["graph", "dump", "--json", "conformance/native/pass/test-blocks.0"]);
   assert.equal(testBlocks.resolution.ok, true, "test block graph resolution");
@@ -276,6 +288,9 @@ async function assertResolutionFacts() {
   const selfReturn = findResolutionReference(fixedVec, (item) => item.kind === "type" && item.name === "Self" && hasIncomingGraphEdge(fixedVec, item.node, "returnType"), "Self return type should resolve to the enclosing type");
   assert.equal(selfReturn.targetKind, "type", "Self return type target kind");
   assert.equal(selfReturn.symbolId, "symbol:fixed-vec::type.FixedVec", "Self return type symbol");
+  const receiverPush = findResolutionReference(fixedVec, (item) => item.kind === "call" && item.qualifiedName === "vec.push", "receiver method should resolve to the method binding");
+  assert.equal(receiverPush.targetKind, "method", "receiver method target kind");
+  assert.equal(receiverPush.symbolId, "symbol:fixed-vec::type.FixedVec/method.push", "receiver method target symbol");
 
   const systemsPackage = await zeroJson(["graph", "dump", "--json", "examples/systems-package"]);
   assert.equal(systemsPackage.resolution.ok, true, "package-local module graph resolution");
