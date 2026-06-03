@@ -60,16 +60,16 @@ void z_backend_init_llvm_unavailable_diag(ZDiag *diag, const ZTargetInfo *target
   diag->line = 1;
   diag->column = 1;
   diag->length = 1;
-  snprintf(diag->message, sizeof(diag->message), "LLVM backend currently supports only --emit llvm-ir");
-  snprintf(diag->expected, sizeof(diag->expected), "LLVM IR output for --emit llvm-ir");
+  snprintf(diag->message, sizeof(diag->message), "LLVM backend does not support --emit %s for this target yet", emit_kind ? emit_kind : "exe");
+  snprintf(diag->expected, sizeof(diag->expected), "LLVM IR output or native host executable output");
   snprintf(diag->actual, sizeof(diag->actual), "backend=llvm emit=%s", emit_kind ? emit_kind : "exe");
-  snprintf(diag->help, sizeof(diag->help), "use --backend llvm --emit llvm-ir for textual IR, or use --backend direct for native artifacts");
+  snprintf(diag->help, sizeof(diag->help), "use --backend llvm --emit llvm-ir for textual IR, use host --backend llvm --emit exe when clang is ready, or use --backend direct");
   ZBackendBlocker blocker;
   z_backend_blocker_set(&blocker,
                         target && target->name ? target->name : "unknown",
                         target && target->object_format ? target->object_format : "unknown",
                         "llvm",
                         "buildability",
-                        "llvm native artifact");
+                        "unsupported LLVM artifact kind");
   z_diag_set_backend_blocker(diag, &blocker);
 }

@@ -175,16 +175,19 @@ valid ProgramGraph patch text.
 | Native executable | `zero build --emit exe --target linux-musl-x64 <input>` |
 | Native object | `zero build --emit obj --target linux-musl-x64 <input>` |
 | LLVM IR | `zero build --emit llvm-ir --backend llvm --target linux-musl-x64 <input>` |
+| LLVM host executable | `zero build --backend llvm --emit exe --target host <input>` |
 
 Removed backend flags report `BLD003`. Use direct emitters; the removed C
 backend is not a compatibility path.
 
-`direct` is the default backend family. `llvm` is an explicit backend family
-for textual LLVM IR: use `--backend llvm --emit llvm-ir` to write a `.ll`
-artifact. Native LLVM object and executable outputs are not wired yet; those
-requests report `BLD004` with `backendBlocker.backend: "llvm"` and do not fall
-back to direct emitters. If the `.ll` artifact references Zero runtime helpers,
-the JSON build report lists the required runtime object in `objectBackend`.
+`direct` is the default backend family. `llvm` is an explicit backend family.
+Use `--backend llvm --emit llvm-ir` to write a `.ll` artifact. On a supported
+host with `clang`, `zero build --backend llvm --emit exe` and
+`zero run --backend llvm` compile that IR into a native executable through an
+external LLVM toolchain plan. Native LLVM object output and unsupported targets
+report `BLD004` with `backendBlocker.backend: "llvm"` and do not fall back to
+direct emitters. If the LLVM artifact references Zero runtime helpers, the JSON
+build report lists the required runtime object in `objectBackend`.
 
 ## Tests
 
