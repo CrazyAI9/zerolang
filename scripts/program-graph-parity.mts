@@ -104,6 +104,12 @@ async function assertCommandStateContracts() {
   assert.equal(validate.validation.state, "shape-valid", "graph validate should promise shape-valid state");
   assert.equal(validate.validation.ok, true, "graph validate state should be ok");
 
+  const emptyLiteralArtifact = await dumpGraphArtifact("benchmarks/rosetta/empty-string.0", "empty-string-literal");
+  const emptyLiteralDump = await readFile(emptyLiteralArtifact, "utf8");
+  assert.match(emptyLiteralDump, /node #[^ ]+ Literal[^\n]* value:""/, "graph dump should preserve empty literal values");
+  const emptyLiteralValidate = await zeroJson(["graph", "validate", "--json", emptyLiteralArtifact]);
+  assert.equal(emptyLiteralValidate.ok, true, "graph validate should accept stored empty string literal artifacts");
+
   const view = await zeroJson(["graph", "view", "--json", artifact]);
   assert.equal(view.ok, true, "graph view should render a valid source projection");
   assert.equal(view.canonicalSource, false, "graph view should report artifact input");
