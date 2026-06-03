@@ -78,6 +78,12 @@ function testSummary(result) {
   };
 }
 
+function findResolutionReference(graph, predicate, message) {
+  const reference = graph.resolution?.references?.find(predicate);
+  assert(reference, message);
+  return reference;
+}
+
 async function assertCheckParity(fixture) {
   const source = await zeroJson(["check", "--json", fixture]);
   const graph = await zeroJson(["graph", "check", "--json", fixture]);
@@ -105,6 +111,12 @@ async function assertCommandStateContracts() {
   assert.equal(sourceDump.canonicalSource, true, "graph dump from source should report canonical source input");
   assert.equal(sourceDump.validation.state, "shape-valid", "graph dump should produce a shape-valid graph");
   assert.equal(sourceDump.validation.ok, true, "graph dump validation should pass");
+  assert.equal(sourceDump.resolution.state, "resolved", "graph dump should expose name resolution state");
+  assert.equal(sourceDump.resolution.ok, true, "graph dump resolution should pass");
+  const worldRef = findResolutionReference(sourceDump, (item) => item.kind === "identifier" && item.name === "world", "graph dump should resolve parameter identifiers");
+  assert.equal(worldRef.targetKind, "param", "graph dump should classify parameter references");
+  const writeRef = findResolutionReference(sourceDump, (item) => item.kind === "call" && item.qualifiedName === "world.out.write", "graph dump should resolve member calls to their base binding");
+  assert.equal(writeRef.targetKind, "member", "graph dump should classify member calls");
 
   const artifact = await dumpGraphArtifact("examples/hello.0", "state-contracts");
   const validate = await zeroJson(["graph", "validate", "--json", artifact]);
@@ -169,6 +181,32 @@ async function assertCommandStateContracts() {
     .filter((mapping) => mapping.kind === "TypeRef" && mapping.type === "i32" && mapping.sourceRange.start.line === 1)
     .map((mapping) => mapping.sourceRange.start);
   assert.deepEqual(repeatedTypeRanges, [{ line: 1, column: 18 }, { line: 1, column: 26 }], "graph source-map should disambiguate repeated type tokens");
+}
+
+async function assertResolutionFacts() {
+  const stdStr = await zeroJson(["graph", "dump", "--json", "examples/std-str.0"]);
+  assert.equal(stdStr.resolution.ok, true, "std-str graph resolution");
+  const reverse = findResolutionReference(stdStr, (item) => item.kind === "call" && item.qualifiedName === "std.str.reverse", "source-backed std call should resolve");
+  assert.equal(reverse.targetKind, "sourceBackedStdlib", "source-backed std call target kind");
+  assert.match(reverse.symbolId, /^symbol:std\.str::value\.__zero_std_str_reverse$/, "source-backed std call symbol");
+  const memEql = findResolutionReference(stdStr, (item) => item.kind === "call" && item.qualifiedName === "std.mem.eql", "table std helper should resolve");
+  assert.equal(memEql.targetKind, "stdlib", "table std helper target kind");
+  assert.equal(memEql.symbolId, "stdlib:std.mem.eql", "table std helper symbol");
+
+  const packageGraph = await zeroJson(["graph", "dump", "--json", "examples/direct-package-arrays/src/main.0"]);
+  assert.equal(packageGraph.resolution.ok, true, "package graph resolution");
+  const record = findResolutionReference(packageGraph, (item) => item.kind === "call" && item.qualifiedName === "record", "package import call should resolve");
+  assert.equal(record.targetKind, "function", "package import call target kind");
+  assert.equal(record.symbolId, "symbol:arrays::value.record", "package import call target symbol");
+  assert.equal(record.viaImport, "symbol:main::import.arrays", "package import call should record import binding");
+
+  const cImport = await zeroJson(["graph", "dump", "--json", "conformance/native/pass/c-import-alias-later-local.0"]);
+  assert.equal(cImport.resolution.ok, true, "C import graph resolution");
+  const cCall = findResolutionReference(cImport, (item) => item.kind === "call" && item.qualifiedName === "c.zero_c_add", "C import call should resolve");
+  assert.equal(cCall.targetKind, "cFunction", "C import call target kind");
+  assert.match(cCall.symbolId, /^symbol:c-import-alias-later-local::c-import\.c$/, "C import call symbol");
+  const localC = findResolutionReference(cImport, (item) => item.kind === "identifier" && item.name === "c" && item.targetKind === "local", "later local should shadow C import after declaration");
+  assert.match(localC.symbolId, /local\.c@/, "local shadow symbol");
 }
 
 async function assertUnconstrainedGenericTypeParams() {
@@ -580,6 +618,7 @@ try {
   }
 
   await assertCommandStateContracts();
+  await assertResolutionFacts();
   await assertUnconstrainedGenericTypeParams();
   await assertBuildParity("examples/hello.0", "hello");
   await assertRunParity("examples/hello.0", "hello");

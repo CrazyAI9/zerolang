@@ -1,5 +1,6 @@
 #include "program_graph_format.h"
 #include "program_graph_import.h"
+#include "program_graph_resolve.h"
 
 #include <ctype.h>
 #include <limits.h>
@@ -721,7 +722,9 @@ void z_program_graph_append_json(ZBuf *buf, const ZProgramGraph *graph, const ZP
     graph_format_append_quoted(buf, z_program_graph_edge_target_name(edge->target));
     zbuf_appendf(buf, ",\"order\":%zu}", edge->order);
   }
-  zbuf_append(buf, "]}");
+  zbuf_append(buf, "],\"resolution\":");
+  z_program_graph_append_resolution_json(buf, graph);
+  zbuf_append(buf, "}");
 }
 
 static void graph_format_append_text_field(ZBuf *buf, const char *name, const char *value, bool include_empty) {
