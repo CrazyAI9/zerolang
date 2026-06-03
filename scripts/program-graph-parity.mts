@@ -84,6 +84,20 @@ function findResolutionReference(graph, predicate, message) {
   return reference;
 }
 
+function findSemanticCall(graph, predicate, message) {
+  const call = graph.semantics?.calls?.find(predicate);
+  assert(call, message);
+  return call;
+}
+
+function assertSemanticCallResolutionMatches(graph, call, message) {
+  const reference = graph.resolution?.references?.find((item) => item.kind === "call" && item.node === call.node);
+  assert(reference, `${message}: resolver call reference`);
+  for (const field of ["qualifiedName", "targetKind", "targetNode", "symbolId"]) {
+    assert.equal(call.resolution?.[field], reference[field], `${message}: semantic resolution ${field}`);
+  }
+}
+
 function resolutionBindings(graph) {
   return graph.resolution?.scopes?.flatMap((scope) => scope.bindings ?? []) ?? [];
 }
@@ -102,6 +116,20 @@ async function assertCheckParity(fixture) {
   assert.equal(graph.check.ok, source.ok, `${fixture}: source and graph typecheck should agree`);
   assert.equal(graph.check.target, source.targetReadiness?.target ?? graph.check.target, `${fixture}: target should agree`);
   assert.deepEqual(targetReadinessSummary(graph.targetReadiness), targetReadinessSummary(source.targetReadiness), `${fixture}: target readiness should agree`);
+}
+
+async function assertCheckFailureParity(fixture) {
+  const source = await zeroJsonFailure(["check", "--json", fixture]);
+  const graph = await zeroJsonFailure(["graph", "check", "--json", fixture]);
+  assert.equal(graph.canonicalSource, true, `${fixture}: graph check failure should report source input`);
+  assert.equal(graph.check.phase, "typecheck", `${fixture}: graph check failure phase`);
+  assert.equal(graph.check.lowering, "direct-program-graph", `${fixture}: graph check failure lowering`);
+  assert.equal(graph.check.ok, false, `${fixture}: graph check should fail`);
+  const sourceDiag = source.diagnostics?.[0];
+  const graphDiag = graph.diagnostics?.[0];
+  for (const field of ["code", "message", "path", "line", "column", "expected", "actual", "help"]) {
+    assert.equal(graphDiag?.[field], sourceDiag?.[field], `${fixture}: diagnostic ${field} should agree`);
+  }
 }
 
 async function assertRoundtripStable(fixture) {
@@ -407,6 +435,168 @@ async function assertResolutionFacts() {
   const stdRef = findResolutionReference(stdShadow, (item) => item.kind === "identifier" && item.name === "std", "local std identifier should be present");
   assert.equal(stdRef.targetKind, "local", "local std should shadow the stdlib namespace");
   assert.match(stdRef.symbolId, /local\.std@/, "local std shadow symbol");
+}
+
+async function assertSemanticFacts() {
+  const hello = await zeroJson(["graph", "dump", "--json", "examples/hello.0"]);
+  assert.equal(hello.semantics.state, "typed-facts", "hello graph semantic fact state");
+  assert.equal(hello.semantics.ok, true, "hello graph semantic facts");
+  assert.equal(hello.semantics.counts.functions, 1, "hello semantic function count");
+  assert.equal(hello.semantics.counts.calls, 1, "hello semantic call count");
+  assert.equal(hello.semantics.counts.fallibleCalls, 1, "hello semantic fallible call count");
+  assert.equal(hello.semantics.counts.resources, hello.semantics.resources.length, "hello semantic resource count");
+  assert.equal(hello.semantics.counts.targetRequirements, hello.semantics.targetRequirements.length, "hello semantic target requirement count");
+  assert.equal(hello.semantics.counts.repairs, hello.semantics.repairs.length, "hello semantic repair count");
+  const helloMain = hello.semantics.functions.find((item) => item.name === "main");
+  assert(helloMain, "hello semantic function fact");
+  assert.equal(helloMain.returnType, "Void", "hello function return type");
+  assert.equal(helloMain.fallible, true, "hello function fallibility");
+  assert.deepEqual(helloMain.params.map((item) => [item.name, item.type]), [["world", "World"]], "hello function params");
+  assert.equal(helloMain.sourceRange.path, "examples/hello.0", "hello function semantic source range");
+  assert.deepEqual(helloMain.sourceRange.start, { line: 1, column: 8 }, "hello function semantic source range start should target the function name");
+  assert.deepEqual(helloMain.sourceRange.end, { line: 1, column: 12 }, "hello function semantic source range end should target the function name");
+  assert(hello.semantics.ownership.some((item) => item.name === "world" && item.ownership === "resource-handle" && item.resource === true), "world parameter should be represented as a resource handle");
+  const write = findSemanticCall(hello, (item) => item.qualifiedName === "world.out.write", "world write semantic call fact");
+  assert.equal(write.returnType, "Void", "world write return type");
+  assert.equal(write.contract.kind, "worldStreamWrite", "world write contract kind");
+  assert.equal(write.contract.capability, "io", "world write capability");
+  assert.equal(write.contract.targetSupport, "world-io", "world write target support");
+  assert.match(write.contract.targetNode, /^#param_/, "world write contract target node");
+  assert.equal(write.contract.symbolId, "symbol:hello::value.main/param.world", "world write contract symbol");
+  assertSemanticCallResolutionMatches(hello, write, "world write semantic resolution");
+  assert.equal(write.resolution.targetKind, "member", "world write semantic resolution kind");
+  assert.equal(write.resolution.symbolId, "symbol:hello::value.main/param.world", "world write semantic resolution symbol");
+  assert.equal(write.fallible, true, "world write fallibility");
+  assert.equal(write.checked, true, "world write checked state");
+  assert.equal(write.contract.requiresCheck, false, "checked world write should not require repair");
+  assert.equal(write.contract.repair.id, "check-fallible-call", "world write repair shape");
+  assert.equal(write.sourceRange.path, "examples/hello.0", "world write source range");
+  assert.deepEqual(write.sourceRange.start, { line: 2, column: 21 }, "world write semantic source range start should target the call member");
+  assert.deepEqual(write.sourceRange.end, { line: 2, column: 26 }, "world write semantic source range end should target the call member");
+  assert(hello.semantics.resources.some((item) => item.kind === "capabilityUse" && item.resourceKind === "world-io" && item.qualifiedName === "world.out.write"), "world write resource fact");
+  assert(hello.semantics.targetRequirements.some((item) => item.qualifiedName === "world.out.write" && item.capability === "io" && item.targetSupport === "world-io"), "world write target requirement fact");
+  assert(hello.semantics.repairs.some((item) => item.qualifiedName === "world.out.write" && item.requiresCheck === false && item.repair.id === "check-fallible-call"), "world write top-level repair fact");
+
+  const stdStr = await zeroJson(["graph", "dump", "--json", "examples/std-str.0"]);
+  const reverse = findSemanticCall(stdStr, (item) => item.qualifiedName === "std.str.reverse", "std str reverse semantic call fact");
+  assert.equal(reverse.contract.kind, "sourceBackedStdlib", "source-backed std contract kind");
+  assert.equal(reverse.contract.sourceModule, "std.str", "source-backed std module");
+  assert.equal(reverse.contract.returnType, "Maybe<Span<u8>>", "source-backed std return type");
+  assert.equal(reverse.contract.capability, "memory", "source-backed std capability");
+  assert.equal(reverse.contract.targetSupport, "target-neutral", "source-backed std target support");
+  assert.equal(reverse.contract.expectedArgCount, 2, "source-backed std arg count");
+  assert.deepEqual(reverse.contract.expectedArgTypes, ["MutSpan<u8>", "Span<u8>"], "source-backed std arg types");
+  assertSemanticCallResolutionMatches(stdStr, reverse, "source-backed std semantic resolution");
+  assert.equal(reverse.resolution.targetKind, "sourceBackedStdlib", "source-backed std semantic resolution kind");
+  assert.equal(reverse.resolution.symbolId, "symbol:std.str::value.__zero_std_str_reverse", "source-backed std semantic symbol");
+  assert.deepEqual(reverse.args.map((item) => item.type), ["MutSpan<u8>", "String"], "source-backed std actual arg types");
+
+  const stdFs = await zeroJson(["graph", "dump", "--json", "conformance/native/pass/std-fs-fallible.0"]);
+  const stdFsMain = stdFs.semantics.functions.find((item) => item.name === "main");
+  assert(stdFsMain, "std fs main semantic function fact");
+  assert.deepEqual(stdFsMain.errors, ["NotFound", "TooLarge", "Io"], "named error set facts");
+  const readAll = findSemanticCall(stdFs, (item) => item.qualifiedName === "std.fs.readAllOrRaise", "fallible std helper semantic call fact");
+  assert.equal(readAll.contract.kind, "stdlib", "fallible std helper contract kind");
+  assert.equal(readAll.contract.fallible, true, "fallible std helper contract fallibility");
+  assert.equal(readAll.contract.checked, true, "fallible std helper checked state");
+  assert.deepEqual(readAll.contract.errors, ["NotFound", "TooLarge", "Io"], "fallible std helper errors");
+  assert.equal(readAll.contract.capability, "fs", "fallible std helper capability");
+  assert.equal(readAll.contract.targetSupport, "host", "fallible std helper target support");
+  assert.equal(readAll.contract.repair.id, "check-fallible-call", "fallible std helper repair shape");
+  assertSemanticCallResolutionMatches(stdFs, readAll, "fallible std helper semantic resolution");
+  assert.equal(readAll.resolution.targetKind, "stdlib", "fallible std helper semantic resolution kind");
+  assert.equal(readAll.resolution.symbolId, "stdlib:std.fs.readAllOrRaise", "fallible std helper semantic symbol");
+  assert(stdFs.semantics.ownership.some((item) => item.name === "body" && item.type === "owned<ByteBuf>" && item.ownership === "owned"), "owned ByteBuf ownership fact");
+  assert(stdFs.semantics.borrowing.some((item) => item.type === "ref<ByteBuf>" && item.borrowKind === "borrow" && item.target), "borrowed ByteBuf fact");
+  assert(stdFs.semantics.resources.some((item) => item.kind === "capabilityUse" && item.qualifiedName === "std.fs.readAllOrRaise" && item.capability === "fs"), "std fs resource-use fact");
+  assert(stdFs.semantics.targetRequirements.some((item) => item.qualifiedName === "std.fs.readAllOrRaise" && item.capability === "fs" && item.targetSupport === "host"), "std fs target requirement fact");
+  assert(stdFs.semantics.repairs.some((item) => item.qualifiedName === "std.fs.readAllOrRaise" && item.requiresCheck === false), "std fs top-level repair fact");
+
+  const cImport = await zeroJson(["graph", "dump", "--json", "conformance/native/pass/c-import-alias-later-local.0"]);
+  const cCall = findSemanticCall(cImport, (item) => item.qualifiedName === "c.zero_c_add", "C import semantic call fact");
+  assert.equal(cCall.contract.kind, "cAbi", "C import contract kind");
+  assert.equal(cCall.contract.capability, "c-abi", "C import capability");
+  assert.equal(cCall.contract.targetSupport, "host-c-abi", "C import target support");
+  assert.match(cCall.contract.targetNode, /^#cimp_/, "C import contract target node");
+  assert.match(cCall.contract.symbolId, /^symbol:c-import-alias-later-local::c-import\.c$/, "C import contract symbol");
+  assertSemanticCallResolutionMatches(cImport, cCall, "C import semantic resolution");
+  assert.equal(cCall.resolution.targetKind, "cFunction", "C import semantic resolution kind");
+  assert.equal(cCall.returnType, "i32", "C import return type");
+  assert.deepEqual(cCall.args.map((item) => item.type), ["i32", "i32"], "C import actual arg types");
+  assert(cImport.semantics.targetRequirements.some((item) => item.qualifiedName === "c.zero_c_add" && item.capability === "c-abi" && item.targetSupport === "host-c-abi"), "C import target requirement fact");
+  assert(cImport.semantics.resources.some((item) => item.kind === "capabilityUse" && item.qualifiedName === "c.zero_c_add" && item.resourceKind === "c-abi"), "C import resource fact");
+
+  const borrowGraph = await zeroJson(["graph", "dump", "--json", "conformance/native/pass/borrow-return-explicit-ref-field-origin.0"]);
+  assert(borrowGraph.semantics.ownership.some((item) => item.name === "current" && item.ownership === "borrow"), "borrowed local ownership fact");
+  assert(borrowGraph.semantics.borrowing.some((item) => item.borrowKind === "mut-borrow" && item.mutable === true && item.target), "mutable borrow target fact");
+  assert.equal(borrowGraph.semantics.resources.length, 0, "borrow-only fixture should not invent resource facts");
+
+  const userResourceNameFixture = `${outDir}/semantic-user-resource-names.0`;
+  await writeFile(userResourceNameFixture, [
+    "type File {",
+    "    fd: i32,",
+    "}",
+    "",
+    "type UserFileRecord {",
+    "    value: i32,",
+    "}",
+    "",
+    "pub fn main() -> Void {",
+    "    let record: UserFileRecord = UserFileRecord { value: 1 }",
+    "    let file: File = File { fd: record.value }",
+    "    let maybe_file: Maybe<File> = null",
+    "    expect file.fd == 1",
+    "}",
+    "",
+  ].join("\n"));
+  const userResourceNames = await zeroJson(["graph", "dump", "--json", userResourceNameFixture]);
+  assert.equal(userResourceNames.semantics.resources.length, 0, "user-defined type names containing resource words should not emit resource facts");
+  assert(!userResourceNames.semantics.ownership.some((item) => item.type === "File" || item.type === "UserFileRecord" || item.type === "Maybe<File>"), "user-defined type names containing resource words should not emit ownership resource facts");
+
+  const shadowedStdResourceFixture = `${outDir}/semantic-shadowed-stdlib-resource.0`;
+  await writeFile(shadowedStdResourceFixture, [
+    "type File {",
+    "    fd: i32,",
+    "}",
+    "",
+    "pub fn main() -> Void raises [NotFound, TooLarge, Io] {",
+    "    let fs: Fs = std.fs.host()",
+    "    let owned_file: owned<File> = check std.fs.createOrRaise(fs, \".zero/semantic-shadowed-stdlib-resource.txt\")",
+    "    let user_file: File = File { fd: 1 }",
+    "    expect user_file.fd == 1",
+    "}",
+    "",
+  ].join("\n"));
+  const shadowedStdResource = await zeroJson(["graph", "dump", "--json", shadowedStdResourceFixture]);
+  assert(shadowedStdResource.semantics.ownership.some((item) => item.name === "owned_file" && item.type === "owned<File>" && item.ownership === "owned" && item.resource === true), "stdlib File resource facts should survive a user-defined File type");
+  assert(!shadowedStdResource.semantics.ownership.some((item) => item.name === "user_file"), "user-defined File binding should not become an ownership fact");
+  assert(shadowedStdResource.semantics.resources.some((item) => item.kind === "binding" && item.type === "owned<File>" && item.resourceKind === "file"), "stdlib File resource binding should survive a user-defined File type");
+
+  const searchSort = await zeroJson(["graph", "dump", "--json", "conformance/native/pass/std-search-sort-widths.0"]);
+  assert(!searchSort.semantics.resources.some((item) => item.qualifiedName === "std.search.binaryU32" || item.qualifiedName === "std.search.binaryUsize"), "no-allocation search helpers should not emit resource facts");
+
+  const callResolution = await zeroJson(["graph", "dump", "--json", "conformance/check/pass/call-resolution-inspection.0"]);
+  const resolverCallReferences = callResolution.resolution.references.filter((item) => item.kind === "call");
+  assert.equal(callResolution.semantics.calls.length, resolverCallReferences.length, "semantic calls should mirror resolver call references and skip operators");
+  for (const call of callResolution.semantics.calls) assertSemanticCallResolutionMatches(callResolution, call, `call resolution semantic fact ${call.qualifiedName}`);
+  const receiverCall = findSemanticCall(callResolution, (item) => item.qualifiedName === "counter.checkedRead", "receiver method semantic call fact");
+  assert.equal(receiverCall.args.length, 0, "receiver method source-visible args");
+  assert.equal(receiverCall.contract.expectedArgCount, 0, "receiver method expected arg count should exclude implicit self");
+  assert.equal(receiverCall.receiver?.implicit, true, "receiver method should expose implicit receiver");
+  assert.equal(receiverCall.receiver?.type, "Counter", "receiver method receiver type");
+  const staticRead = findSemanticCall(callResolution, (item) => item.qualifiedName === "Counter.read", "static method call semantic fact");
+  assert.equal(staticRead.receiver, null, "static method namespace calls should not report implicit receivers");
+  assert.equal(staticRead.args.length, 1, "static method call source-visible args");
+  assert.equal(staticRead.contract.expectedArgCount, 1, "static method expected arg count should keep explicit self arg");
+  const interfaceRead = findSemanticCall(callResolution, (item) => item.qualifiedName === "T.read", "interface method semantic call fact");
+  assert.equal(interfaceRead.resolution.targetKind, "interfaceMethod", "interface method semantic target kind");
+  assert.equal(interfaceRead.resolution.symbolId, "symbol:call-resolution-inspection::type.Readable/method.read", "interface method semantic symbol");
+  const eventKey = findSemanticCall(callResolution, (item) => item.qualifiedName === "Event.key", "choice variant semantic call fact");
+  assert.equal(eventKey.resolution.targetKind, "variant", "choice variant semantic target kind");
+  assert.equal(eventKey.resolution.symbolId, "symbol:call-resolution-inspection::type.Event/variant.key", "choice variant semantic symbol");
+
+  await assertCheckFailureParity("conformance/native/fail/unchecked-fallible-call.0");
+  await assertCheckFailureParity("conformance/check/fail/wrong-return-type.0");
 }
 
 async function assertUnconstrainedGenericTypeParams() {
@@ -819,6 +1009,7 @@ try {
 
   await assertCommandStateContracts();
   await assertResolutionFacts();
+  await assertSemanticFacts();
   await assertUnconstrainedGenericTypeParams();
   await assertBuildParity("examples/hello.0", "hello");
   await assertRunParity("examples/hello.0", "hello");
