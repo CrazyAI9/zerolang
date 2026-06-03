@@ -135,6 +135,35 @@ async function assertCommandStateContracts() {
   assert.equal(roundtrip.lowering, "direct-program-graph", "graph roundtrip should lower through ProgramGraph");
 }
 
+async function assertUnconstrainedGenericTypeParams() {
+  const fixture = `${outDir}/generic-no-constraint.0`;
+  await writeFile(fixture, [
+    "type Box<T> {",
+    "    value: T,",
+    "}",
+    "",
+    "fn id<T>(value: T) -> T {",
+    "    return value",
+    "}",
+    "",
+    "pub fn main(world: World) -> Void raises {",
+    "    let box: Box<i32> = Box { value: id<i32>(1) }",
+    "    if box.value == 1 {",
+    "        check world.out.write(\"generic no constraint ok\\n\")",
+    "    }",
+    "}",
+    "",
+  ].join("\n"));
+  const check = await zeroJson(["check", "--json", fixture]);
+  assert.equal(check.ok, true, "source check should accept unconstrained generic parameters");
+  const dump = await zeroJson(["graph", "dump", "--json", fixture]);
+  assert.equal(dump.validation.ok, true, "graph dump should validate unconstrained generic parameters");
+  assert(dump.nodes.some((node) => node.kind === "Param" && node.name === "T" && node.type === ""), "graph dump should preserve an unconstrained type parameter");
+  const artifact = await dumpGraphArtifact(fixture, "generic-no-constraint");
+  const validate = await zeroJson(["graph", "validate", "--json", artifact]);
+  assert.equal(validate.ok, true, "graph validate should accept unconstrained generic parameter artifacts");
+}
+
 async function assertBuildParity(fixture, name) {
   const artifact = await dumpGraphArtifact(fixture, `${name}-build-input`);
   const sourceOut = `${outDir}/${name}.source-build`;
@@ -474,6 +503,7 @@ try {
   }
 
   await assertCommandStateContracts();
+  await assertUnconstrainedGenericTypeParams();
   await assertBuildParity("examples/hello.0", "hello");
   await assertRunParity("examples/hello.0", "hello");
   await assertRunParity("conformance/native/pass/std-args.0", "std-args", ["alpha", "beta"]);

@@ -259,13 +259,9 @@ static bool graph_validation_fail(ZProgramGraphValidation *validation, const cha
   return false;
 }
 
-static bool graph_required_text_present(const char *text) {
-  return text && text[0];
-}
+static bool graph_required_text_present(const char *text) { return text && text[0]; }
 
-static bool graph_required_value_present(const char *text) {
-  return text != NULL;
-}
+static bool graph_required_value_present(const char *text) { return text != NULL; }
 
 static bool graph_validate_node_payload(const ZProgramGraphNode *node, ZProgramGraphValidation *validation) {
   if (!node) return true;
@@ -307,7 +303,6 @@ static bool graph_validate_node_payload(const ZProgramGraphNode *node, ZProgramG
       break;
     case Z_PROGRAM_GRAPH_NODE_TYPE_ALIAS:
     case Z_PROGRAM_GRAPH_NODE_FUNCTION:
-    case Z_PROGRAM_GRAPH_NODE_PARAM:
     case Z_PROGRAM_GRAPH_NODE_FIELD:
     case Z_PROGRAM_GRAPH_NODE_TYPE_REF:
       if (!graph_required_text_present(node->type)) return graph_validation_fail(validation, "GRF014", "node is missing required type", node->id, NULL, NULL, NULL);
@@ -380,6 +375,11 @@ static bool graph_validate_required_edges(const ZProgramGraph *graph, const ZPro
   if (!node) return true;
   switch (node->kind) {
     case Z_PROGRAM_GRAPH_NODE_PARAM:
+      if (!graph_required_text_present(node->type) &&
+          (graph_node_has_incoming_node_edge(graph, node->id, "param") || !graph_node_has_incoming_node_edge(graph, node->id, "typeParam")))
+        return graph_validation_fail(validation, "GRF014", "node is missing required type", node->id, NULL, NULL, NULL);
+      return graph_validate_optional_edge_at_order(graph, node, "type", 0, validation) &&
+             graph_validate_optional_edge_at_order(graph, node, "default", 0, validation);
     case Z_PROGRAM_GRAPH_NODE_FIELD:
     case Z_PROGRAM_GRAPH_NODE_ENUM_CASE:
     case Z_PROGRAM_GRAPH_NODE_CHOICE_CASE:
