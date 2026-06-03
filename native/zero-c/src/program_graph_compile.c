@@ -23,6 +23,16 @@ static bool graph_compile_diag(ZDiag *diag, const char *path, const char *messag
   return false;
 }
 
+static void graph_compile_pin_diag_paths(ZDiag *diag) {
+  if (!diag) return;
+  if (diag->path) diag->path = z_strdup(diag->path);
+  for (size_t i = 0; i < diag->borrow_trace_count; i++) {
+    if (diag->borrow_traces[i].binding_decl_path) {
+      diag->borrow_traces[i].binding_decl_path = z_strdup(diag->borrow_traces[i].binding_decl_path);
+    }
+  }
+}
+
 static void graph_compile_replace_source_map(SourceInput *input, SourceInput *graph_input) {
   if (!input || !graph_input) return;
   for (size_t i = 0; i < input->source_line_count; i++) free(input->source_line_paths[i]);
@@ -47,10 +57,14 @@ bool z_program_graph_prepare_source_mir_input(const char *source_path, const ZTa
   Program graph_program = {0};
   SourceInput graph_input = {0};
   bool lowered = z_program_graph_lower_to_program_with_source(&graph, path, &graph_program, &graph_input, diag);
-  if (lowered) { z_set_check_target(target); lowered = z_check_program(&graph_program, diag); }
+  if (lowered) {
+    z_set_check_target(target);
+    lowered = input->allow_missing_main ? z_check_program_library(&graph_program, diag) : z_check_program(&graph_program, diag);
+  }
   if (!lowered) {
     if (graph_input.source_file) z_map_source_diag(&graph_input, diag);
     if (diag && !diag->path) diag->path = path;
+    graph_compile_pin_diag_paths(diag);
     z_free_program(&graph_program); z_free_source(&graph_input); z_program_graph_free(&graph);
     return false;
   }

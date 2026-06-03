@@ -72,7 +72,7 @@ const fileBudgets = {
   "native/zero-c/src/program_graph_build.h": { maxLines: 20, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_command.c": { maxLines: 120, maxStrcmpCalls: 2 },
   "native/zero-c/src/program_graph_command.h": { maxLines: 25, maxStrcmpCalls: 0 },
-  "native/zero-c/src/program_graph_compile.c": { maxLines: 80, maxStrcmpCalls: 1 },
+  "native/zero-c/src/program_graph_compile.c": { maxLines: 95, maxStrcmpCalls: 1 },
   "native/zero-c/src/program_graph_compare.c": { maxLines: 560, maxStrcmpCalls: 1 },
   "native/zero-c/src/program_graph_compare.h": { maxLines: 25, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_format.c": { maxLines: 850, maxStrcmpCalls: 1 },

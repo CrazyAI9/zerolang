@@ -697,6 +697,11 @@ async function assertSourceCommandGraphCompilerPath() {
     code: null,
   }, "source check target readiness");
 
+  const stdPathCheck = await zeroJson(["check", "--json", "std/path.0"]);
+  assertSourceGraphRoute(stdPathCheck, "std/path.0", "program-graph-ast-mir");
+  assert.equal(stdPathCheck.ok, true, "stdlib source check should preserve library entrypoint rules");
+  assert.equal(stdPathCheck.compilerCaches[0].sourceKind, "program-graph", "stdlib source check should use graph cache identity");
+
   const helloBuildOut = `${outDir}/source-command-graph-build`;
   const helloBuild = await zeroJson(["build", "--json", "--target", "linux-musl-x64", "--out", helloBuildOut, "examples/hello.0"]);
   assertSourceGraphRoute(helloBuild, "examples/hello.0");
