@@ -2,6 +2,7 @@
 
 #include "canonical_text.h"
 #include "program_graph_import.h"
+#include "std_source.h"
 #include "zero.h"
 
 #include <stdio.h>
@@ -91,6 +92,37 @@ static const char *projection_module_name_for_path(const ZProgramGraphStore *sto
 
 static bool projection_text_present(const char *text) {
   return text && text[0];
+}
+
+static const char *projection_basename(const char *path) {
+  const char *slash = path ? strrchr(path, '/') : NULL;
+  return slash ? slash + 1 : (path ? path : "");
+}
+
+static bool projection_std_module_path_matches(const ZStdSourceModule *module, const char *path) {
+  return module && path &&
+         (projection_text_eq(module->path, path) ||
+          projection_text_eq(projection_basename(module->path), projection_basename(path)));
+}
+
+static bool projection_source_matches_embedded_std(const char *path, const char *source) {
+  for (size_t i = 0; i < z_std_source_module_count(); i++) {
+    const ZStdSourceModule *module = z_std_source_module_at(i);
+    if (!projection_std_module_path_matches(module, path)) continue;
+    char *embedded = z_std_source_module_copy_source(module);
+    bool matches = embedded && projection_text_eq(source, embedded);
+    free(embedded);
+    if (matches) return true;
+  }
+  return false;
+}
+
+static bool projection_store_is_embedded_std_library(const ZProgramGraphStore *store) {
+  if (!store || store->projection_len == 0) return false;
+  for (size_t i = 0; i < store->projection_len; i++) {
+    if (!projection_source_matches_embedded_std(store->projection_paths[i], store->projection_texts[i])) return false;
+  }
+  return true;
 }
 
 static bool projection_node_in_store_projection(const ZProgramGraphStore *store, const ZProgramGraphNode *node) {
@@ -317,7 +349,7 @@ bool z_program_graph_projection_store_matches_graph(const ZProgramGraphStore *st
     return projection_diag(store, diag, "repository graph source projection does not parse", actual);
   }
   ZDiag check_diag = {0};
-  ok = z_check_program(&program, &check_diag);
+  ok = projection_store_is_embedded_std_library(store) ? z_check_program_library(&program, &check_diag) : z_check_program(&program, &check_diag);
   if (!ok) {
     const char *actual = check_diag.message[0] ? check_diag.message : "projection source check failed";
     z_free_program(&program);

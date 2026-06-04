@@ -66,6 +66,11 @@ static bool store_starts_with(const char *text, const char *prefix) {
   return text && prefix && strncmp(text, prefix, len) == 0;
 }
 
+static const char *store_basename(const char *path) {
+  const char *slash = path ? strrchr(path, '/') : NULL;
+  return slash ? slash + 1 : (path ? path : "");
+}
+
 static char *store_normalize_path_text(const char *path) {
   bool absolute = path && path[0] == '/';
   char *copy = z_strdup(path ? path : "");
@@ -463,7 +468,9 @@ static void store_sort_projections(ZProgramGraphStore *store) {
 static const ZStdSourceModule *store_std_source_module_for_path(const char *path) {
   for (size_t i = 0; path && i < z_std_source_module_count(); i++) {
     const ZStdSourceModule *module = z_std_source_module_at(i);
-    if (module && store_text_eq(module->path, path)) return module;
+    if (module &&
+        (store_text_eq(module->path, path) ||
+         store_text_eq(store_basename(module->path), store_basename(path)))) return module;
   }
   return NULL;
 }
