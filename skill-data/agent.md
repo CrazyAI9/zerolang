@@ -47,7 +47,7 @@ zero check <file.0>
 ```
 
 5. When a graph artifact is necessary, write it under `.zero/`, patch the artifact, validate it, and then make the accepted source change. Do not commit derived `.program-graph` files unless the user explicitly asks.
-6. If the repository has a checked-in `zero.graph`, run `zero graph verify-sync <input>` before build/test gates. If it reports that sync is not enabled, continue with source-backed graph commands.
+6. If `zero graph status <input>` reports repository graph sync as enabled, run `zero graph verify-sync <input>` before build/test gates. In the current compiler, sync remains disabled even when `zero.graph` is present, so continue with source-backed graph commands when status reports `not-enabled`.
 7. Run a focused source check:
 
 ```sh

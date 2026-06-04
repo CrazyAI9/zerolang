@@ -86,7 +86,7 @@ another tool needs stable fields.
 | `zero graph source-map --json` | Graph node IDs mapped to source ranges with node hashes, symbol/type/effect IDs, and file hash facts. |
 | `zero graph reconcile --json` | Identity decisions when edited source is compared with a prior graph, including ambiguous-match diagnostics and simple graph patch text when available. |
 | `zero graph status --json` | Repository graph sync contract facts, the expected `zero.graph` path, no-write status, and whether graph/source sync is enabled. |
-| `zero graph verify-sync --json` | A no-write graph/source sync check. Until a repository graph store is present, it fails with repair commands and leaves source files untouched. |
+| `zero graph verify-sync --json` | A no-write graph/source sync check. Until the repository graph loader is enabled, it fails with repair commands and leaves source files untouched, even when `zero.graph` is present. |
 | `zero graph check --json` | Typecheck source or a ProgramGraph artifact through direct graph lowering with graph identity, target, `check.lowering: "direct-program-graph"`, target readiness, safety facts, and graph-mapped diagnostics. |
 | `zero graph size --json` | Size, helper, runtime, profile, safety, and backend facts for a ProgramGraph artifact lowered through typed graph MIR, with graph identity. |
 | `zero graph build --json` | Build a ProgramGraph artifact through typed graph MIR when supported, including graph identity, selected `emit` kind, target, artifact path and size, safety facts, compiler cache facts, and graph-aware incremental invalidation. |
@@ -136,9 +136,11 @@ Agents can inspect source through ProgramGraph commands and can patch canonical
 debug and interchange files.
 
 `zero graph status`, `zero graph verify-sync`, and `zero graph sync
---from-source|--from-graph` define the repository graph sync surface. In
-repositories without a checked-in `zero.graph` store, `status` reports
-`syncState: "not-enabled"` and the sync/verify commands do not write files.
+--from-source|--from-graph` define the repository graph sync surface. Today
+this surface is contract-only: `status` reports `syncState: "not-enabled"` and
+the sync/verify commands do not write files until the repository graph loader is
+enabled. A checked-in `zero.graph` changes `storePresent`, but does not enable
+sync by itself.
 
 ## ProgramGraph Patches
 

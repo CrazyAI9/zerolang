@@ -133,7 +133,7 @@ static void repo_append_contract_json(ZBuf *buf, const RepositoryGraphState *sta
   char *from_graph = repo_command_text("zero graph sync --from-graph", state->input);
   zbuf_append(buf, "{");
   zbuf_append(buf, "\"artifact\":\"zero.graph\",\"sourceProjection\":\"checked-in .0 source text\",");
-  zbuf_append(buf, "\"optIn\":\"checked-in zero.graph at the package root\",");
+  zbuf_append(buf, "\"optIn\":\"repository graph loader plus checked-in zero.graph at the package root\",");
   zbuf_append(buf, "\"commands\":{");
   zbuf_append(buf, "\"status\":{\"writes\":false,\"available\":true},");
   zbuf_append(buf, "\"verifySync\":{\"writes\":false,\"available\":false,\"repairCommands\":[");
