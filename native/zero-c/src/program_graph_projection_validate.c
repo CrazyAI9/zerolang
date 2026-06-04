@@ -333,7 +333,7 @@ static bool projection_source_input_from_store(const ZProgramGraphStore *store, 
   return true;
 }
 
-bool z_program_graph_projection_store_matches_graph(const ZProgramGraphStore *store, ZDiag *diag) {
+bool z_program_graph_projection_store_matches_graph(const ZProgramGraphStore *store, const ZTargetInfo *target, ZDiag *diag) {
   SourceInput input = {0};
   if (!projection_source_input_from_store(store, &input, diag)) return false;
 
@@ -345,6 +345,7 @@ bool z_program_graph_projection_store_matches_graph(const ZProgramGraphStore *st
     z_free_source(&input);
     return projection_diag(store, diag, "repository graph source projection does not parse", actual);
   }
+  if (target) z_set_check_target(target);
   ZDiag check_diag = {0};
   ok = projection_store_is_embedded_std_library(store) ? z_check_program_library(&program, &check_diag) : z_check_program(&program, &check_diag);
   if (!ok) {

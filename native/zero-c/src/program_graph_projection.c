@@ -348,7 +348,7 @@ void z_program_graph_projection_free(ZProgramGraphProjection *projection) {
   *projection = (ZProgramGraphProjection){0};
 }
 
-bool z_program_graph_projection_sources_match(const ZProgramGraphStore *store, bool *matches, ZDiag *diag) {
+bool z_program_graph_projection_sources_match(const ZProgramGraphStore *store, const ZTargetInfo *target, bool *matches, ZDiag *diag) {
   if (matches) *matches = false;
   if (!store || store->projection_len == 0) {
     if (diag) {
@@ -363,7 +363,7 @@ bool z_program_graph_projection_sources_match(const ZProgramGraphStore *store, b
     }
     return false;
   }
-  if (!z_program_graph_projection_store_matches_graph(store, diag)) return false;
+  if (!z_program_graph_projection_store_matches_graph(store, target, diag)) return false;
   bool all_match = true;
   for (size_t i = 0; i < store->projection_len; i++) {
     bool file_matches = false;
@@ -374,10 +374,10 @@ bool z_program_graph_projection_sources_match(const ZProgramGraphStore *store, b
   return true;
 }
 
-bool z_program_graph_projection_write_sources(const ZProgramGraphStore *store, ZProgramGraphProjection *projection, ZDiag *diag) {
+bool z_program_graph_projection_write_sources(const ZProgramGraphStore *store, const ZTargetInfo *target, ZProgramGraphProjection *projection, ZDiag *diag) {
   if (projection) z_program_graph_projection_init(projection);
-  if (!store || store->projection_len == 0) return z_program_graph_projection_sources_match(store, NULL, diag);
-  if (!z_program_graph_projection_store_matches_graph(store, diag)) return false;
+  if (!store || store->projection_len == 0) return z_program_graph_projection_sources_match(store, target, NULL, diag);
+  if (!z_program_graph_projection_store_matches_graph(store, target, diag)) return false;
   ProjectionWritePlan plan = {0};
   for (size_t i = 0; i < store->projection_len; i++) {
     const char *source_path = store->projection_paths[i];

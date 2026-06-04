@@ -12275,7 +12275,7 @@ int main(int argc, char **argv) {
   if (strcmp(command.command, "graph") == 0 && command.kind) {
     bool repo_graph_command = false;
     SourceInput repo_graph_input = {0}; Program repo_graph_program = {0}; ZProgramGraph repo_source_graph = {0};
-    bool repo_wants_source_graph = z_repository_graph_needs_source_graph(command.kind, command.input, command.graph_sync_from_graph, command.graph_sync_from_source);
+    bool repo_wants_source_graph = z_repository_graph_needs_source_graph(command.kind, command.input, target, command.graph_sync_from_graph, command.graph_sync_from_source);
     ZDiag repo_source_graph_diag = {0};
     bool repo_has_source_graph = false;
     if (repo_wants_source_graph) {
@@ -12289,7 +12289,7 @@ int main(int argc, char **argv) {
       return 1;
     }
     RepositoryGraphSourceGraphLoader repo_graph_loader = {.command = &command, .target = target};
-    int repo_graph_rc = z_repository_graph_maybe_command(command.kind, command.input, command.json, command.graph_sync_from_graph, command.graph_sync_from_source, repo_has_source_graph ? &repo_source_graph : NULL, repo_wants_source_graph && !repo_has_source_graph ? &repo_source_graph_diag : NULL, command.graph_sync_from_graph ? load_repository_graph_checked_source_graph : NULL, &repo_graph_loader, &repo_graph_command);
+    int repo_graph_rc = z_repository_graph_maybe_command(command.kind, command.input, target, command.json, command.graph_sync_from_graph, command.graph_sync_from_source, repo_has_source_graph ? &repo_source_graph : NULL, repo_wants_source_graph && !repo_has_source_graph ? &repo_source_graph_diag : NULL, command.graph_sync_from_graph ? load_repository_graph_checked_source_graph : NULL, &repo_graph_loader, &repo_graph_command);
     z_program_graph_free(&repo_source_graph); z_free_program(&repo_graph_program); z_free_source(&repo_graph_input);
     if (repo_graph_command) return repo_graph_rc;
     if (strcmp(command.kind, "validate") == 0) return run_graph_validate_command(&command, &diag);
