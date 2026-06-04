@@ -206,7 +206,7 @@ static void repo_append_state_json(ZBuf *buf, const RepositoryGraphState *state,
 static void repo_append_diagnostic_json(ZBuf *buf, const RepositoryGraphState *state, const char *message, const char *actual) {
   char *from_source = repo_command_text("zero graph sync --from-source", state->input);
   char *from_graph = repo_command_text("zero graph sync --from-graph", state->input);
-  zbuf_append(buf, ",\n  \"diagnostics\": [{\"severity\":\"error\",\"code\":\"GPH001\",\"message\":");
+  zbuf_append(buf, ",\n  \"diagnostics\": [{\"severity\":\"error\",\"code\":\"RGP001\",\"message\":");
   repo_append_json_string(buf, message);
   zbuf_append(buf, ",\"path\":");
   repo_append_json_string(buf, state->input);
@@ -231,7 +231,7 @@ static int repo_graph_error(const RepositoryGraphState *state, bool json, const 
     fputs(buf.data, stdout);
     zbuf_free(&buf);
   } else {
-    fprintf(stderr, "%s:1:1 GPH001: %s\n", state->input, message);
+    fprintf(stderr, "%s:1:1 RGP001: %s\n", state->input, message);
     fprintf(stderr, "  expected: checked-in zero.graph synchronized with .0 projections\n");
     fprintf(stderr, "  actual: %s\n", actual);
     fprintf(stderr, "  help: run zero graph status %s\n", state->input);
@@ -245,7 +245,7 @@ static int repo_graph_direction_error(const RepositoryGraphState *state, bool js
     ZBuf buf;
     zbuf_init(&buf);
     repo_append_state_json(&buf, state, false, "sync", false);
-    zbuf_append(&buf, ",\n  \"diagnostics\": [{\"severity\":\"error\",\"code\":\"GPH002\",\"message\":\"graph sync requires exactly one direction\",\"path\":");
+    zbuf_append(&buf, ",\n  \"diagnostics\": [{\"severity\":\"error\",\"code\":\"RGP002\",\"message\":\"graph sync requires exactly one direction\",\"path\":");
     repo_append_json_string(&buf, state->input);
     zbuf_append(&buf, ",\"line\":1,\"column\":1,\"length\":1,\"expected\":\"zero graph sync --from-source or zero graph sync --from-graph\",\"actual\":");
     repo_append_json_string(&buf, actual);
@@ -253,7 +253,7 @@ static int repo_graph_direction_error(const RepositoryGraphState *state, bool js
     fputs(buf.data, stdout);
     zbuf_free(&buf);
   } else {
-    fprintf(stderr, "%s:1:1 GPH002: graph sync requires exactly one direction\n", state->input);
+    fprintf(stderr, "%s:1:1 RGP002: graph sync requires exactly one direction\n", state->input);
     fprintf(stderr, "  expected: zero graph sync --from-source or zero graph sync --from-graph\n");
     fprintf(stderr, "  actual: %s\n", actual);
     fprintf(stderr, "  help: choose whether source text or zero.graph is authoritative for this sync\n");
