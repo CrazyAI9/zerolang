@@ -774,6 +774,34 @@ assert.notEqual(invalidProjectionSync.code, 0);
 assert.equal(invalidProjectionSync.body.diagnostics[0].code, "RGP004");
 assert(!readFileSync(standaloneRepoGraphSource, "utf8").includes("projection row changed graph"));
 writeFileSync(standaloneRepoGraphStore, storeText);
+const graphMarker = "\ngraph\n";
+const standaloneRepoGraphGraphStart = storeText.indexOf(graphMarker);
+assert.notEqual(standaloneRepoGraphGraphStart, -1);
+const standaloneRepoGraphBaseArtifact = join(standaloneRepoGraphRoot, "base.program-graph");
+const standaloneRepoGraphPatchedArtifact = join(standaloneRepoGraphRoot, "graph-only-drift.program-graph");
+const standaloneRepoGraphBaseGraphText = storeText.slice(standaloneRepoGraphGraphStart + graphMarker.length);
+writeFileSync(standaloneRepoGraphBaseArtifact, standaloneRepoGraphBaseGraphText);
+const standaloneRepoGraphModule = standaloneRepoGraphBaseGraphText.match(/^node (#[^ ]+) Module /m)?.[1];
+assert(standaloneRepoGraphModule);
+const voidTypeId = graphDomainId("type", graphHashText(1469598103934665603n, "Void"));
+const graphOnlyDriftPatch = `insertEdge from="${standaloneRepoGraphModule}" to="${voidTypeId}" edge="projectionDrift" target="type" order="0"`;
+const graphOnlyDriftPatchResult = json(["graph", "patch", "--json", "--out", standaloneRepoGraphPatchedArtifact, standaloneRepoGraphBaseArtifact, "--op", graphOnlyDriftPatch]);
+assert.equal(graphOnlyDriftPatchResult.body.ok, true);
+const standaloneRepoGraphPatchedGraphText = readFileSync(standaloneRepoGraphPatchedArtifact, "utf8");
+const standaloneRepoGraphPatchedHash = standaloneRepoGraphPatchedGraphText.match(/^hash "([^"]+)"$/m)?.[1];
+assert(standaloneRepoGraphPatchedHash);
+const graphOnlyDriftStoreText = storeText
+  .slice(0, standaloneRepoGraphGraphStart + graphMarker.length)
+  .replace(/^graphHash "[^"]+"$/m, `graphHash "${standaloneRepoGraphPatchedHash}"`)
+  .replace(/^moduleHash "[^"]+"$/m, `moduleHash "${standaloneRepoGraphPatchedHash}"`) +
+  standaloneRepoGraphPatchedGraphText;
+writeFileSync(standaloneRepoGraphStore, graphOnlyDriftStoreText);
+const graphOnlyDriftStatus = json(["graph", "status", "--json", resolve(standaloneRepoGraphSource)]);
+assert.equal(graphOnlyDriftStatus.body.repositoryGraph.syncState, "conflict");
+const graphOnlyDriftSync = json(["graph", "sync", "--from-graph", "--json", resolve(standaloneRepoGraphSource)], { allowFailure: true });
+assert.notEqual(graphOnlyDriftSync.code, 0);
+assert.equal(graphOnlyDriftSync.body.diagnostics[0].code, "RGP004");
+writeFileSync(standaloneRepoGraphStore, storeText);
 const relativePackageRoot = join("/tmp", `zero-repo-graph-relative-package-${process.pid}`);
 const relativePackageSource = join(relativePackageRoot, "src", "main.0");
 const relativePackageStore = join(relativePackageRoot, "zero.graph");
