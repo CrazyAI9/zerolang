@@ -189,6 +189,21 @@ static void ir_mark_unsupported(IrProgram *ir, const char *message, int line, in
   z_backend_blocker_set(&ir->backend_blocker, NULL, NULL, NULL, "lower", ir->mir_actual);
 }
 
+static void ir_graph_init_lowering_diag(ZDiag *diag, const SourceInput *input, const ZTargetInfo *target, const IrProgram *ir, const char *fallback_path) {
+  if (!diag) return;
+  memset(diag, 0, sizeof(*diag));
+  diag->code = 2004;
+  diag->path = input && input->source_file ? input->source_file : fallback_path;
+  diag->line = ir && ir->mir_line > 0 ? ir->mir_line : 1;
+  diag->column = ir && ir->mir_column > 0 ? ir->mir_column : 1;
+  diag->length = 1;
+  snprintf(diag->message, sizeof(diag->message), "%s", ir && ir->mir_message[0] ? ir->mir_message : "typed graph MIR lowering failed");
+  snprintf(diag->expected, sizeof(diag->expected), "%s", ir && ir->mir_expected[0] ? ir->mir_expected : "typed program graph MIR subset");
+  snprintf(diag->actual, sizeof(diag->actual), "%s", ir && ir->mir_actual[0] ? ir->mir_actual : "unsupported graph construct");
+  snprintf(diag->help, sizeof(diag->help), "%s", ir && ir->mir_help[0] ? ir->mir_help : "use graph check to inspect unsupported graph constructs or choose another supported target");
+  z_backend_blocker_set(&diag->backend_blocker, target ? target->name : "", target ? target->object_format : "", z_direct_backend_name_for_emit_kind(target, "exe", NULL), "lower", diag->actual);
+}
+
 static bool ir_parse_integer_literal(const char *text, unsigned long long *out) {
   if (!text || !text[0]) return false;
   size_t text_len = strlen(text);
@@ -1223,9 +1238,13 @@ bool z_program_graph_prepare_repository_store_mir_input(const char *store_path, 
 
   z_program_graph_seed_source_metadata(input, &store.graph);
   IrProgram graph_ir = z_lower_program_graph_with_source(&store.graph, input, target);
-  bool graph_mir_valid = graph_ir.mir_valid;
-  if (graph_mir_valid) *ir = graph_ir;
-  else { z_free_ir_program(&graph_ir); *ir = z_lower_program_with_source(program, input, target); }
+  if (!graph_ir.mir_valid) {
+    ir_graph_init_lowering_diag(diag, input, target, &graph_ir, store_path);
+    z_free_ir_program(&graph_ir);
+    z_program_graph_store_free(&store);
+    return false;
+  }
+  *ir = graph_ir;
   if (input) {
     input->program_graph_hash = z_strdup(store.graph.graph_hash ? store.graph.graph_hash : "");
     input->program_graph_module_identity = z_strdup(store.graph.module_identity ? store.graph.module_identity : "");
@@ -1234,7 +1253,7 @@ bool z_program_graph_prepare_repository_store_mir_input(const char *store_path, 
     source->artifact = store_path;
     source->graph_hash = input ? input->program_graph_hash : "";
     source->module_identity = input ? input->program_graph_module_identity : "";
-    source->lowering = graph_mir_valid ? "typed-program-graph-mir" : "program-graph-ast-mir";
+    source->lowering = "typed-program-graph-mir";
     source->canonical_source = store.graph.canonical_source;
   }
   z_program_graph_store_free(&store);

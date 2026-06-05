@@ -2043,6 +2043,8 @@ const checkedInGraphDefaultShipPath = ".zero/ship/hello-linux-musl-x64";
 const checkedInGraphBuildPath = join(outDir, "checked-in-graph-build");
 const checkedInGraphRunPath = join(outDir, "checked-in-graph-run");
 const checkedInGraphShipPath = join(outDir, "checked-in-graph-ship");
+const graphMirUnsupportedRoot = join(outDir, "repository-graph-mir-unsupported");
+const graphMirUnsupportedBuildPath = join(outDir, "repository-graph-mir-unsupported-build");
 const graphViewPath = join(outDir, "hello.graph-view.0");
 const graphViewWrongOutPath = join(outDir, "hello.program-graph.txt");
 const graphCheckViewPath = join(outDir, "hello.checked.graph-view.0");
@@ -2146,6 +2148,8 @@ for (const suffix of ["", ".stripped", ".checksum", ".zeroar", ".debug.json", ".
 rmSync(checkedInGraphBuildPath, { force: true });
 rmSync(checkedInGraphRunPath, { force: true });
 rmSync(checkedInGraphShipPath, { force: true });
+rmSync(graphMirUnsupportedRoot, { force: true, recursive: true });
+rmSync(graphMirUnsupportedBuildPath, { force: true });
 rmSync(graphViewPath, { force: true });
 rmSync(graphViewWrongOutPath, { force: true });
 rmSync(graphCheckViewPath, { force: true });
@@ -2475,6 +2479,38 @@ assert.equal(checkedInGraphPackageBuildJson.sourceFile, checkedInRepositoryGraph
 assertSourceGraph(checkedInGraphPackageBuildJson, checkedInRepositoryGraphStorePath, "package:program-graph-fixture@0.1.0", "typed-program-graph-mir", false);
 assertProgramGraphCompilerInput(checkedInGraphPackageBuildJson, checkedInRepositoryGraphStorePath);
 assert.equal(checkedInGraphPackageBuildJson.artifactPath, checkedInGraphBuildPath);
+mkdirSync(graphMirUnsupportedRoot, { recursive: true });
+writeFileSync(join(graphMirUnsupportedRoot, "zero.json"), JSON.stringify({
+  package: { name: "repository-graph-mir-unsupported", version: "0.1.0" },
+  targets: { cli: { kind: "exe", main: "main.0" } },
+  repositoryGraph: { compilerInput: true },
+}, null, 2));
+writeFileSync(join(graphMirUnsupportedRoot, "main.0"), [
+  "type Point {",
+  "    x: i32,",
+  "    y: i32,",
+  "}",
+  "",
+  "pub fn main(world: World) -> Void raises {",
+  "    let point: Point = Point { x: 40, y: 2 }",
+  "    if point.x == 40 {",
+  "        check world.out.write(\"ok\\n\")",
+  "    }",
+  "}",
+].join("\n") + "\n");
+assert.equal(json(["graph", "sync", "--from-source", "--json", graphMirUnsupportedRoot]).body.ok, true);
+const graphMirUnsupportedCheckJson = json(["check", "--json", graphMirUnsupportedRoot]).body;
+assert.equal(graphMirUnsupportedCheckJson.ok, true);
+assertRepositoryGraphNativeCheck(graphMirUnsupportedCheckJson);
+const graphMirUnsupportedBuildJson = json(["build", "--json", "--target", "linux-musl-x64", "--out", graphMirUnsupportedBuildPath, graphMirUnsupportedRoot], { allowFailure: true });
+assert.notEqual(graphMirUnsupportedBuildJson.code, 0);
+assert.equal(graphMirUnsupportedBuildJson.body.diagnostics[0].code, "BLD004");
+assert.equal(graphMirUnsupportedBuildJson.body.diagnostics[0].message, "typed graph MIR local type is unsupported");
+assert.equal(graphMirUnsupportedBuildJson.body.diagnostics[0].expected, "typed program graph MIR subset");
+assert.equal(graphMirUnsupportedBuildJson.body.diagnostics[0].actual, "Point");
+assert.equal(graphMirUnsupportedBuildJson.body.diagnostics[0].backendBlocker.stage, "lower");
+assert.equal(graphMirUnsupportedBuildJson.body.diagnostics[0].backendBlocker.unsupportedFeature, "Point");
+assert.equal(existsSync(graphMirUnsupportedBuildPath), false);
 const checkedInGraphPackageDefaultBuildJson = json(["build", "--json", "--target", "linux-musl-x64", checkedInGraphPackageDir]).body;
 assert.equal(checkedInGraphPackageDefaultBuildJson.artifactPath, checkedInGraphDefaultBuildPath);
 assert.equal(zero(["run", "--out", checkedInGraphRunPath, checkedInGraphPackageDir]).stdout, "hello from zero\n");
