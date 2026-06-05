@@ -2043,6 +2043,11 @@ const checkedInGraphDefaultShipPath = ".zero/ship/hello-linux-musl-x64";
 const checkedInGraphBuildPath = join(outDir, "checked-in-graph-build");
 const checkedInGraphRunPath = join(outDir, "checked-in-graph-run");
 const checkedInGraphShipPath = join(outDir, "checked-in-graph-ship");
+const graphMirUnsupportedRoot = join(outDir, "repository-graph-mir-unsupported");
+const graphMirUnsupportedBuildPath = join(outDir, "repository-graph-mir-unsupported-build");
+const graphMirUnsupportedObjPath = join(outDir, "repository-graph-mir-unsupported.o");
+const graphMirUnsupportedDirectLlvmIrPath = join(outDir, "repository-graph-mir-unsupported-direct.ll");
+const graphMirUnsupportedLlvmIrPath = join(outDir, "repository-graph-mir-unsupported.ll");
 const graphViewPath = join(outDir, "hello.graph-view.0");
 const graphViewWrongOutPath = join(outDir, "hello.program-graph.txt");
 const graphCheckViewPath = join(outDir, "hello.checked.graph-view.0");
@@ -2146,6 +2151,11 @@ for (const suffix of ["", ".stripped", ".checksum", ".zeroar", ".debug.json", ".
 rmSync(checkedInGraphBuildPath, { force: true });
 rmSync(checkedInGraphRunPath, { force: true });
 rmSync(checkedInGraphShipPath, { force: true });
+rmSync(graphMirUnsupportedRoot, { force: true, recursive: true });
+rmSync(graphMirUnsupportedBuildPath, { force: true });
+rmSync(graphMirUnsupportedObjPath, { force: true });
+rmSync(graphMirUnsupportedDirectLlvmIrPath, { force: true });
+rmSync(graphMirUnsupportedLlvmIrPath, { force: true });
 rmSync(graphViewPath, { force: true });
 rmSync(graphViewWrongOutPath, { force: true });
 rmSync(graphCheckViewPath, { force: true });
@@ -2475,6 +2485,67 @@ assert.equal(checkedInGraphPackageBuildJson.sourceFile, checkedInRepositoryGraph
 assertSourceGraph(checkedInGraphPackageBuildJson, checkedInRepositoryGraphStorePath, "package:program-graph-fixture@0.1.0", "typed-program-graph-mir", false);
 assertProgramGraphCompilerInput(checkedInGraphPackageBuildJson, checkedInRepositoryGraphStorePath);
 assert.equal(checkedInGraphPackageBuildJson.artifactPath, checkedInGraphBuildPath);
+mkdirSync(graphMirUnsupportedRoot, { recursive: true });
+writeFileSync(join(graphMirUnsupportedRoot, "zero.json"), JSON.stringify({
+  package: { name: "repository-graph-mir-unsupported", version: "0.1.0" },
+  targets: { cli: { kind: "exe", main: "main.0" } },
+  repositoryGraph: { compilerInput: true },
+}, null, 2));
+writeFileSync(join(graphMirUnsupportedRoot, "main.0"), [
+  "type Point {",
+  "    x: i32,",
+  "    y: i32,",
+  "}",
+  "",
+  "pub fn main(world: World) -> Void raises {",
+  "    let point: Point = Point { x: 40, y: 2 }",
+  "    if point.x == 40 {",
+  "        check world.out.write(\"ok\\n\")",
+  "    }",
+  "}",
+].join("\n") + "\n");
+assert.equal(json(["graph", "sync", "--from-source", "--json", graphMirUnsupportedRoot]).body.ok, true);
+const graphMirUnsupportedCheckJson = json(["check", "--json", graphMirUnsupportedRoot]).body;
+assert.equal(graphMirUnsupportedCheckJson.ok, true);
+assertRepositoryGraphNativeCheck(graphMirUnsupportedCheckJson);
+assert.equal(graphMirUnsupportedCheckJson.targetReadiness.ok, false);
+assert.equal(graphMirUnsupportedCheckJson.targetReadiness.diagnostics[0].code, "BLD004");
+assert.equal(graphMirUnsupportedCheckJson.targetReadiness.diagnostics[0].message, "typed graph MIR local type is unsupported");
+assert.equal(graphMirUnsupportedCheckJson.targetReadiness.diagnostics[0].path, "main.0");
+assert.equal(graphMirUnsupportedCheckJson.targetReadiness.diagnostics[0].expected, "typed program graph MIR subset");
+assert.equal(graphMirUnsupportedCheckJson.targetReadiness.diagnostics[0].actual, "Point");
+assert.equal(graphMirUnsupportedCheckJson.targetReadiness.diagnostics[0].help, "use graph check to inspect unsupported graph constructs or choose another supported target");
+assert.equal(graphMirUnsupportedCheckJson.targetReadiness.diagnostics[0].backendBlocker.stage, "lower");
+assert.equal(graphMirUnsupportedCheckJson.targetReadiness.diagnostics[0].backendBlocker.unsupportedFeature, "Point");
+const graphMirUnsupportedBuildJson = json(["build", "--json", "--target", "linux-musl-x64", "--out", graphMirUnsupportedBuildPath, graphMirUnsupportedRoot], { allowFailure: true });
+assert.notEqual(graphMirUnsupportedBuildJson.code, 0);
+assert.equal(graphMirUnsupportedBuildJson.body.diagnostics[0].code, "BLD004");
+assert.equal(graphMirUnsupportedBuildJson.body.diagnostics[0].message, "typed graph MIR local type is unsupported");
+assert.equal(graphMirUnsupportedBuildJson.body.diagnostics[0].path, "main.0");
+assert.equal(graphMirUnsupportedBuildJson.body.diagnostics[0].expected, "typed program graph MIR subset");
+assert.equal(graphMirUnsupportedBuildJson.body.diagnostics[0].actual, "Point");
+assert.equal(graphMirUnsupportedBuildJson.body.diagnostics[0].backendBlocker.backend, "zero-elf64-exe");
+assert.equal(graphMirUnsupportedBuildJson.body.diagnostics[0].backendBlocker.stage, "lower");
+assert.equal(graphMirUnsupportedBuildJson.body.diagnostics[0].backendBlocker.unsupportedFeature, "Point");
+assert.equal(existsSync(graphMirUnsupportedBuildPath), false);
+const graphMirUnsupportedObjJson = json(["build", "--json", "--emit", "obj", "--target", "linux-musl-x64", "--out", graphMirUnsupportedObjPath, graphMirUnsupportedRoot], { allowFailure: true });
+assert.notEqual(graphMirUnsupportedObjJson.code, 0);
+assert.equal(graphMirUnsupportedObjJson.body.diagnostics[0].path, "main.0");
+assert.equal(graphMirUnsupportedObjJson.body.diagnostics[0].backendBlocker.backend, "zero-elf64");
+assert.equal(existsSync(graphMirUnsupportedObjPath), false);
+const graphMirUnsupportedDirectLlvmIrJson = json(["build", "--json", "--emit", "llvm-ir", "--target", "linux-musl-x64", "--out", graphMirUnsupportedDirectLlvmIrPath, graphMirUnsupportedRoot], { allowFailure: true });
+assert.notEqual(graphMirUnsupportedDirectLlvmIrJson.code, 0);
+assert.equal(graphMirUnsupportedDirectLlvmIrJson.body.diagnostics[0].message, "direct backend does not support --emit llvm-ir");
+assert.equal(graphMirUnsupportedDirectLlvmIrJson.body.diagnostics[0].path, join(graphMirUnsupportedRoot, "zero.graph"));
+assert.equal(graphMirUnsupportedDirectLlvmIrJson.body.diagnostics[0].backendBlocker.backend, "direct");
+assert.equal(graphMirUnsupportedDirectLlvmIrJson.body.diagnostics[0].backendBlocker.stage, "buildability");
+assert.equal(graphMirUnsupportedDirectLlvmIrJson.body.diagnostics[0].backendBlocker.unsupportedFeature, "llvm-ir");
+assert.equal(existsSync(graphMirUnsupportedDirectLlvmIrPath), false);
+const graphMirUnsupportedLlvmIrJson = json(["build", "--json", "--backend", "llvm", "--emit", "llvm-ir", "--target", "linux-musl-x64", "--out", graphMirUnsupportedLlvmIrPath, graphMirUnsupportedRoot], { allowFailure: true });
+assert.notEqual(graphMirUnsupportedLlvmIrJson.code, 0);
+assert.equal(graphMirUnsupportedLlvmIrJson.body.diagnostics[0].path, "main.0");
+assert.equal(graphMirUnsupportedLlvmIrJson.body.diagnostics[0].backendBlocker.backend, "llvm");
+assert.equal(existsSync(graphMirUnsupportedLlvmIrPath), false);
 const checkedInGraphPackageDefaultBuildJson = json(["build", "--json", "--target", "linux-musl-x64", checkedInGraphPackageDir]).body;
 assert.equal(checkedInGraphPackageDefaultBuildJson.artifactPath, checkedInGraphDefaultBuildPath);
 assert.equal(zero(["run", "--out", checkedInGraphRunPath, checkedInGraphPackageDir]).stdout, "hello from zero\n");

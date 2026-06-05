@@ -18,8 +18,8 @@ const fileBudgets = {
   "native/zero-c/include/zero.h": { maxLines: 990, maxStrcmpCalls: 0 },
   "native/zero-c/include/zero_runtime.h": { maxLines: 100, maxStrcmpCalls: 0 },
   "native/zero-c/src/checker.c": { maxLines: 11710, maxStrcmpCalls: 287 },
-  "native/zero-c/src/main.c": { maxLines: 13410, maxStrcmpCalls: 476 },
-  "native/zero-c/src/ir.c": { maxLines: 4212, maxStrcmpCalls: 229 },
+  "native/zero-c/src/main.c": { maxLines: 13428, maxStrcmpCalls: 476 },
+  "native/zero-c/src/ir.c": { maxLines: 4213, maxStrcmpCalls: 229 },
   "native/zero-c/src/llvm_backend_metadata.c": { maxLines: 80, maxStrcmpCalls: 0 },
   "native/zero-c/src/llvm_toolchain.c": { maxLines: 335, maxStrcmpCalls: 19 },
   "native/zero-c/src/ast.c": { maxLines: 250, maxStrcmpCalls: 0 },
@@ -86,7 +86,7 @@ const fileBudgets = {
   "native/zero-c/src/program_graph_lower.h": { maxLines: 10, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_manifest.c": { maxLines: 240, maxStrcmpCalls: 8 },
   "native/zero-c/src/program_graph_manifest.h": { maxLines: 15, maxStrcmpCalls: 0 },
-  "native/zero-c/src/program_graph_mir.c": { maxLines: 1245, maxStrcmpCalls: 3 },
+  "native/zero-c/src/program_graph_mir.c": { maxLines: 1280, maxStrcmpCalls: 3 },
   "native/zero-c/src/program_graph_node_id.c": { maxLines: 350, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_validate.c": { maxLines: 537, maxStrcmpCalls: 5 },
   "native/zero-c/src/program_graph_patch_ops.c": { maxLines: 715, maxStrcmpCalls: 11 },
@@ -899,6 +899,14 @@ function budgetViolations(files, allLargeFunctions, stdlib, backendFormats, prog
       programGraph,
     });
   }
+  if (!programGraph.repositoryGraphMirPrepTypedLowering ||
+      !programGraph.repositoryGraphMirPrepNoAstFallback ||
+      !programGraph.repositoryGraphMirPrepReportsUnsupportedFacts) {
+    violations.push({
+      kind: "program-graph-repository-mir-prep",
+      programGraph,
+    });
+  }
   if (!backendFormats.directTarget.ruleMatrix ||
       !backendFormats.directTarget.executableUsesRuleMatrix ||
       !backendFormats.directTarget.descriptorTable ||
@@ -1192,6 +1200,7 @@ const coffAarch64Source = cCodeText(texts.get("native/zero-c/src/emit_coff_aarch
 const machoArm64Source = cCodeText(texts.get("native/zero-c/src/emit_macho64.c") ?? "");
 const machoX64Source = cCodeText(texts.get("native/zero-c/src/emit_macho_x64.c") ?? "");
 const programGraphCompileSource = cCodeText(texts.get("native/zero-c/src/program_graph_compile.c") ?? "");
+const programGraphMirRaw = texts.get("native/zero-c/src/program_graph_mir.c") ?? "";
 const programGraphStoreRaw = texts.get("native/zero-c/src/program_graph_store.c") ?? "";
 const programGraphStoreTablesRaw = texts.get("native/zero-c/src/program_graph_store_tables.c") ?? "";
 const programGraphRepositoryRaw = texts.get("native/zero-c/src/program_graph_repository.c") ?? "";
@@ -1200,6 +1209,8 @@ const programGraphStoreTablesSource = cCodeText(programGraphStoreTablesRaw);
 const programGraphRepositorySource = cCodeText(programGraphRepositoryRaw);
 const repositoryGraphCheckBody = cCodeText(cBlock(main, "static int run_repository_graph_check_command"));
 const repositoryGraphCheckJsonBody = cCodeText(cBlock(main, "static void append_repository_graph_compiler_path_json"));
+const repositoryGraphMirPrepRawBody = cTextWithoutComments(cBlock(programGraphMirRaw, "bool z_program_graph_prepare_repository_store_mir_input"));
+const repositoryGraphMirPrepBody = cCodeText(cBlock(programGraphMirRaw, "bool z_program_graph_prepare_repository_store_mir_input"));
 const rawX64RegisterImmediateOpcode = /\bz_x64_append_u8\s*\(\s*(?:code|text)\s*,\s*0xb[8-9a-f]\s*\)/i;
 const rawX64RegisterImmediateC7 = /(?:\bz_x64_append_u8\s*\(\s*(?:code|text)\s*,\s*0x4[0-9a-f]\s*\)\s*;\s*)?\bz_x64_append_u8\s*\(\s*(?:code|text)\s*,\s*0xc7\s*\)\s*;\s*\bz_x64_append_u8\s*\(\s*(?:code|text)\s*,\s*0xc[0-7]\s*\)\s*;\s*\bz_x64_append_u32\s*\(/is;
 const rawX64RegisterImmediateHelperPrefix = /\bz_x64_append_u8\s*\(\s*(?:code|text)\s*,\s*0x4[0-9a-f]\s*\)\s*;\s*\bz_x64_emit_mov_eax_u32\s*\(/is;
@@ -1609,6 +1620,12 @@ const programGraph = {
     /graphToProgramLoweringUsed\\":false/.test(main) &&
     /graphNativeCheckerUsed\\":true/.test(main) &&
     /astToMirFallbackUsed\\":false/.test(main),
+  repositoryGraphMirPrepTypedLowering: /z_lower_program_graph_with_source\s*\(/.test(repositoryGraphMirPrepBody) &&
+    /source\s*->\s*lowering\s*=\s*"typed-program-graph-mir"/.test(repositoryGraphMirPrepRawBody),
+  repositoryGraphMirPrepNoAstFallback: !/z_lower_program_with_source\s*\(/.test(repositoryGraphMirPrepBody) &&
+    !/program-graph-ast-mir/.test(repositoryGraphMirPrepRawBody),
+  repositoryGraphMirPrepReportsUnsupportedFacts: /ir_graph_init_lowering_diag\s*\(/.test(repositoryGraphMirPrepBody) &&
+    /graph_ir\.mir_valid/.test(repositoryGraphMirPrepBody),
 };
 const violations = budgetViolations(files, allLargeFunctions, stdlib, backendFormats, programGraph);
 

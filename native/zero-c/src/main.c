@@ -10151,19 +10151,23 @@ static void init_lowering_backend_diag(ZDiag *diag, const SourceInput *input, co
   bool llvm_request = command &&
                       ((command->emit == EMIT_LLVM_IR && z_backend_request_is_llvm(command->backend, emit_kind)) ||
                        command_uses_llvm_native_exe(command, emit_kind));
+  bool typed_graph_mir_failure = ir && memcmp(ir->mir_expected, "typed program graph MIR subset", sizeof("typed program graph MIR subset")) == 0;
   memset(diag, 0, sizeof(*diag));
   diag->code = llvm_request || !ir || strcmp(ir->mir_expected, "direct backend MIR contract") != 0 ? 2004 : 4004;
-  diag->path = input ? input->source_file : NULL;
+  diag->path = typed_graph_mir_failure && ir->mir_path && ir->mir_path[0] ? ir->mir_path : (input ? input->source_file : NULL);
   diag->line = ir && ir->mir_line > 0 ? ir->mir_line : 1;
   diag->column = ir && ir->mir_column > 0 ? ir->mir_column : 1;
   diag->length = 1;
   snprintf(diag->message, sizeof(diag->message), "%s",
+           typed_graph_mir_failure && ir->mir_message[0] ? ir->mir_message :
            llvm_request ? "LLVM IR backend cannot lower this MIR program yet" :
            (ir && ir->mir_message[0] ? ir->mir_message : "direct backend lowering failed"));
   snprintf(diag->expected, sizeof(diag->expected), "%s",
+           typed_graph_mir_failure && ir->mir_expected[0] ? ir->mir_expected :
            llvm_request ? "LLVM IR scalar, fixed-array, and byte-view MIR subset" : z_direct_backend_expected(target));
   snprintf(diag->actual, sizeof(diag->actual), "%s", ir && ir->mir_actual[0] ? ir->mir_actual : "unsupported construct");
   snprintf(diag->help, sizeof(diag->help), "%s",
+           typed_graph_mir_failure && ir->mir_help[0] ? ir->mir_help :
            llvm_request
              ? "use --backend llvm --emit llvm-ir for scalar code, fixed arrays, byte views, readonly strings, and primitive std.mem helpers"
              : z_direct_backend_help(target));
@@ -12839,8 +12843,22 @@ int main(int argc, char **argv) {
     ZProgramGraphArtifactSource graph_source = {0};
     bool graph_mir_command = direct_graph_manifest_command || direct_graph_source_command || graph_build_command || graph_run_command;
     long long graph_lower_started = now_ms();
+    if (command.repository_graph_input && command.emit == EMIT_LLVM_IR) {
+      if (!z_backend_request_is_llvm(command.backend, emit_kind_name(command.emit))) {
+        init_direct_llvm_ir_unavailable_diag(&diag, &command, target, command.input);
+        if (command.json) print_command_diag_json(&command, diag.path ? diag.path : command.input, &diag);
+        else print_diag(diag.path ? diag.path : command.input, &diag);
+        return 1;
+      }
+      if (!graph_check_text_eq(command.command, "build")) {
+        init_llvm_ir_build_only_diag(&diag, &command, target, command.input);
+        if (command.json) print_command_diag_json(&command, diag.path ? diag.path : command.input, &diag);
+        else print_diag(diag.path ? diag.path : command.input, &diag);
+        return 1;
+      }
+    }
     bool prepared_graph = command.repository_graph_input
-      ? z_program_graph_prepare_repository_store_mir_input(command.input, target, &program, &input, &graph_prepared_ir, &graph_source, &diag)
+      ? z_program_graph_prepare_repository_store_mir_input(command.input, target, emit_kind_name(command.emit), command.backend, &program, &input, &graph_prepared_ir, &graph_source, &diag)
       : (graph_mir_command
           ? z_program_graph_prepare_artifact_mir_input(command.input, target, &program, &input, &graph_prepared_ir, &graph_source, &diag)
           : z_program_graph_prepare_artifact_input(command.input, target, &program, &input, &graph_source, &diag));
