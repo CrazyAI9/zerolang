@@ -2229,7 +2229,7 @@ static void append_compiler_caches_json_ex(ZBuf *buf, const SourceInput *input, 
     ? graph_compile_cache_key(input, target, profile, "emitted-object", graph_hash)
     : compile_cache_key(input, target, profile, "emitted-object");
   zbuf_append(buf, "[");
-#define APPEND_CACHE(label, key, hit, invalidates) do { \
+#define APPEND_CACHE(label, key, hit, invalidates, key_inputs) do { \
     if (wrote) zbuf_append(buf, ", "); \
     zbuf_append(buf, "{\"name\":"); \
     append_json_string(buf, label); \
@@ -2243,9 +2243,7 @@ static void append_compiler_caches_json_ex(ZBuf *buf, const SourceInput *input, 
       zbuf_append(buf, ",\"graphHash\":"); \
       append_json_string(buf, graph_hash); \
     } \
-    if (graph_input) { \
-      zbuf_append(buf, ",\"graphKeyInputs\":[\"graphHash\",\"moduleHash\",\"nodeHashes\",\"typeFacts\",\"symbolFacts\",\"importGraph\",\"targetFacts\",\"profile\",\"compilerVersion\",\"packageDependencies\"],\"parserArtifactsInKey\":false"); \
-    } \
+    if (graph_input) { zbuf_append(buf, ",\"graphKeyInputs\":"); zbuf_append(buf, key_inputs); zbuf_append(buf, ",\"parserArtifactsInKey\":false"); } \
     zbuf_appendf(buf, ",\"dependencyGraphHash\":\"%016llx\",\"lockfileHash\":\"%016llx\",\"invalidatesOn\":", \
                  (unsigned long long)(input ? input->dependency_graph_hash : 0), \
                  (unsigned long long)(input ? input->lockfile_hash : 0)); \
@@ -2254,11 +2252,11 @@ static void append_compiler_caches_json_ex(ZBuf *buf, const SourceInput *input, 
     wrote = true; \
   } while (0)
   bool wrote = false;
-  APPEND_CACHE("parseTree", parse_key, input && input->parse_cache_hit, graph_input ? "ProgramGraph input" : "source");
-  APPEND_CACHE("interface", interface_key, input && input->interface_cache_hit, graph_input ? "graph public symbols/import graph" : "public symbols/import graph");
-  APPEND_CACHE("checkedBody", check_key, input && input->check_cache_hit, graph_input ? "ProgramGraph input or target" : "source or target");
-  APPEND_CACHE("specialization", specialization_key, input && input->specialization_cache_hit, graph_input ? "ProgramGraph input, target, or profile" : "source, target, or profile");
-  APPEND_CACHE("emittedObject", object_key, input && input->emitted_object_cache_hit, graph_input ? "ProgramGraph input, target, profile, or backend" : "source, target, profile, or backend");
+  APPEND_CACHE("parseTree", parse_key, input && input->parse_cache_hit, graph_input ? "ProgramGraph input" : "source", "[\"graphHash\",\"moduleHash\",\"nodeHashes\",\"typeFacts\",\"symbolFacts\",\"importGraph\",\"compilerVersion\",\"packageDependencies\"]");
+  APPEND_CACHE("interface", interface_key, input && input->interface_cache_hit, graph_input ? "graph public symbols/import graph" : "public symbols/import graph", "[\"graphHash\",\"moduleHash\",\"symbolFacts\",\"importGraph\"]");
+  APPEND_CACHE("checkedBody", check_key, input && input->check_cache_hit, graph_input ? "ProgramGraph input or target" : "source or target", "[\"graphHash\",\"moduleHash\",\"nodeHashes\",\"typeFacts\",\"symbolFacts\",\"importGraph\",\"targetFacts\",\"compilerVersion\",\"packageDependencies\"]");
+  APPEND_CACHE("specialization", specialization_key, input && input->specialization_cache_hit, graph_input ? "ProgramGraph input, target, or profile" : "source, target, or profile", "[\"graphHash\",\"moduleHash\",\"nodeHashes\",\"typeFacts\",\"symbolFacts\",\"importGraph\",\"targetFacts\",\"profile\",\"compilerVersion\",\"packageDependencies\"]");
+  APPEND_CACHE("emittedObject", object_key, input && input->emitted_object_cache_hit, graph_input ? "ProgramGraph input, target, profile, or backend" : "source, target, profile, or backend", "[\"graphHash\",\"moduleHash\",\"nodeHashes\",\"typeFacts\",\"symbolFacts\",\"importGraph\",\"targetFacts\",\"profile\",\"compilerVersion\",\"packageDependencies\"]");
 #undef APPEND_CACHE
   zbuf_append(buf, "]");
 }
@@ -2598,7 +2596,7 @@ static bool graph_check_target_capabilities_ok(const ZProgramGraph *graph, const
 
 static void append_repository_graph_default_readiness_json(ZBuf *buf, const char *projection_state, const ZProgramGraphResolutionFacts *resolution, long long load_ms, long long validate_ms, long long resolve_ms, long long check_ms, long long lower_ms, long long cache_ms, bool validation_in_load, bool target_ready, bool graph_mir_used) {
   bool resolution_ok = resolution && resolution->diagnostic_len == 0;
-  bool compiler_input_ready = resolution_ok && graph_mir_used;
+  bool compiler_input_ready = resolution_ok && graph_mir_used && target_ready;
   bool within_budget =
     load_ms <= 50 &&
     validate_ms <= 50 &&
@@ -2610,7 +2608,7 @@ static void append_repository_graph_default_readiness_json(ZBuf *buf, const char
   zbuf_append(buf, compiler_input_ready ? "true" : "false");
   zbuf_append(buf, ",\"claim\":");
   append_json_string(buf, compiler_input_ready ? "ready-for-opted-in-repository-graph-input" : "blocked");
-  zbuf_append(buf, ",\"sourceFreeCompile\":true,\"sourceProjectionRequired\":false,\"sourceProjectionState\":");
+  zbuf_appendf(buf, ",\"sourceFreeCompile\":%s,\"sourceProjectionRequired\":false,\"sourceProjectionState\":", compiler_input_ready ? "true" : "false");
   append_json_string(buf, projection_state ? projection_state : "unavailable");
   zbuf_append(buf, ",\"targetReadinessOk\":");
   zbuf_append(buf, target_ready ? "true" : "false");

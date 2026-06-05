@@ -61,8 +61,10 @@ function assertRepositoryGraphNativeCheck(body, sourceProjectionState = "clean")
   assert.equal(body.graphCompiler.checking.sourceTextAuthority, false);
   assert.equal(body.graphCompiler.semanticFacts.state, "typed-facts");
   assert.equal(body.graphCompiler.semanticFacts.ok, true);
-  assert.equal(body.graphCompiler.defaultReadiness.compilerInputReady, true);
-  assert.equal(body.graphCompiler.defaultReadiness.sourceFreeCompile, true);
+  const targetReady = body.targetReadiness?.ok === true;
+  assert.equal(body.graphCompiler.defaultReadiness.compilerInputReady, targetReady);
+  assert.equal(body.graphCompiler.defaultReadiness.claim, targetReady ? "ready-for-opted-in-repository-graph-input" : "blocked");
+  assert.equal(body.graphCompiler.defaultReadiness.sourceFreeCompile, targetReady);
   assert.equal(body.graphCompiler.defaultReadiness.sourceProjectionRequired, false);
   assert.equal(body.graphCompiler.defaultReadiness.sourceProjectionState, sourceProjectionState);
   assert.equal(body.graphCompiler.defaultReadiness.fallback.astToMirFallbackUsed, false);
@@ -70,7 +72,7 @@ function assertRepositoryGraphNativeCheck(body, sourceProjectionState = "clean")
   assert.equal(body.graphCompiler.defaultReadiness.cacheInvalidation.parserArtifactsInKey, false);
   assert(body.graphCompiler.defaultReadiness.cacheInvalidation.keyedBy.includes("nodeHashes"));
   assert(body.graphCompiler.defaultReadiness.cacheInvalidation.keyedBy.includes("symbolFacts"));
-  assert.equal(typeof body.graphCompiler.defaultReadiness.targetReadinessOk, "boolean");
+  assert.equal(body.graphCompiler.defaultReadiness.targetReadinessOk, targetReady);
   assert.equal(body.compileTime.deterministic, true);
   assert.equal(body.targetReadiness.languageOk, true);
   assert.equal(body.safetyFacts.schemaVersion, 1);
@@ -88,7 +90,18 @@ function assertSourceGraph(body, artifact, moduleIdentity, lowering = "typed-pro
 function assertProgramGraphCompilerInput(body, artifact) {
   assert(body.compilerCaches.every((cache) => cache.sourceKind === "program-graph" && cache.graphHash === body.graph.graphHash));
   assert(body.compilerCaches.every((cache) => cache.parserArtifactsInKey === false));
-  assert(body.compilerCaches.every((cache) => cache.graphKeyInputs.includes("graphHash") && cache.graphKeyInputs.includes("nodeHashes") && cache.graphKeyInputs.includes("typeFacts") && cache.graphKeyInputs.includes("symbolFacts")));
+  const caches = new Map(body.compilerCaches.map((cache) => [cache.name, cache]));
+  const assertCacheInputs = (name, includes, excludes = []) => {
+    const cache = caches.get(name);
+    assert(cache, `missing compiler cache ${name}`);
+    for (const key of includes) assert(cache.graphKeyInputs.includes(key), `${name} cache key inputs should include ${key}`);
+    for (const key of excludes) assert(!cache.graphKeyInputs.includes(key), `${name} cache key inputs should not include ${key}`);
+  };
+  assertCacheInputs("parseTree", ["graphHash", "nodeHashes", "compilerVersion", "packageDependencies"], ["targetFacts", "profile"]);
+  assertCacheInputs("interface", ["graphHash", "symbolFacts", "importGraph"], ["targetFacts", "profile", "compilerVersion", "packageDependencies"]);
+  assertCacheInputs("checkedBody", ["graphHash", "targetFacts", "compilerVersion", "packageDependencies"], ["profile"]);
+  assertCacheInputs("specialization", ["graphHash", "targetFacts", "profile", "compilerVersion", "packageDependencies"]);
+  assertCacheInputs("emittedObject", ["graphHash", "targetFacts", "profile", "compilerVersion", "packageDependencies"]);
   assert.equal(body.compilerCaches.find((cache) => cache.name === "parseTree").invalidatesOn, "ProgramGraph input");
   assert.equal(body.incrementalInvalidation.sourceKind, "program-graph");
   assert.equal(body.incrementalInvalidation.graphInput.artifact, artifact);
