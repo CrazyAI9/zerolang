@@ -1,6 +1,7 @@
 #include "program_graph_repository_merge.h"
 
 #include "program_graph_projection.h"
+#include "program_graph_reconcile_apply.h"
 #include "program_graph_view.h"
 #include "zero.h"
 
@@ -111,7 +112,7 @@ static bool merge_add_node(ZProgramGraph *graph, const ZProgramGraphNode *node) 
   return true;
 }
 
-static bool merge_node_fact_eq(const ZProgramGraphNode *left, const ZProgramGraphNode *right) {
+static bool merge_node_semantic_eq(const ZProgramGraphNode *left, const ZProgramGraphNode *right) {
   return left &&
          right &&
          merge_text_eq(left->id, right->id) &&
@@ -119,9 +120,6 @@ static bool merge_node_fact_eq(const ZProgramGraphNode *left, const ZProgramGrap
          merge_text_eq(left->name, right->name) &&
          merge_text_eq(left->type, right->type) &&
          merge_text_eq(left->value, right->value) &&
-         merge_text_eq(left->path, right->path) &&
-         left->line == right->line &&
-         left->column == right->column &&
          left->is_public == right->is_public &&
          left->is_mutable == right->is_mutable &&
          left->is_static == right->is_static &&
@@ -130,9 +128,18 @@ static bool merge_node_fact_eq(const ZProgramGraphNode *left, const ZProgramGrap
          merge_text_eq(left->node_hash, right->node_hash);
 }
 
-static bool merge_node_changed_from_base(const ZProgramGraphNode *base, const ZProgramGraphNode *side) {
+static bool merge_node_projection_eq(const ZProgramGraphNode *left, const ZProgramGraphNode *right) {
+  return merge_node_semantic_eq(left, right) && merge_text_eq(left->path, right->path);
+}
+
+static bool merge_node_payload_changed_from_base(const ZProgramGraphNode *base, const ZProgramGraphNode *side) {
   if (!base || !side) return base != side;
-  return !merge_node_fact_eq(base, side);
+  return !merge_node_semantic_eq(base, side);
+}
+
+static bool merge_node_path_changed_from_base(const ZProgramGraphNode *base, const ZProgramGraphNode *side) {
+  if (!base || !side) return base != side;
+  return !merge_text_eq(base->path, side->path);
 }
 
 static void merge_semantic_object(const ZProgramGraphNode *node, char *buf, size_t len) {
@@ -160,19 +167,40 @@ static bool merge_nodes(
     const ZProgramGraphNode *base_node = &base->nodes[i];
     const ZProgramGraphNode *left_node = merge_node_by_id(left, base_node->id);
     const ZProgramGraphNode *right_node = merge_node_by_id(right, base_node->id);
-    bool left_changed = merge_node_changed_from_base(base_node, left_node);
-    bool right_changed = merge_node_changed_from_base(base_node, right_node);
+    bool left_deleted = left_node == NULL;
+    bool right_deleted = right_node == NULL;
+    bool left_payload_changed = merge_node_payload_changed_from_base(base_node, left_node);
+    bool right_payload_changed = merge_node_payload_changed_from_base(base_node, right_node);
+    bool left_path_changed = merge_node_path_changed_from_base(base_node, left_node);
+    bool right_path_changed = merge_node_path_changed_from_base(base_node, right_node);
+    bool left_changed = left_payload_changed || left_path_changed;
+    bool right_changed = right_payload_changed || right_path_changed;
     const ZProgramGraphNode *chosen = base_node;
-    if (left_changed && right_changed) {
-      if (!left_node && !right_node) {
-        result->left_changes++;
-        result->right_changes++;
-        continue;
-      }
-      if (left_node && right_node && merge_node_fact_eq(left_node, right_node)) {
+    if ((left_deleted && right_changed) || (right_deleted && left_changed)) {
+      char object[160];
+      merge_semantic_object(left_node ? left_node : (right_node ? right_node : base_node), object, sizeof(object));
+      return merge_fail(result,
+                        diag,
+                        "RGM002",
+                        "repository graph node was changed on both sides",
+                        base_node->id,
+                        base_node->path,
+                        object,
+                        "node");
+    }
+    if (left_deleted && right_deleted) {
+      result->left_changes++;
+      result->right_changes++;
+      continue;
+    }
+    if (left_deleted || right_deleted) {
+      if (left_deleted) result->left_changes++;
+      if (right_deleted) result->right_changes++;
+      continue;
+    }
+    if (left_payload_changed && right_payload_changed) {
+      if (merge_node_semantic_eq(left_node, right_node)) {
         chosen = left_node;
-        result->left_changes++;
-        result->right_changes++;
       } else {
         char object[160];
         merge_semantic_object(left_node ? left_node : (right_node ? right_node : base_node), object, sizeof(object));
@@ -185,23 +213,36 @@ static bool merge_nodes(
                           object,
                           "node");
       }
-    } else if (left_changed) {
-      result->left_changes++;
-      if (!left_node) continue;
+    } else if (left_payload_changed) {
       chosen = left_node;
-    } else if (right_changed) {
-      result->right_changes++;
-      if (!right_node) continue;
+    } else if (right_payload_changed) {
       chosen = right_node;
     }
-    merge_add_node(out, chosen);
+    if (left_path_changed && right_path_changed && !merge_text_eq(left_node->path, right_node->path)) {
+      char object[160];
+      merge_semantic_object(chosen, object, sizeof(object));
+      return merge_fail(result,
+                        diag,
+                        "RGM002",
+                        "repository graph node source path changed on both sides",
+                        base_node->id,
+                        base_node->path,
+                        object,
+                        "path");
+    }
+    ZProgramGraphNode merged_node = *chosen;
+    if (left_path_changed) merged_node.path = left_node->path;
+    else if (right_path_changed) merged_node.path = right_node->path;
+    if (left_changed) result->left_changes++;
+    if (right_changed) result->right_changes++;
+    merge_add_node(out, &merged_node);
   }
 
   for (size_t i = 0; left && i < left->node_len; i++) {
     const ZProgramGraphNode *left_node = &left->nodes[i];
     if (merge_graph_has_node(base, left_node->id) || merge_graph_has_node(out, left_node->id)) continue;
     const ZProgramGraphNode *right_node = merge_node_by_id(right, left_node->id);
-    if (right_node && !merge_node_fact_eq(left_node, right_node)) {
+    if (right_node && !merge_node_projection_eq(left_node, right_node)) {
       char object[160];
       merge_semantic_object(left_node, object, sizeof(object));
       return merge_fail(result,
@@ -263,7 +304,7 @@ static bool merge_graph_source_path_eq(const ZProgramGraph *merged, const ZProgr
     const ZProgramGraphNode *node = &merged->nodes[i];
     if (!merge_node_is_source_path(node, path)) continue;
     const ZProgramGraphNode *side_node = merge_node_by_id(side, node->id);
-    if (!merge_node_fact_eq(node, side_node)) return false;
+    if (!merge_node_projection_eq(node, side_node)) return false;
     merged_nodes++;
   }
   for (size_t i = 0; side && i < side->node_len; i++) {
@@ -505,6 +546,45 @@ static bool merge_projection_candidate_valid(
          merge_graph_source_path_eq(&merged->graph, &side->graph, path);
 }
 
+static bool merge_refresh_graph_from_projections(ZProgramGraphStore *store, ZRepositoryGraphMergeResult *result, ZDiag *diag) {
+  ZProgramGraph refreshed;
+  z_program_graph_init(&refreshed);
+  ZDiag projection_diag = {0};
+  bool ok = z_program_graph_projection_graph_from_store(store, NULL, &refreshed, &projection_diag);
+  if (!ok) {
+    z_program_graph_free(&refreshed);
+    return merge_fail(result,
+                      diag,
+                      "RGM005",
+                      projection_diag.message[0] ? projection_diag.message : "repository graph source projection does not match stored graph",
+                      "",
+                      store ? store->path : "",
+                      projection_diag.actual[0] ? projection_diag.actual : "projection graph mismatch",
+                      "projection");
+  }
+  if (ok) {
+    ZProgramGraphIdentityReconcile identity = {0};
+    ok = z_program_graph_preserve_source_node_ids(&store->graph, &refreshed, &identity);
+    if (!ok) {
+      ok = merge_fail(result,
+                      diag,
+                      "RGM005",
+                      identity.message[0] ? identity.message : "repository graph source projection identity is ambiguous",
+                      identity.node_id,
+                      store ? store->path : "",
+                      identity.candidate_id[0] ? identity.candidate_id : "ambiguous projection identity",
+                      "projection");
+    }
+  }
+  if (ok) {
+    z_program_graph_free(&store->graph);
+    store->graph = refreshed;
+  } else {
+    z_program_graph_free(&refreshed);
+  }
+  return ok;
+}
+
 static bool merge_projection_conflict(
   ZRepositoryGraphMergeResult *result,
   ZDiag *diag,
@@ -605,6 +685,7 @@ static bool merge_build_projections(
     }
   }
   merge_sort_projections(store);
+  if (store && store->projection_len > 0 && !merge_refresh_graph_from_projections(store, result, diag)) return false;
   if (store && store->projection_len > 0 && !z_program_graph_projection_store_matches_graph(store, NULL, diag)) {
     return merge_fail(result,
                       diag,

@@ -1471,6 +1471,57 @@ const mergeRepoGraphSyncProjection = json(["graph", "sync", "--from-graph", "--j
 assert.equal(mergeRepoGraphSyncProjection.body.repositoryGraph.syncState, "clean");
 assert(readFileSync(mergeRepoGraphSource, "utf8").includes("return 10"));
 assert(readFileSync(mergeRepoGraphSource, "utf8").includes("return 20"));
+const mergeDeleteShiftRoot = join("/tmp", `zero-repo-graph-merge-delete-shift-${process.pid}`);
+const mergeDeleteShiftSource = join(mergeDeleteShiftRoot, "main.0");
+const mergeDeleteShiftStore = join(mergeDeleteShiftRoot, "zero.graph");
+rmSync(mergeDeleteShiftRoot, { force: true, recursive: true });
+mkdirSync(mergeDeleteShiftRoot, { recursive: true });
+const mergeDeleteShiftOriginal = `fn alpha() -> i32 {
+    return 1
+}
+
+fn beta() -> i32 {
+    return 2
+}
+
+pub fn main(world: World) -> Void raises {
+    check world.out.write("merge delete shift ok\\n")
+}
+`;
+writeFileSync(mergeDeleteShiftSource, mergeDeleteShiftOriginal);
+json(["graph", "sync", "--from-source", "--json", mergeDeleteShiftSource]);
+writeFileSync(join(mergeDeleteShiftRoot, "base.graph"), readFileSync(mergeDeleteShiftStore, "utf8"));
+writeFileSync(mergeDeleteShiftSource, mergeDeleteShiftOriginal.replace(/fn alpha\(\) -> i32 \{\n    return 1\n\}\n\n/, ""));
+json(["graph", "sync", "--from-source", "--json", mergeDeleteShiftSource]);
+writeFileSync(join(mergeDeleteShiftRoot, "left.graph"), readFileSync(mergeDeleteShiftStore, "utf8"));
+writeFileSync(mergeDeleteShiftStore, readFileSync(join(mergeDeleteShiftRoot, "base.graph"), "utf8"));
+writeFileSync(mergeDeleteShiftSource, mergeDeleteShiftOriginal.replace("return 2", "return 20"));
+json(["graph", "sync", "--from-source", "--json", mergeDeleteShiftSource]);
+writeFileSync(join(mergeDeleteShiftRoot, "right.graph"), readFileSync(mergeDeleteShiftStore, "utf8"));
+writeFileSync(mergeDeleteShiftStore, readFileSync(join(mergeDeleteShiftRoot, "base.graph"), "utf8"));
+writeFileSync(mergeDeleteShiftSource, mergeDeleteShiftOriginal);
+const mergeDeleteShift = json([
+  "graph",
+  "merge",
+  "--json",
+  "--base",
+  join(mergeDeleteShiftRoot, "base.graph"),
+  "--left",
+  join(mergeDeleteShiftRoot, "left.graph"),
+  "--right",
+  join(mergeDeleteShiftRoot, "right.graph"),
+  mergeDeleteShiftRoot,
+]);
+assert.equal(mergeDeleteShift.code, 0);
+assert.equal(mergeDeleteShift.body.merge.conflicts, 0);
+const mergeDeleteShiftText = readFileSync(mergeDeleteShiftStore, "utf8");
+assert(!mergeDeleteShiftText.includes('name:"alpha"'));
+assert(mergeDeleteShiftText.includes('name:"beta"'));
+assert(mergeDeleteShiftText.includes('value:"20"'));
+const mergeDeleteShiftSyncProjection = json(["graph", "sync", "--from-graph", "--json", mergeDeleteShiftSource]);
+assert.equal(mergeDeleteShiftSyncProjection.body.repositoryGraph.syncState, "clean");
+assert(!readFileSync(mergeDeleteShiftSource, "utf8").includes("fn alpha"));
+assert(readFileSync(mergeDeleteShiftSource, "utf8").includes("return 20"));
 const mergeNoopProjectionRoot = join("/tmp", `zero-repo-graph-merge-noop-projection-${process.pid}`);
 const mergeNoopProjectionSource = join(mergeNoopProjectionRoot, "main.0");
 const mergeNoopProjectionStore = join(mergeNoopProjectionRoot, "zero.graph");
