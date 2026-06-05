@@ -70,7 +70,7 @@ const fileBudgets = {
   "native/zero-c/src/mir_verify.h": { maxLines: 50, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph.c": { maxLines: 40, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_build.c": { maxLines: 60, maxStrcmpCalls: 8 },
-  "native/zero-c/src/program_graph_build.h": { maxLines: 20, maxStrcmpCalls: 0 },
+  "native/zero-c/src/program_graph_build.h": { maxLines: 25, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_command.c": { maxLines: 150, maxStrcmpCalls: 2 },
   "native/zero-c/src/program_graph_command.h": { maxLines: 30, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_compile.c": { maxLines: 95, maxStrcmpCalls: 1 },
@@ -92,8 +92,8 @@ const fileBudgets = {
   "native/zero-c/src/program_graph_patch_ops.c": { maxLines: 715, maxStrcmpCalls: 11 },
   "native/zero-c/src/program_graph_patch.c": { maxLines: 591, maxStrcmpCalls: 28 },
   "native/zero-c/src/program_graph_patch.h": { maxLines: 63, maxStrcmpCalls: 0 },
-  "native/zero-c/src/program_graph_projection.c": { maxLines: 425, maxStrcmpCalls: 1 },
-  "native/zero-c/src/program_graph_projection.h": { maxLines: 21, maxStrcmpCalls: 0 },
+  "native/zero-c/src/program_graph_projection.c": { maxLines: 465, maxStrcmpCalls: 1 },
+  "native/zero-c/src/program_graph_projection.h": { maxLines: 25, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_projection_validate.c": { maxLines: 379, maxStrcmpCalls: 1 },
   "native/zero-c/src/program_graph_reconcile.c": { maxLines: 400, maxStrcmpCalls: 1 },
   "native/zero-c/src/program_graph_reconcile.h": { maxLines: 30, maxStrcmpCalls: 0 },
@@ -907,6 +907,16 @@ function budgetViolations(files, allLargeFunctions, stdlib, backendFormats, prog
       programGraph,
     });
   }
+  if (!programGraph.repositoryCompilerInputSourceFree ||
+      !programGraph.repositoryCompilerInputProjectionStatus ||
+      !programGraph.repositoryGraphSourceLocationsNotSemanticMatch ||
+      !programGraph.repositoryProjectionValidationIgnoresSourceLocation ||
+      !programGraph.repositoryArtifactProjectionState) {
+    violations.push({
+      kind: "program-graph-repository-source-free-input",
+      programGraph,
+    });
+  }
   if (!backendFormats.directTarget.ruleMatrix ||
       !backendFormats.directTarget.executableUsesRuleMatrix ||
       !backendFormats.directTarget.descriptorTable ||
@@ -1204,11 +1214,16 @@ const programGraphMirRaw = texts.get("native/zero-c/src/program_graph_mir.c") ??
 const programGraphStoreRaw = texts.get("native/zero-c/src/program_graph_store.c") ?? "";
 const programGraphStoreTablesRaw = texts.get("native/zero-c/src/program_graph_store_tables.c") ?? "";
 const programGraphRepositoryRaw = texts.get("native/zero-c/src/program_graph_repository.c") ?? "";
+const programGraphRepositoryInputRaw = texts.get("native/zero-c/src/program_graph_repository_input.c") ?? "";
+const programGraphProjectionValidateRaw = texts.get("native/zero-c/src/program_graph_projection_validate.c") ?? "";
 const programGraphStoreSource = cCodeText(programGraphStoreRaw);
 const programGraphStoreTablesSource = cCodeText(programGraphStoreTablesRaw);
 const programGraphRepositorySource = cCodeText(programGraphRepositoryRaw);
+const programGraphRepositoryInputSource = cCodeText(programGraphRepositoryInputRaw);
+const programGraphProjectionValidateSource = cCodeText(programGraphProjectionValidateRaw);
 const repositoryGraphCheckBody = cCodeText(cBlock(main, "static int run_repository_graph_check_command"));
 const repositoryGraphCheckJsonBody = cCodeText(cBlock(main, "static void append_repository_graph_compiler_path_json"));
+const directManifestGraphInputBody = cCodeText(cBlock(main, "static int resolve_direct_command_manifest_graph_input"));
 const repositoryGraphMirPrepRawBody = cTextWithoutComments(cBlock(programGraphMirRaw, "bool z_program_graph_prepare_repository_store_mir_input"));
 const repositoryGraphMirPrepBody = cCodeText(cBlock(programGraphMirRaw, "bool z_program_graph_prepare_repository_store_mir_input"));
 const rawX64RegisterImmediateOpcode = /\bz_x64_append_u8\s*\(\s*(?:code|text)\s*,\s*0xb[8-9a-f]\s*\)/i;
@@ -1626,6 +1641,17 @@ const programGraph = {
     !/program-graph-ast-mir/.test(repositoryGraphMirPrepRawBody),
   repositoryGraphMirPrepReportsUnsupportedFacts: /ir_graph_init_lowering_diag\s*\(/.test(repositoryGraphMirPrepBody) &&
     /graph_ir\.mir_valid/.test(repositoryGraphMirPrepBody),
+  repositoryCompilerInputSourceFree: /z_repository_graph_verify_compiler_input\s*\(\s*command->input\s*,\s*target\s*,\s*command->json\s*,\s*&store_path\s*\)/.test(directManifestGraphInputBody) &&
+    !/load_graph_from_checked_current_source\s*\(/.test(directManifestGraphInputBody) &&
+    !/SourceInput\s+source_input/.test(directManifestGraphInputBody),
+  repositoryCompilerInputProjectionStatus: /projectionValidity/.test(programGraphRepositoryInputRaw) &&
+    /source-missing/.test(programGraphRepositoryInputRaw) &&
+    /z_program_graph_projection_state_label\s*\(/.test(programGraphRepositoryInputSource),
+  repositoryGraphSourceLocationsNotSemanticMatch: !/store_source_locations_match_graph\s*\(/.test(programGraphStoreSource) &&
+    /store_source_paths_match_graph\s*\(/.test(programGraphStoreSource),
+  repositoryProjectionValidationIgnoresSourceLocation: !/expected->line\s*!=\s*actual->line|expected->column\s*!=\s*actual->column|actual->line\s*==\s*expected->line|actual->column\s*==\s*expected->column/.test(programGraphProjectionValidateSource),
+  repositoryArtifactProjectionState: /sourceProjectionState/.test(main) &&
+    /source_projection_state/.test(programGraphMirRaw),
 };
 const violations = budgetViolations(files, allLargeFunctions, stdlib, backendFormats, programGraph);
 

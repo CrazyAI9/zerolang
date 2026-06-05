@@ -39,7 +39,7 @@ function execFileAsync(file, args = [], options = {}) {
   });
 }
 
-function assertRepositoryGraphNativeCheck(body, sourceProjectionState = "available") {
+function assertRepositoryGraphNativeCheck(body, sourceProjectionState = "clean") {
   assert.equal(body.graphCompiler.input, "repository-graph-store");
   assert.equal(body.graphCompiler.graphStoreLoaded, true);
   assert.equal(body.graphCompiler.sourceProjectionRequiredForCompilerInput, false);
@@ -3488,6 +3488,8 @@ const programGraphSourceFixturePath = "conformance/program-graph/hello.0";
 const programGraphSourceFixturePackage = "conformance/program-graph";
 const programGraphSourceFixtureStorePath = "conformance/program-graph/zero.graph";
 const programGraphSourceFixtureRunPath = `${outDir}/program-graph-fixture-run`;
+const programGraphSourceFreePackage = `${outDir}/program-graph-source-free`;
+const programGraphSourceFreeRunPath = `${outDir}/program-graph-source-free-run`;
 const programGraphSourceFixtureDriftPackage = `${outDir}/program-graph-fixture-drift`;
 const programGraphMissingStorePackage = `${outDir}/program-graph-missing-store`;
 const programGraphInvalidStorePackage = `${outDir}/program-graph-invalid-store`;
@@ -3504,6 +3506,8 @@ await rm(programGraphCanonicalPath, { force: true });
 await rm(programGraphViewPath, { force: true });
 await rm(programGraphArtifactRoundtripPath, { force: true });
 await rm(programGraphSourceFixtureRunPath, { force: true });
+await rm(programGraphSourceFreePackage, { recursive: true, force: true });
+await rm(programGraphSourceFreeRunPath, { force: true });
 await rm(programGraphSourceFixtureDriftPackage, { recursive: true, force: true });
 await rm(programGraphMissingStorePackage, { recursive: true, force: true });
 await rm(programGraphInvalidStorePackage, { recursive: true, force: true });
@@ -3538,6 +3542,14 @@ const programGraphSourceFixtureText = await readFile(programGraphSourceFixturePa
 const programGraphSourceFixtureStoreText = await readFile(programGraphSourceFixtureStorePath, "utf8");
 const programGraphSourceFixturePackageCheckJson = JSON.parse((await execFileAsync(zero, ["check", "--json", programGraphSourceFixturePackage])).stdout);
 const programGraphSourceFixturePackageRun = await execFileAsync(zero, ["run", "--out", programGraphSourceFixtureRunPath, programGraphSourceFixturePackage]);
+await mkdir(programGraphSourceFreePackage, { recursive: true });
+await writeFile(`${programGraphSourceFreePackage}/zero.json`, await readFile(`${programGraphSourceFixturePackage}/zero.json`, "utf8"));
+await writeFile(`${programGraphSourceFreePackage}/zero.graph`, programGraphSourceFixtureStoreText);
+const programGraphSourceFreeCheckJson = JSON.parse((await execFileAsync(zero, ["check", "--json", programGraphSourceFreePackage])).stdout);
+const programGraphSourceFreeRun = await execFileAsync(zero, ["run", "--out", programGraphSourceFreeRunPath, programGraphSourceFreePackage]);
+const programGraphSourceFreeVerify = await execFileAsync(zero, ["graph", "verify-sync", "--json", programGraphSourceFreePackage]).catch((error) => error);
+const programGraphSourceFreeSyncFromGraph = JSON.parse((await execFileAsync(zero, ["graph", "sync", "--from-graph", "--json", programGraphSourceFreePackage])).stdout);
+const programGraphSourceFreeVerifyAfter = JSON.parse((await execFileAsync(zero, ["graph", "verify-sync", "--json", programGraphSourceFreePackage])).stdout);
 await mkdir(programGraphMissingStorePackage, { recursive: true });
 await writeFile(`${programGraphMissingStorePackage}/zero.json`, JSON.stringify({
   package: { name: "program-graph-missing-store", version: "0.1.0" },
@@ -3739,6 +3751,20 @@ assert.match(programGraphSourceFixturePackageCheckJson.graph.graphHash, /^graph:
 assert.equal(programGraphSourceFixturePackageCheckJson.graph.lowering, "graph-native-check");
 assertRepositoryGraphNativeCheck(programGraphSourceFixturePackageCheckJson);
 assert.equal(programGraphSourceFixturePackageRun.stdout, "hello from zero\n");
+assert.equal(programGraphSourceFreeCheckJson.ok, true);
+assert.equal(programGraphSourceFreeCheckJson.sourceFile, `${programGraphSourceFreePackage}/zero.graph`);
+assert.equal(programGraphSourceFreeCheckJson.graph.artifact, `${programGraphSourceFreePackage}/zero.graph`);
+assert.equal(programGraphSourceFreeCheckJson.graph.sourceProjectionState, "missing");
+assertRepositoryGraphNativeCheck(programGraphSourceFreeCheckJson, "missing");
+assert.equal(programGraphSourceFreeRun.stdout, "hello from zero\n");
+assert.notEqual(programGraphSourceFreeVerify.code, 0);
+const programGraphSourceFreeVerifyBody = JSON.parse(programGraphSourceFreeVerify.stdout);
+assert.equal(programGraphSourceFreeVerifyBody.diagnostics[0].actual, "missing source file");
+assert.equal(programGraphSourceFreeSyncFromGraph.ok, true);
+assert.deepEqual(programGraphSourceFreeSyncFromGraph.changedPaths, [`${programGraphSourceFreePackage}/hello.0`]);
+assert.equal(await readFile(`${programGraphSourceFreePackage}/hello.0`, "utf8"), programGraphSourceFixtureText);
+assert.equal(programGraphSourceFreeVerifyAfter.ok, true);
+assert.equal(programGraphSourceFreeVerifyAfter.repositoryGraph.projectionValidity, "clean");
 assert.notEqual(programGraphMissingStoreCheck.code, 0);
 const programGraphMissingStoreBody = JSON.parse(programGraphMissingStoreCheck.stdout);
 assert.equal(programGraphMissingStoreBody.ok, false);
@@ -3758,7 +3784,8 @@ assert.equal(programGraphInvalidStoreBody.diagnostics[0].path, programGraphInval
 assert.match(programGraphInvalidStoreBody.repairCommands.join("\n"), /zero graph sync --from-source/);
 assert.equal(programGraphSourceFixtureDriftCheck.ok, true);
 assert.equal(programGraphSourceFixtureDriftCheck.graph.lowering, "graph-native-check");
-assertRepositoryGraphNativeCheck(programGraphSourceFixtureDriftCheck);
+assert.equal(programGraphSourceFixtureDriftCheck.graph.sourceProjectionState, "stale");
+assertRepositoryGraphNativeCheck(programGraphSourceFixtureDriftCheck, "stale");
 assert.notEqual(programGraphSourceFixtureDriftVerify.code, 0);
 const programGraphSourceFixtureDriftBody = JSON.parse(programGraphSourceFixtureDriftVerify.stdout);
 assert.equal(programGraphSourceFixtureDriftBody.ok, false);

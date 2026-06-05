@@ -128,8 +128,6 @@ static bool projection_node_in_store_projection(const ZProgramGraphStore *store,
 static bool projection_node_matches(const ZProgramGraphNode *expected, const ZProgramGraphNode *actual) {
   if (!expected || !actual ||
       expected->kind != actual->kind ||
-      expected->line != actual->line ||
-      expected->column != actual->column ||
       expected->is_public != actual->is_public ||
       expected->is_mutable != actual->is_mutable ||
       expected->is_static != actual->is_static ||
@@ -147,8 +145,6 @@ static bool projection_node_matches(const ZProgramGraphNode *expected, const ZPr
 static bool projection_node_actual_used(const ZProgramGraphNode *actual, const ZProgramGraphNode *expected) {
   return actual && expected &&
          projection_text_eq(actual->path, expected->path) &&
-         actual->line == expected->line &&
-         actual->column == expected->column &&
          actual->kind == expected->kind;
 }
 
