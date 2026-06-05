@@ -607,6 +607,7 @@ typedef struct {
   char mir_actual[128];
   char mir_message[256];
   char mir_help[256];
+  char *mir_path;
   ZBackendBlocker backend_blocker;
   int mir_line;
   int mir_column;

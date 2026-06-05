@@ -177,9 +177,10 @@ static size_t ir_align_to(size_t value, size_t alignment) {
   return remainder == 0 ? value : value + (alignment - remainder);
 }
 
-static void ir_mark_unsupported(IrProgram *ir, const char *message, int line, int column, const char *actual) {
+static void ir_mark_unsupported_at(IrProgram *ir, const char *message, const char *path, int line, int column, const char *actual) {
   if (!ir || !ir->mir_valid) return;
   ir->mir_valid = false;
+  ir->mir_path = path && path[0] ? z_strdup(path) : NULL;
   ir->mir_line = line > 0 ? line : 1;
   ir->mir_column = column > 0 ? column : 1;
   snprintf(ir->mir_message, sizeof(ir->mir_message), "%s", message ? message : "typed graph MIR lowering failed");
@@ -189,11 +190,23 @@ static void ir_mark_unsupported(IrProgram *ir, const char *message, int line, in
   z_backend_blocker_set(&ir->backend_blocker, NULL, NULL, NULL, "lower", ir->mir_actual);
 }
 
-static void ir_graph_init_lowering_diag(ZDiag *diag, const SourceInput *input, const ZTargetInfo *target, const IrProgram *ir, const char *fallback_path) {
+static void ir_mark_unsupported(IrProgram *ir, const char *message, int line, int column, const char *actual) {
+  ir_mark_unsupported_at(ir, message, NULL, line, column, actual);
+}
+
+static const char *ir_graph_pin_diag_path(SourceInput *input, const IrProgram *ir, const char *fallback_path) {
+  const char *path = ir && ir->mir_path && ir->mir_path[0] ? ir->mir_path : (input && input->source_file ? input->source_file : fallback_path);
+  if (!input || !path || !path[0] || ir_text_eq(path, input->source_file)) return path;
+  input->source_files = z_checked_reallocarray(input->source_files, input->source_file_count + 1, sizeof(char *));
+  input->source_files[input->source_file_count] = z_strdup(path);
+  return input->source_files[input->source_file_count++];
+}
+
+static void ir_graph_init_lowering_diag(ZDiag *diag, SourceInput *input, const ZTargetInfo *target, const char *emit_kind, const char *requested_backend, const IrProgram *ir, const char *fallback_path) {
   if (!diag) return;
   memset(diag, 0, sizeof(*diag));
   diag->code = 2004;
-  diag->path = input && input->source_file ? input->source_file : fallback_path;
+  diag->path = ir_graph_pin_diag_path(input, ir, fallback_path);
   diag->line = ir && ir->mir_line > 0 ? ir->mir_line : 1;
   diag->column = ir && ir->mir_column > 0 ? ir->mir_column : 1;
   diag->length = 1;
@@ -201,7 +214,8 @@ static void ir_graph_init_lowering_diag(ZDiag *diag, const SourceInput *input, c
   snprintf(diag->expected, sizeof(diag->expected), "%s", ir && ir->mir_expected[0] ? ir->mir_expected : "typed program graph MIR subset");
   snprintf(diag->actual, sizeof(diag->actual), "%s", ir && ir->mir_actual[0] ? ir->mir_actual : "unsupported graph construct");
   snprintf(diag->help, sizeof(diag->help), "%s", ir && ir->mir_help[0] ? ir->mir_help : "use graph check to inspect unsupported graph constructs or choose another supported target");
-  z_backend_blocker_set(&diag->backend_blocker, target ? target->name : "", target ? target->object_format : "", z_direct_backend_name_for_emit_kind(target, "exe", NULL), "lower", diag->actual);
+  const char *backend = z_backend_request_is_llvm(requested_backend, emit_kind) ? "llvm" : z_direct_backend_name_for_emit_kind(target, emit_kind ? emit_kind : "exe", z_backend_direct_request_name(requested_backend));
+  z_backend_blocker_set(&diag->backend_blocker, target ? target->name : "", target ? target->object_format : "", backend, "lower", diag->actual);
 }
 
 static bool ir_parse_integer_literal(const char *text, unsigned long long *out) {
@@ -450,6 +464,9 @@ static bool ir_graph_node_is_test_function(const ZProgramGraphNode *node) {
 
 static int ir_graph_line(const ZProgramGraphNode *node) { return node && node->line > 0 ? node->line : 1; }
 static int ir_graph_column(const ZProgramGraphNode *node) { return node && node->column > 0 ? node->column : 1; }
+static void ir_graph_mark_unsupported(IrProgram *ir, const ZProgramGraphNode *node, const char *message, const char *actual) {
+  ir_mark_unsupported_at(ir, message, node && node->path && node->path[0] ? node->path : NULL, ir_graph_line(node), ir_graph_column(node), actual);
+}
 
 static const ZProgramGraphNode *ir_graph_find_node(const ZProgramGraph *graph, const char *id) {
   for (size_t i = 0; graph && id && i < graph->node_len; i++) {
@@ -628,7 +645,7 @@ static bool ir_graph_collect_function_locals(IrProgram *ir, IrFunction *fun, con
     if (hosted_world_main && edge->order == 0 && ir_text_eq(param->type, "World")) continue;
     IrTypeKind type = ir_type_kind(param->type);
     if (!ir_type_is_direct_param_abi(type)) {
-      ir_mark_unsupported(ir, "typed graph MIR parameter type is unsupported", ir_graph_line(param), ir_graph_column(param), param->type);
+      ir_graph_mark_unsupported(ir, param, "typed graph MIR parameter type is unsupported", param->type);
       return false;
     }
     IrTypeKind element_type = type == IR_TYPE_BYTE_VIEW ? ir_view_element_type_for_type(param->type) : IR_TYPE_UNSUPPORTED;
@@ -660,7 +677,7 @@ static bool ir_graph_collect_let_local(IrProgram *ir, IrFunction *fun, const ZPr
     return true;
   }
   if (!ir_type_is_direct_local(type)) {
-    ir_mark_unsupported(ir, "typed graph MIR local type is unsupported", ir_graph_line(stmt), ir_graph_column(stmt), type_text ? type_text : "inferred unknown");
+    ir_graph_mark_unsupported(ir, stmt, "typed graph MIR local type is unsupported", type_text ? type_text : "inferred unknown");
     return false;
   }
   bool mutable_byte_view = ir_type_name_is_mutable_byte_view(type_text);
@@ -709,7 +726,7 @@ static bool ir_graph_lower_byte_view(const ZProgramGraph *graph, IrProgram *ir, 
   if (!ir_graph_lower_expr(graph, ir, fun, expr, &value)) return false;
   if (value->type != IR_TYPE_BYTE_VIEW) {
     ir_free_value(value);
-    ir_mark_unsupported(ir, "typed graph MIR expression is not a byte view", ir_graph_line(expr), ir_graph_column(expr), expr->type ? expr->type : "unknown type");
+    ir_graph_mark_unsupported(ir, expr, "typed graph MIR expression is not a byte view", expr->type ? expr->type : "unknown type");
     return false;
   }
   *out = value;
@@ -741,12 +758,12 @@ static bool ir_graph_lower_literal(const ZProgramGraphNode *expr, IrProgram *ir,
   IrTypeKind type = ir_type_kind(expr ? expr->type : NULL);
   if (type == IR_TYPE_BYTE_VIEW) return ir_make_string_literal_value(ir, value_text, ir_graph_line(expr), ir_graph_column(expr), out);
   if (!ir_type_is_value(type)) {
-    ir_mark_unsupported(ir, "typed graph MIR literal type is unsupported", ir_graph_line(expr), ir_graph_column(expr), expr && expr->type ? expr->type : "unknown literal type");
+    ir_graph_mark_unsupported(ir, expr, "typed graph MIR literal type is unsupported", expr && expr->type ? expr->type : "unknown literal type");
     return false;
   }
   unsigned long long parsed = 0;
   if (!ir_parse_integer_literal(value_text, &parsed)) {
-    ir_mark_unsupported(ir, "typed graph MIR integer literal is malformed", ir_graph_line(expr), ir_graph_column(expr), value_text);
+    ir_graph_mark_unsupported(ir, expr, "typed graph MIR integer literal is malformed", value_text);
     return false;
   }
   *out = ir_new_integer_literal_value(ir, type, parsed, ir_graph_line(expr), ir_graph_column(expr));
@@ -756,7 +773,7 @@ static bool ir_graph_lower_literal(const ZProgramGraphNode *expr, IrProgram *ir,
 static bool ir_graph_lower_identifier(const ZProgramGraphNode *expr, IrProgram *ir, const IrFunction *fun, IrValue **out) {
   const IrLocal *local = ir_function_find_local(fun, expr ? expr->name : NULL);
   if (!local) {
-    ir_mark_unsupported(ir, "typed graph MIR identifier is not a local", ir_graph_line(expr), ir_graph_column(expr), expr && expr->name ? expr->name : "unknown identifier");
+    ir_graph_mark_unsupported(ir, expr, "typed graph MIR identifier is not a local", expr && expr->name ? expr->name : "unknown identifier");
     return false;
   }
   IrValue *value = ir_new_value(ir, IR_VALUE_LOCAL, local->type, ir_graph_line(expr), ir_graph_column(expr));
@@ -795,7 +812,7 @@ static bool ir_graph_lower_field_access(const ZProgramGraph *graph, IrProgram *i
       return true;
     }
   }
-  ir_mark_unsupported(ir, "typed graph MIR field access is unsupported", ir_graph_line(expr), ir_graph_column(expr), expr && expr->name ? expr->name : "unknown field");
+  ir_graph_mark_unsupported(ir, expr, "typed graph MIR field access is unsupported", expr && expr->name ? expr->name : "unknown field");
   return false;
 }
 
@@ -824,7 +841,7 @@ static bool ir_graph_lower_binary_call(const ZProgramGraph *graph, IrProgram *ir
     if (!(left->type == IR_TYPE_BOOL || ir_type_is_value(left->type)) || left->type != right->type) {
       ir_free_value(left);
       ir_free_value(right);
-      ir_mark_unsupported(ir, "typed graph MIR comparison operands must have the same primitive type", ir_graph_line(expr), ir_graph_column(expr), expr->name);
+      ir_graph_mark_unsupported(ir, expr, "typed graph MIR comparison operands must have the same primitive type", expr->name);
       return false;
     }
     IrValue *value = ir_new_compare_value(ir, cmp, left, right, ir_graph_line(expr), ir_graph_column(expr));
@@ -845,7 +862,7 @@ static bool ir_graph_lower_binary_call(const ZProgramGraph *graph, IrProgram *ir
   if (!(type == IR_TYPE_BOOL || ir_type_is_value(type))) {
     ir_free_value(left);
     ir_free_value(right);
-    ir_mark_unsupported(ir, "typed graph MIR binary expression type is unsupported", ir_graph_line(expr), ir_graph_column(expr), ir_graph_node_type(graph, expr));
+    ir_graph_mark_unsupported(ir, expr, "typed graph MIR binary expression type is unsupported", ir_graph_node_type(graph, expr));
     return false;
   }
   *out = ir_new_binary_value(ir, op, type, left, right, ir_graph_line(expr), ir_graph_column(expr));
@@ -855,7 +872,7 @@ static bool ir_graph_lower_binary_call(const ZProgramGraph *graph, IrProgram *ir
 static bool ir_graph_lower_named_call(const ZProgramGraph *graph, IrProgram *ir, const IrFunction *fun, const ZProgramGraphNode *expr, const char *callee_name, IrValue **out) {
   unsigned callee_index = 0;
   if (!ir_find_function_index(ir, callee_name, &callee_index)) {
-    ir_mark_unsupported(ir, "typed graph MIR call target is unsupported", ir_graph_line(expr), ir_graph_column(expr), callee_name ? callee_name : "unknown callee");
+    ir_graph_mark_unsupported(ir, expr, "typed graph MIR call target is unsupported", callee_name ? callee_name : "unknown callee");
     return false;
   }
   IrFunction *callee = &ir->functions[callee_index];
@@ -876,7 +893,7 @@ static bool ir_graph_lower_named_call(const ZProgramGraph *graph, IrProgram *ir,
   }
   if (arg_index != ir_graph_edge_count(graph, expr->id, "arg")) {
     ir_free_value(value);
-    ir_mark_unsupported(ir, "typed graph MIR call arity does not match target", ir_graph_line(expr), ir_graph_column(expr), callee_name ? callee_name : "unknown callee");
+    ir_graph_mark_unsupported(ir, expr, "typed graph MIR call arity does not match target", callee_name ? callee_name : "unknown callee");
     return false;
   }
   *out = value;
@@ -905,7 +922,7 @@ static bool ir_graph_lower_call(const ZProgramGraph *graph, IrProgram *ir, const
     if (!ir_type_is_value(index->type)) {
       ir_free_value(index);
       free(qualified);
-      ir_mark_unsupported(ir, "typed graph MIR std.args.get index must be an integer value", ir_graph_line(expr), ir_graph_column(expr), "non-integer index");
+      ir_graph_mark_unsupported(ir, expr, "typed graph MIR std.args.get index must be an integer value", "non-integer index");
       return false;
     }
     IrValue *value = ir_new_value(ir, IR_VALUE_ARGS_GET, IR_TYPE_MAYBE_BYTE_VIEW, ir_graph_line(expr), ir_graph_column(expr));
@@ -940,7 +957,7 @@ static bool ir_graph_lower_expr(const ZProgramGraph *graph, IrProgram *ir, const
     case Z_PROGRAM_GRAPH_NODE_METHOD_CALL:
       return ir_graph_lower_call(graph, ir, fun, expr, out);
     default:
-      ir_mark_unsupported(ir, "typed graph MIR expression kind is unsupported", ir_graph_line(expr), ir_graph_column(expr), z_program_graph_node_kind_name(expr->kind));
+      ir_graph_mark_unsupported(ir, expr, "typed graph MIR expression kind is unsupported", z_program_graph_node_kind_name(expr->kind));
       return false;
   }
 }
@@ -983,7 +1000,7 @@ static bool ir_graph_lower_stmt(const ZProgramGraph *graph, IrProgram *ir, IrFun
     const ZProgramGraphNode *expr = ir_graph_ordered_node(graph, stmt->id, "expr", 0);
     if (fun->return_type == IR_TYPE_VOID) {
       if (expr) {
-        ir_mark_unsupported(ir, "typed graph MIR void function cannot return a value", ir_graph_line(stmt), ir_graph_column(stmt), fun->name);
+        ir_graph_mark_unsupported(ir, stmt, "typed graph MIR void function cannot return a value", fun->name);
         return false;
       }
     } else if (!ir_graph_lower_expr_for_type(graph, ir, fun, expr, fun->return_type, true, ir_graph_line(stmt), ir_graph_column(stmt), &value)) {
@@ -1011,7 +1028,7 @@ static bool ir_graph_lower_stmt(const ZProgramGraph *graph, IrProgram *ir, IrFun
     if (!ir_graph_lower_expr(graph, ir, fun, expr, &checked)) return false;
     if (!checked || checked->type != IR_TYPE_I64) {
       ir_free_value(checked);
-      ir_mark_unsupported(ir, "typed graph MIR check statement requires a fallible value", ir_graph_line(stmt), ir_graph_column(stmt), "non-fallible check");
+      ir_graph_mark_unsupported(ir, stmt, "typed graph MIR check statement requires a fallible value", "non-fallible check");
       return false;
     }
     IrValue *value = ir_new_value(ir, IR_VALUE_CHECK, checked->element_type, ir_graph_line(stmt), ir_graph_column(stmt));
@@ -1025,7 +1042,7 @@ static bool ir_graph_lower_stmt(const ZProgramGraph *graph, IrProgram *ir, IrFun
     if (!ir_graph_lower_expr(graph, ir, fun, expr, &value)) return false;
     if (!value || value->type != IR_TYPE_VOID) {
       ir_free_value(value);
-      ir_mark_unsupported(ir, "typed graph MIR expression statement must return Void", ir_graph_line(stmt), ir_graph_column(stmt), "non-Void expression");
+      ir_graph_mark_unsupported(ir, stmt, "typed graph MIR expression statement must return Void", "non-Void expression");
       return false;
     }
     ir_instr_vec_push(ir, out_items, out_len, out_cap, (IrInstr){.kind = IR_INSTR_EXPR, .value = value, .line = ir_graph_line(stmt), .column = ir_graph_column(stmt)});
@@ -1037,7 +1054,7 @@ static bool ir_graph_lower_stmt(const ZProgramGraph *graph, IrProgram *ir, IrFun
     if (!ir_graph_lower_expr(graph, ir, fun, expr, &cond)) return false;
     if (cond->type != IR_TYPE_BOOL) {
       ir_free_value(cond);
-      ir_mark_unsupported(ir, "typed graph MIR if condition must be Bool", ir_graph_line(stmt), ir_graph_column(stmt), "non-Bool condition");
+      ir_graph_mark_unsupported(ir, stmt, "typed graph MIR if condition must be Bool", "non-Bool condition");
       return false;
     }
     IrInstr instr = {.kind = IR_INSTR_IF, .value = cond, .line = ir_graph_line(stmt), .column = ir_graph_column(stmt)};
@@ -1057,7 +1074,7 @@ static bool ir_graph_lower_stmt(const ZProgramGraph *graph, IrProgram *ir, IrFun
     ir_instr_vec_push(ir, out_items, out_len, out_cap, instr);
     return true;
   }
-  ir_mark_unsupported(ir, "typed graph MIR statement kind is unsupported", ir_graph_line(stmt), ir_graph_column(stmt), z_program_graph_node_kind_name(stmt->kind));
+  ir_graph_mark_unsupported(ir, stmt, "typed graph MIR statement kind is unsupported", z_program_graph_node_kind_name(stmt->kind));
   return false;
 }
 
@@ -1080,11 +1097,11 @@ static bool ir_graph_lower_function_body(IrProgram *ir, IrFunction *fun, const Z
   bool hosted_world_main = ir_graph_function_is_hosted_world_main(graph, function);
   IrTypeKind return_type = hosted_world_main ? IR_TYPE_I32 : ir_type_kind(ir_graph_node_type(graph, function));
   if (!hosted_world_main && function->fallible && !ir_type_is_direct_fallible_value(return_type)) {
-    ir_mark_unsupported(ir, "typed graph MIR fallible return type is unsupported", ir_graph_line(function), ir_graph_column(function), ir_graph_node_type(graph, function));
+    ir_graph_mark_unsupported(ir, function, "typed graph MIR fallible return type is unsupported", ir_graph_node_type(graph, function));
     return false;
   }
   if (!hosted_world_main && !function->fallible && return_type != IR_TYPE_VOID && !ir_type_is_direct_return_abi(return_type)) {
-    ir_mark_unsupported(ir, "typed graph MIR return type is unsupported", ir_graph_line(function), ir_graph_column(function), ir_graph_node_type(graph, function));
+    ir_graph_mark_unsupported(ir, function, "typed graph MIR return type is unsupported", ir_graph_node_type(graph, function));
     return false;
   }
   size_t scope_mark = ir_active_local_mark(ir);
@@ -1113,7 +1130,7 @@ static bool ir_graph_lower_function_body(IrProgram *ir, IrFunction *fun, const Z
     saw_return = true;
   }
   if (return_type != IR_TYPE_VOID && !saw_return) {
-    ir_mark_unsupported(ir, "typed graph MIR function must return a value", ir_graph_line(function), ir_graph_column(function), function->name);
+    ir_graph_mark_unsupported(ir, function, "typed graph MIR function must return a value", function->name);
     return false;
   }
   return true;
@@ -1219,7 +1236,7 @@ bool z_program_graph_prepare_artifact_mir_input(const char *artifact_path, const
   return true;
 }
 
-bool z_program_graph_prepare_repository_store_mir_input(const char *store_path, const ZTargetInfo *target, Program *program, SourceInput *input, IrProgram *ir, ZProgramGraphArtifactSource *source, ZDiag *diag) {
+bool z_program_graph_prepare_repository_store_mir_input(const char *store_path, const ZTargetInfo *target, const char *emit_kind, const char *requested_backend, Program *program, SourceInput *input, IrProgram *ir, ZProgramGraphArtifactSource *source, ZDiag *diag) {
   if (!ir) return false;
   ZProgramGraphStore store;
   if (!z_program_graph_store_load_path(store_path, &store, diag)) return false;
@@ -1239,7 +1256,7 @@ bool z_program_graph_prepare_repository_store_mir_input(const char *store_path, 
   z_program_graph_seed_source_metadata(input, &store.graph);
   IrProgram graph_ir = z_lower_program_graph_with_source(&store.graph, input, target);
   if (!graph_ir.mir_valid) {
-    ir_graph_init_lowering_diag(diag, input, target, &graph_ir, store_path);
+    ir_graph_init_lowering_diag(diag, input, target, emit_kind, requested_backend, &graph_ir, store_path);
     z_free_ir_program(&graph_ir);
     z_program_graph_store_free(&store);
     return false;

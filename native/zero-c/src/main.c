@@ -12840,7 +12840,7 @@ int main(int argc, char **argv) {
     bool graph_mir_command = direct_graph_manifest_command || direct_graph_source_command || graph_build_command || graph_run_command;
     long long graph_lower_started = now_ms();
     bool prepared_graph = command.repository_graph_input
-      ? z_program_graph_prepare_repository_store_mir_input(command.input, target, &program, &input, &graph_prepared_ir, &graph_source, &diag)
+      ? z_program_graph_prepare_repository_store_mir_input(command.input, target, emit_kind_name(command.emit), command.backend, &program, &input, &graph_prepared_ir, &graph_source, &diag)
       : (graph_mir_command
           ? z_program_graph_prepare_artifact_mir_input(command.input, target, &program, &input, &graph_prepared_ir, &graph_source, &diag)
           : z_program_graph_prepare_artifact_input(command.input, target, &program, &input, &graph_source, &diag));
