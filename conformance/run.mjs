@@ -3483,6 +3483,9 @@ const programGraphSourceFixturePackage = "conformance/program-graph";
 const programGraphSourceFixtureStorePath = "conformance/program-graph/zero.graph";
 const programGraphSourceFixtureRunPath = `${outDir}/program-graph-fixture-run`;
 const programGraphSourceFixtureDriftPackage = `${outDir}/program-graph-fixture-drift`;
+const programGraphTargetWebbitsPackage = `${outDir}/program-graph-target-webbits`;
+const programGraphTargetIncompatiblePackage = `${outDir}/program-graph-target-incompatible`;
+const programGraphTargetCapabilityPackage = `${outDir}/program-graph-target-capability`;
 const programGraphRichPath = `${outDir}/open-ended-slices.program-graph`;
 const programGraphRichViewPath = `${outDir}/open-ended-slices.graph-view.0`;
 const programGraphCharPath = `${outDir}/float-char-casts.program-graph`;
@@ -3494,6 +3497,9 @@ await rm(programGraphViewPath, { force: true });
 await rm(programGraphArtifactRoundtripPath, { force: true });
 await rm(programGraphSourceFixtureRunPath, { force: true });
 await rm(programGraphSourceFixtureDriftPackage, { recursive: true, force: true });
+await rm(programGraphTargetWebbitsPackage, { recursive: true, force: true });
+await rm(programGraphTargetIncompatiblePackage, { recursive: true, force: true });
+await rm(programGraphTargetCapabilityPackage, { recursive: true, force: true });
 await rm(programGraphRichPath, { force: true });
 await rm(programGraphRichViewPath, { force: true });
 await rm(programGraphCharPath, { force: true });
@@ -3528,6 +3534,33 @@ await writeFile(`${programGraphSourceFixtureDriftPackage}/zero.graph`, programGr
 await writeFile(`${programGraphSourceFixtureDriftPackage}/hello.0`, programGraphSourceFixtureText.replace("hello from zero", "hello from drift"));
 const programGraphSourceFixtureDriftCheck = JSON.parse((await execFileAsync(zero, ["check", "--json", programGraphSourceFixtureDriftPackage])).stdout);
 const programGraphSourceFixtureDriftVerify = await execFileAsync(zero, ["graph", "verify-sync", "--json", programGraphSourceFixtureDriftPackage]).catch((error) => error);
+await mkdir(programGraphTargetWebbitsPackage, { recursive: true });
+await writeFile(`${programGraphTargetWebbitsPackage}/zero.json`, await readFile("conformance/packages/target-webbits/zero.json", "utf8"));
+await mkdir(`${programGraphTargetIncompatiblePackage}/src`, { recursive: true });
+await writeFile(`${programGraphTargetIncompatiblePackage}/zero.json`, JSON.stringify({
+  package: { name: "program-graph-target-incompatible", version: "0.1.0" },
+  targets: { cli: { kind: "exe", main: "src/main.0" } },
+  dependencies: { "target-webbits": { path: "../program-graph-target-webbits", version: "0.1.0", targets: ["win32-x64.exe"] } },
+  repositoryGraph: { compilerInput: true },
+}, null, 2));
+await writeFile(`${programGraphTargetIncompatiblePackage}/src/main.0`, await readFile("conformance/packages/target-incompatible-app/src/main.0", "utf8"));
+const programGraphTargetIncompatibleSync = JSON.parse((await execFileAsync(zero, ["graph", "sync", "--from-source", "--json", programGraphTargetIncompatiblePackage])).stdout);
+const programGraphTargetIncompatibleCheck = await execFileAsync(zero, ["check", "--json", "--target", "linux-musl-x64", programGraphTargetIncompatiblePackage]).catch((error) => error);
+await mkdir(programGraphTargetCapabilityPackage, { recursive: true });
+await writeFile(`${programGraphTargetCapabilityPackage}/zero.json`, JSON.stringify({
+  package: { name: "program-graph-target-capability", version: "0.1.0" },
+  targets: { cli: { kind: "exe", main: "main.0" } },
+  repositoryGraph: { compilerInput: true },
+}, null, 2));
+await writeFile(`${programGraphTargetCapabilityPackage}/main.0`, `pub fn main(world: World) -> Void raises {
+    let fs: Fs = std.fs.host()
+    if std.fs.writeFile(fs, ".zero/out/program-graph-target-capability.txt", "ok\\n") {
+        check world.out.write("ok\\n")
+    }
+}
+`);
+const programGraphTargetCapabilitySync = JSON.parse((await execFileAsync(zero, ["graph", "sync", "--from-source", "--json", programGraphTargetCapabilityPackage])).stdout);
+const programGraphTargetCapabilityCheck = await execFileAsync(zero, ["check", "--json", "--target", "linux-arm64", programGraphTargetCapabilityPackage]).catch((error) => error);
 await execFileAsync(zero, ["graph", "dump", "--out", programGraphRichPath, "conformance/native/pass/open-ended-slices.0"]);
 await execFileAsync(zero, ["graph", "view", "--out", programGraphRichViewPath, programGraphRichPath]);
 const programGraphRichView = await readFile(programGraphRichViewPath, "utf8");
@@ -3689,6 +3722,18 @@ assert.equal(programGraphSourceFixtureDriftBody.mode, "verify-sync");
 assert.equal(programGraphSourceFixtureDriftBody.repositoryGraph.compilerInput, "repository-graph");
 assert.equal(programGraphSourceFixtureDriftBody.diagnostics[0].code, "RGP005");
 assert.match(programGraphSourceFixtureDriftBody.repairCommands.join("\n"), /zero graph sync --from-source/);
+assert.equal(programGraphTargetIncompatibleSync.ok, true);
+assert.notEqual(programGraphTargetIncompatibleCheck.code, 0);
+const programGraphTargetIncompatibleBody = JSON.parse(programGraphTargetIncompatibleCheck.stdout);
+assert.equal(programGraphTargetIncompatibleBody.ok, false);
+assert.equal(programGraphTargetIncompatibleBody.diagnostics[0].code, "PKG004");
+assert.match(programGraphTargetIncompatibleBody.diagnostics[0].actual, /target-webbits targets/);
+assert.equal(programGraphTargetCapabilitySync.ok, true);
+assert.notEqual(programGraphTargetCapabilityCheck.code, 0);
+const programGraphTargetCapabilityBody = JSON.parse(programGraphTargetCapabilityCheck.stdout);
+assert.equal(programGraphTargetCapabilityBody.ok, false);
+assert.equal(programGraphTargetCapabilityBody.diagnostics[0].code, "TAR002");
+assert.match(programGraphTargetCapabilityBody.diagnostics[0].actual, /lacks Fs/);
 const programGraphRepositoryStatus = JSON.parse((await execFileAsync(zero, ["graph", "status", "--json", "--target", "linux-musl-x64", programGraphSourceFixturePackage])).stdout);
 assert.equal(programGraphRepositoryStatus.repositoryGraph.storePresent, true);
 assert.equal(programGraphRepositoryStatus.repositoryGraph.storeValid, true);

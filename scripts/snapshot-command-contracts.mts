@@ -2361,6 +2361,45 @@ assert.notEqual(sourceFreeGraphPackageVerify.code, 0);
 assert.equal(sourceFreeGraphPackageVerify.body.ok, false);
 assert.equal(sourceFreeGraphPackageVerify.body.diagnostics[0].code, "BLD002");
 assert.equal(sourceFreeGraphPackageVerify.body.diagnostics[0].actual, "missing source file");
+const graphTargetWebbitsRoot = join(outDir, "repo-graph-target-webbits");
+const graphTargetIncompatibleRoot = join(outDir, "repo-graph-target-incompatible-app");
+rmSync(graphTargetWebbitsRoot, { recursive: true, force: true });
+rmSync(graphTargetIncompatibleRoot, { recursive: true, force: true });
+mkdirSync(join(graphTargetIncompatibleRoot, "src"), { recursive: true });
+mkdirSync(graphTargetWebbitsRoot, { recursive: true });
+writeFileSync(join(graphTargetWebbitsRoot, "zero.json"), readFileSync("conformance/packages/target-webbits/zero.json", "utf8"));
+writeFileSync(join(graphTargetIncompatibleRoot, "zero.json"), JSON.stringify({
+  package: { name: "repo-graph-target-incompatible-app", version: "0.1.0" },
+  targets: { cli: { kind: "exe", main: "src/main.0" } },
+  dependencies: { "target-webbits": { path: "../repo-graph-target-webbits", version: "0.1.0", targets: ["win32-x64.exe"] } },
+  repositoryGraph: { compilerInput: true },
+}, null, 2));
+writeFileSync(join(graphTargetIncompatibleRoot, "src", "main.0"), readFileSync("conformance/packages/target-incompatible-app/src/main.0", "utf8"));
+assert.equal(json(["graph", "sync", "--from-source", "--json", graphTargetIncompatibleRoot]).body.ok, true);
+const graphTargetIncompatibleCheck = json(["check", "--json", "--target", "linux-musl-x64", graphTargetIncompatibleRoot], { allowFailure: true });
+assert.notEqual(graphTargetIncompatibleCheck.code, 0);
+assert.equal(graphTargetIncompatibleCheck.body.diagnostics[0].code, "PKG004");
+assert.match(graphTargetIncompatibleCheck.body.diagnostics[0].actual, /target-webbits targets/);
+const graphTargetCapabilityRoot = join(outDir, "repo-graph-target-capability-app");
+rmSync(graphTargetCapabilityRoot, { recursive: true, force: true });
+mkdirSync(graphTargetCapabilityRoot, { recursive: true });
+writeFileSync(join(graphTargetCapabilityRoot, "zero.json"), JSON.stringify({
+  package: { name: "repo-graph-target-capability-app", version: "0.1.0" },
+  targets: { cli: { kind: "exe", main: "main.0" } },
+  repositoryGraph: { compilerInput: true },
+}, null, 2));
+writeFileSync(join(graphTargetCapabilityRoot, "main.0"), `pub fn main(world: World) -> Void raises {
+    let fs: Fs = std.fs.host()
+    if std.fs.writeFile(fs, ".zero/out/repo-graph-target-capability.txt", "ok\\n") {
+        check world.out.write("ok\\n")
+    }
+}
+`);
+assert.equal(json(["graph", "sync", "--from-source", "--json", graphTargetCapabilityRoot]).body.ok, true);
+const graphTargetCapabilityCheck = json(["check", "--json", "--target", "linux-arm64", graphTargetCapabilityRoot], { allowFailure: true });
+assert.notEqual(graphTargetCapabilityCheck.code, 0);
+assert.equal(graphTargetCapabilityCheck.body.diagnostics[0].code, "TAR002");
+assert.match(graphTargetCapabilityCheck.body.diagnostics[0].actual, /lacks Fs/);
 const sourceFreeStdGraphRoot = join(outDir, "source-free-std-str-graph-package");
 rmSync(sourceFreeStdGraphRoot, { recursive: true, force: true });
 mkdirSync(sourceFreeStdGraphRoot, { recursive: true });

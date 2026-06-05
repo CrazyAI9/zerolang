@@ -2541,6 +2541,55 @@ static bool graph_check_resolution_ok(const ZProgramGraph *graph, const ZProgram
   return false;
 }
 
+static bool capability_available_on_target(const ZTargetInfo *target, const char *capability);
+
+static void graph_check_target_capability_diag(ZDiag *diag, const ZProgramGraphNode *node, const ZTargetInfo *target, const char *capability, const char *label) {
+  if (!diag) return;
+  *diag = (ZDiag){0};
+  diag->code = 6002;
+  diag->path = node && node->path && node->path[0] ? node->path : NULL;
+  diag->line = node && node->line > 0 ? node->line : 1;
+  diag->column = node && node->column > 0 ? node->column : 1;
+  diag->length = 1;
+  if (graph_check_text_eq(capability, "world")) {
+    snprintf(diag->message, sizeof(diag->message), "target does not provide World stdio capability");
+    snprintf(diag->expected, sizeof(diag->expected), "target with stdio capability");
+    snprintf(diag->actual, sizeof(diag->actual), "target %s lacks stdio", target ? target->name : "<unknown>");
+    snprintf(diag->help, sizeof(diag->help), "select a target with stdio or use a narrower capability");
+    return;
+  }
+  snprintf(diag->message, sizeof(diag->message), "target does not provide required %s capability", label ? label : capability);
+  snprintf(diag->expected, sizeof(diag->expected), "target with %s capability", label ? label : capability);
+  snprintf(diag->actual, sizeof(diag->actual), "target %s lacks %s", target ? target->name : "<unknown>", label ? label : capability);
+  if (graph_check_text_eq(capability, "fs")) {
+    snprintf(diag->help, sizeof(diag->help), "build for host target %s or remove hosted std.fs usage from this target-neutral build", z_host_target());
+  } else {
+    snprintf(diag->help, sizeof(diag->help), "build for a target that declares %s or remove that capability from this target-neutral entry point", label ? label : capability);
+  }
+}
+
+static bool graph_check_target_capabilities_ok(const ZProgramGraph *graph, const ZProgramGraphResolutionFacts *resolution, const ZTargetInfo *target, ZDiag *diag) {
+  ZProgramGraphCapabilitySummary caps;
+  z_program_graph_collect_capabilities(graph, resolution, &caps);
+#define DENY_GRAPH_CAP(field, cap_name, label) do { \
+    if (caps.field && !capability_available_on_target(target, cap_name)) { \
+      graph_check_target_capability_diag(diag, caps.field##_node, target, cap_name, label); \
+      return false; \
+    } \
+  } while (0)
+  DENY_GRAPH_CAP(fs, "fs", "Fs");
+  DENY_GRAPH_CAP(args, "args", "Args");
+  DENY_GRAPH_CAP(env, "env", "Env");
+  DENY_GRAPH_CAP(time, "time", "Clock");
+  DENY_GRAPH_CAP(rand, "rand", "Rand");
+  DENY_GRAPH_CAP(net, "net", "Net");
+  DENY_GRAPH_CAP(proc, "proc", "Proc");
+  DENY_GRAPH_CAP(web, "web", "Web");
+  DENY_GRAPH_CAP(world, "world", "World");
+#undef DENY_GRAPH_CAP
+  return true;
+}
+
 static const char *repository_graph_projection_state(const ZProgramGraphStore *store) {
   if (!store || store->projection_len == 0) return "missing";
   for (size_t i = 0; i < store->projection_len; i++) {
@@ -12066,6 +12115,8 @@ static int run_repository_graph_check_command(Command *command, const ZTargetInf
   long long check_started = now_ms();
   bool ok = collected_resolution &&
             graph_check_resolution_ok(&store.graph, &resolution, store.path ? store.path : command->input, &diag);
+  if (ok) ok = graph_check_target_capabilities_ok(&store.graph, &resolution, target, &diag);
+  if (ok) ok = validate_package_dependencies_for_target(&input, target, &diag);
   input.check_ms = now_ms() - check_started;
   touch_program_graph_compiler_caches(&input, target, command->profile, store.graph.graph_hash);
 
