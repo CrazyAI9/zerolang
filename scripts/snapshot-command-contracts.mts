@@ -1471,6 +1471,39 @@ const mergeRepoGraphSyncProjection = json(["graph", "sync", "--from-graph", "--j
 assert.equal(mergeRepoGraphSyncProjection.body.repositoryGraph.syncState, "clean");
 assert(readFileSync(mergeRepoGraphSource, "utf8").includes("return 10"));
 assert(readFileSync(mergeRepoGraphSource, "utf8").includes("return 20"));
+const mergeStaleProjectionRoot = join("/tmp", `zero-repo-graph-merge-stale-projection-${process.pid}`);
+const mergeStaleProjectionSource = join(mergeStaleProjectionRoot, "main.0");
+const mergeStaleProjectionStore = join(mergeStaleProjectionRoot, "zero.graph");
+rmSync(mergeStaleProjectionRoot, { force: true, recursive: true });
+mkdirSync(mergeStaleProjectionRoot, { recursive: true });
+writeFileSync(mergeStaleProjectionSource, mergeRepoGraphOriginal);
+json(["graph", "sync", "--from-source", "--json", mergeStaleProjectionSource]);
+writeFileSync(join(mergeStaleProjectionRoot, "base.graph"), readFileSync(mergeStaleProjectionStore, "utf8"));
+writeFileSync(join(mergeStaleProjectionRoot, "right.graph"), readFileSync(mergeStaleProjectionStore, "utf8"));
+writeFileSync(mergeStaleProjectionSource, mergeRepoGraphOriginal.replace("return 1", "return 10"));
+json(["graph", "sync", "--from-source", "--json", mergeStaleProjectionSource]);
+writeFileSync(
+  join(mergeStaleProjectionRoot, "left.graph"),
+  readFileSync(mergeStaleProjectionStore, "utf8").replace("return 10", "return 999"),
+);
+writeFileSync(mergeStaleProjectionStore, readFileSync(join(mergeStaleProjectionRoot, "base.graph"), "utf8"));
+const mergeStaleProjection = json([
+  "graph",
+  "merge",
+  "--json",
+  "--base",
+  join(mergeStaleProjectionRoot, "base.graph"),
+  "--left",
+  join(mergeStaleProjectionRoot, "left.graph"),
+  "--right",
+  join(mergeStaleProjectionRoot, "right.graph"),
+  mergeStaleProjectionRoot,
+]);
+assert.equal(mergeStaleProjection.code, 0);
+assert.equal(mergeStaleProjection.body.merge.conflicts, 0);
+const mergeStaleProjectionText = readFileSync(mergeStaleProjectionStore, "utf8");
+assert(mergeStaleProjectionText.includes('value:"10"'));
+assert(!mergeStaleProjectionText.includes('value:"999"'));
 const mergeDeleteShiftRoot = join("/tmp", `zero-repo-graph-merge-delete-shift-${process.pid}`);
 const mergeDeleteShiftSource = join(mergeDeleteShiftRoot, "main.0");
 const mergeDeleteShiftStore = join(mergeDeleteShiftRoot, "zero.graph");

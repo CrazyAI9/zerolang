@@ -534,16 +534,22 @@ static bool merge_projection_record_eq(const char *left, const char *right) {
 static bool merge_projection_candidate_valid(
   const ZProgramGraphStore *merged,
   const ZProgramGraphStore *side,
+  bool side_projections_match_graph,
   const char *path,
   const char *text
 ) {
   return merged &&
          side &&
+         side_projections_match_graph &&
          path &&
          path[0] &&
          text != NULL &&
          z_program_graph_store_projection_text(side, path) != NULL &&
          merge_graph_source_path_eq(&merged->graph, &side->graph, path);
+}
+
+static bool merge_store_projections_match_graph(const ZProgramGraphStore *store) {
+  return store && store->projection_len > 0 && z_program_graph_projection_store_matches_graph(store, NULL, NULL);
 }
 
 static bool merge_refresh_graph_from_projections(ZProgramGraphStore *store, ZRepositoryGraphMergeResult *result, ZDiag *diag) {
@@ -606,6 +612,9 @@ static bool merge_choose_projection_text(
   const ZProgramGraphStore *left,
   const ZProgramGraphStore *right,
   const ZProgramGraphStore *merged,
+  bool base_projections_match_graph,
+  bool left_projections_match_graph,
+  bool right_projections_match_graph,
   const char *path,
   const char **chosen,
   ZRepositoryGraphMergeResult *result,
@@ -617,9 +626,9 @@ static bool merge_choose_projection_text(
   const char *right_text = z_program_graph_store_projection_text(right, path);
   bool left_changed = !merge_projection_record_eq(base_text, left_text);
   bool right_changed = !merge_projection_record_eq(base_text, right_text);
-  bool base_valid = merge_projection_candidate_valid(merged, base, path, base_text);
-  bool left_valid = merge_projection_candidate_valid(merged, left, path, left_text);
-  bool right_valid = merge_projection_candidate_valid(merged, right, path, right_text);
+  bool base_valid = merge_projection_candidate_valid(merged, base, base_projections_match_graph, path, base_text);
+  bool left_valid = merge_projection_candidate_valid(merged, left, left_projections_match_graph, path, left_text);
+  bool right_valid = merge_projection_candidate_valid(merged, right, right_projections_match_graph, path, right_text);
 
   if (!left_changed && !right_changed) {
     if (chosen && base_valid) *chosen = base_text;
@@ -664,11 +673,26 @@ static bool merge_build_projections(
   ZRepositoryGraphMergeResult *result,
   ZDiag *diag
 ) {
+  bool base_projections_match_graph = merge_store_projections_match_graph(base);
+  bool left_projections_match_graph = merge_store_projections_match_graph(left);
+  bool right_projections_match_graph = merge_store_projections_match_graph(right);
   for (size_t i = 0; store && i < store->graph.node_len; i++) {
     const char *path = store->graph.nodes[i].path;
     if (!path || !path[0] || merge_projection_path_seen(store->projection_paths, store->projection_len, path)) continue;
     const char *tracked_text = NULL;
-    if (!merge_choose_projection_text(base, left, right, store, path, &tracked_text, result, diag)) return false;
+    if (!merge_choose_projection_text(base,
+                                      left,
+                                      right,
+                                      store,
+                                      base_projections_match_graph,
+                                      left_projections_match_graph,
+                                      right_projections_match_graph,
+                                      path,
+                                      &tracked_text,
+                                      result,
+                                      diag)) {
+      return false;
+    }
     if (tracked_text != NULL) {
       merge_add_projection(store, path, tracked_text);
       continue;
