@@ -293,19 +293,20 @@ static char *lower_find_manifest_for_source_path(const char *path) {
 
 static void lower_source_seed_package_manifest(SourceInput *source, const ZProgramGraph *graph, const char *artifact_path) {
   if (!source || source->manifest_path || !graph || !lower_starts_with(graph->module_identity, "package:")) return;
-  for (size_t i = 0; i < graph->node_len; i++) {
-    const ZProgramGraphNode *node = &graph->nodes[i];
-    if (!node->path || !node->path[0]) continue;
-    char *manifest = lower_find_manifest_for_source_path(node->path);
-    if (!manifest) continue;
-    source->manifest_path = manifest;
-    source->package_root = lower_dirname_of(manifest);
-    return;
-  }
   char *manifest = lower_find_manifest_for_source_path(artifact_path);
   if (manifest) {
     source->manifest_path = manifest;
     source->package_root = lower_dirname_of(manifest);
+    return;
+  }
+  for (size_t i = 0; i < graph->node_len; i++) {
+    const ZProgramGraphNode *node = &graph->nodes[i];
+    if (!node->path || !node->path[0]) continue;
+    manifest = lower_find_manifest_for_source_path(node->path);
+    if (!manifest) continue;
+    source->manifest_path = manifest;
+    source->package_root = lower_dirname_of(manifest);
+    return;
   }
 }
 

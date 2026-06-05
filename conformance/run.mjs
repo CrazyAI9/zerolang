@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { resolve } from "node:path";
 
 if (process.env.ZERO_NATIVE_TEST_SANDBOX !== "1" && process.env.ZERO_NATIVE_TEST_ALLOW_LOCAL !== "1") {
   console.error("conformance emits native test artifacts; run `pnpm run conformance` for Vercel Sandbox execution or set ZERO_NATIVE_TEST_ALLOW_LOCAL=1 to opt into local artifacts.");
@@ -3492,6 +3493,8 @@ const programGraphSourceFreePackage = `${outDir}/program-graph-source-free`;
 const programGraphSourceFreeRunPath = `${outDir}/program-graph-source-free-run`;
 const programGraphSourceFreeCImportPackage = `${outDir}/program-graph-source-free-c-import`;
 const programGraphSourceFreeCImportRunPath = `${outDir}/program-graph-source-free-c-import-run`;
+const programGraphSourceFreeCImportCwdPackage = `${outDir}/program-graph-source-free-c-import-cwd`;
+const programGraphSourceFreeCImportCwdBuildPath = `${outDir}/program-graph-source-free-c-import-cwd-build`;
 const programGraphIdentityMismatchPackage = `${outDir}/program-graph-identity-mismatch`;
 const programGraphMissingPackageNamePackage = `${outDir}/program-graph-missing-package-name`;
 const programGraphBadProjectionPackage = `${outDir}/program-graph-bad-projection`;
@@ -3515,6 +3518,8 @@ await rm(programGraphSourceFreePackage, { recursive: true, force: true });
 await rm(programGraphSourceFreeRunPath, { force: true });
 await rm(programGraphSourceFreeCImportPackage, { recursive: true, force: true });
 await rm(programGraphSourceFreeCImportRunPath, { force: true });
+await rm(programGraphSourceFreeCImportCwdPackage, { recursive: true, force: true });
+await rm(programGraphSourceFreeCImportCwdBuildPath, { force: true });
 await rm(programGraphIdentityMismatchPackage, { recursive: true, force: true });
 await rm(programGraphMissingPackageNamePackage, { recursive: true, force: true });
 await rm(programGraphBadProjectionPackage, { recursive: true, force: true });
@@ -3583,6 +3588,18 @@ const programGraphSourceFreeCImportSync = JSON.parse((await execFileAsync(zero, 
 await rm(`${programGraphSourceFreeCImportPackage}/src`, { recursive: true, force: true });
 const programGraphSourceFreeCImportCheck = JSON.parse((await execFileAsync(zero, ["check", "--json", programGraphSourceFreeCImportPackage])).stdout);
 const programGraphSourceFreeCImportRun = await execFileAsync(zero, ["run", "--out", programGraphSourceFreeCImportRunPath, programGraphSourceFreeCImportPackage]);
+await mkdir(programGraphSourceFreeCImportCwdPackage, { recursive: true });
+await writeFile(`${programGraphSourceFreeCImportCwdPackage}/zero.json`, JSON.stringify({
+  package: { name: "program-graph-source-free-c-import-cwd", version: "0.1.0" },
+  targets: { cli: { kind: "exe", main: "src/main.0" } },
+}, null, 2));
+const programGraphSourceFreeCImportCwdBuild = JSON.parse((await execFileAsync(resolve(zero), [
+  "build",
+  "--json",
+  "--out",
+  resolve(programGraphSourceFreeCImportCwdBuildPath),
+  resolve(programGraphSourceFreeCImportPackage),
+], { cwd: programGraphSourceFreeCImportCwdPackage })).stdout);
 await mkdir(programGraphIdentityMismatchPackage, { recursive: true });
 await writeFile(`${programGraphIdentityMismatchPackage}/zero.json`, JSON.stringify({
   package: { name: "program-graph-wrong-package", version: "9.9.9" },
@@ -3829,6 +3846,9 @@ assert.equal(programGraphSourceFreeCImportCheck.ok, true);
 assert.equal(programGraphSourceFreeCImportCheck.graph.sourceProjectionState, "missing");
 assertRepositoryGraphNativeCheck(programGraphSourceFreeCImportCheck, "missing");
 assert.equal(programGraphSourceFreeCImportRun.stdout, "source-free c import ok\n");
+assert.equal(programGraphSourceFreeCImportCwdBuild.sourceFile, resolve(`${programGraphSourceFreeCImportPackage}/zero.graph`));
+assert.equal(programGraphSourceFreeCImportCwdBuild.graph.artifact, resolve(`${programGraphSourceFreeCImportPackage}/zero.graph`));
+assert.equal(programGraphSourceFreeCImportCwdBuild.graph.sourceProjectionState, "missing");
 assert.notEqual(programGraphIdentityMismatchCheck.code, 0);
 const programGraphIdentityMismatchCheckBody = JSON.parse(programGraphIdentityMismatchCheck.stdout);
 assert.equal(programGraphIdentityMismatchCheckBody.diagnostics[0].code, "RGP007");

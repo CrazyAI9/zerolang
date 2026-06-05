@@ -2361,12 +2361,16 @@ const sourceFreeCopiedGraphShipPath = join(outDir, "source-free-program-graph-sh
 const sourceFreeCImportRoot = join(outDir, "source-free-c-import");
 const sourceFreeCImportStorePath = join(sourceFreeCImportRoot, "zero.graph");
 const sourceFreeCImportRunPath = join(outDir, "source-free-c-import-run");
+const sourceFreeCImportCwdRoot = join(outDir, "source-free-c-import-unrelated-cwd");
+const sourceFreeCImportCwdBuildPath = join(outDir, "source-free-c-import-cwd-build");
 const sourceFreeIdentityMismatchRoot = join(outDir, "source-free-identity-mismatch");
 const sourceFreeMissingPackageNameRoot = join(outDir, "source-free-missing-package-name");
 const sourceFreeBadProjectionRoot = join(outDir, "source-free-bad-projection");
 rmSync(sourceFreeCopiedGraphRoot, { recursive: true, force: true });
 rmSync(sourceFreeCImportRoot, { recursive: true, force: true });
 rmSync(sourceFreeCImportRunPath, { recursive: true, force: true });
+rmSync(sourceFreeCImportCwdRoot, { recursive: true, force: true });
+rmSync(sourceFreeCImportCwdBuildPath, { recursive: true, force: true });
 rmSync(sourceFreeIdentityMismatchRoot, { recursive: true, force: true });
 rmSync(sourceFreeMissingPackageNameRoot, { recursive: true, force: true });
 rmSync(sourceFreeBadProjectionRoot, { recursive: true, force: true });
@@ -2438,6 +2442,20 @@ assertSourceGraph(sourceFreeCImportCheck, sourceFreeCImportStorePath, "package:s
 assertProgramGraphCompilerInput(sourceFreeCImportCheck, sourceFreeCImportStorePath);
 assertRepositoryGraphNativeCheck(sourceFreeCImportCheck, "missing");
 assert.equal(zero(["run", "--out", sourceFreeCImportRunPath, sourceFreeCImportRoot]).stdout, "source-free c import ok\n");
+mkdirSync(sourceFreeCImportCwdRoot, { recursive: true });
+writeFileSync(join(sourceFreeCImportCwdRoot, "zero.json"), JSON.stringify({
+  package: { name: "unrelated-cwd-package", version: "0.1.0" },
+  targets: { cli: { kind: "exe", main: "src/main.0" } },
+}, null, 2));
+const sourceFreeCImportCwdBuild = JSON.parse(execFileSync(resolve("bin/zero"), [
+  "build",
+  "--json",
+  "--out",
+  resolve(sourceFreeCImportCwdBuildPath),
+  resolve(sourceFreeCImportRoot),
+], { cwd: sourceFreeCImportCwdRoot, encoding: "utf8", maxBuffer: execMaxBuffer, stdio: ["ignore", "pipe", "pipe"] }));
+assertSourceGraph(sourceFreeCImportCwdBuild, resolve(sourceFreeCImportStorePath), "package:source-free-c-import@0.1.0", "typed-program-graph-mir", false, "missing");
+assertProgramGraphCompilerInput(sourceFreeCImportCwdBuild, resolve(sourceFreeCImportStorePath));
 mkdirSync(sourceFreeIdentityMismatchRoot, { recursive: true });
 writeFileSync(join(sourceFreeIdentityMismatchRoot, "zero.json"), JSON.stringify({
   package: { name: "wrong-program-graph-fixture", version: "9.9.9" },
