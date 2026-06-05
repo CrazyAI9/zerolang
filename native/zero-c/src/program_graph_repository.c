@@ -27,15 +27,19 @@ typedef struct {
   bool graph_current;
   bool projection_checked;
   bool projection_current;
+  bool compiler_input_valid;
   bool compiler_input_enabled;
+  ZDiag compiler_input_diag;
 } RepositoryGraphState;
 
 static RepositoryGraphState repo_graph_state(const char *input, const ZTargetInfo *target, const ZProgramGraph *source_graph, const ZDiag *source_graph_diag) {
-  RepositoryGraphState state = {.input = input && input[0] ? input : "."};
+  RepositoryGraphState state = {.input = input && input[0] ? input : ".", .compiler_input_valid = true};
   state.root = z_program_graph_store_root_for_input(state.input);
   state.store_path = z_program_graph_store_path_for_root(state.root);
   state.store_present = z_program_graph_store_file_exists(state.store_path);
-  (void)z_program_graph_manifest_compiler_input_enabled(state.input, &state.compiler_input_enabled, NULL);
+  ZDiag compiler_input_diag = {0};
+  state.compiler_input_valid = z_program_graph_manifest_compiler_input_enabled(state.input, &state.compiler_input_enabled, &compiler_input_diag);
+  if (!state.compiler_input_valid) state.compiler_input_diag = compiler_input_diag;
   if (state.store_present) {
     ZProgramGraphStore store;
     ZDiag diag = {0};
@@ -71,6 +75,7 @@ static void repo_graph_state_free(RepositoryGraphState *state) {
   free(state->graph_error);
   free(state->projection_error);
   free(state->graph_hash);
+  free((char *)state->compiler_input_diag.path);
   memset(state, 0, sizeof(*state));
 }
 
@@ -110,6 +115,21 @@ static const char *repo_sync_state(const RepositoryGraphState *state) {
   if (state && state->store_present && state->store_valid) return "store-valid";
   if (state && state->store_present) return "store-invalid";
   return "not-enabled";
+}
+
+static const char *repo_compiler_input_label(const RepositoryGraphState *state) {
+  if (!state || !state->compiler_input_valid) return "invalid";
+  return state->compiler_input_enabled ? "repository-graph" : "source-text";
+}
+
+static const char *repo_diag_code(const ZDiag *diag) {
+  if (diag && diag->code == 2002) return "BLD002";
+  return "RGP008";
+}
+
+static const char *repo_diagnostic_path(const RepositoryGraphState *state) {
+  if (state && !state->compiler_input_valid && state->compiler_input_diag.path) return state->compiler_input_diag.path;
+  return state ? state->input : "zero.graph";
 }
 
 static void repo_append_contract_json(ZBuf *buf, const RepositoryGraphState *state) {
@@ -156,7 +176,7 @@ static void repo_append_state_json(ZBuf *buf, const RepositoryGraphState *state,
   zbuf_append(buf, ", \"syncState\": ");
   repo_append_json_string(buf, repo_sync_state(state));
   zbuf_append(buf, ", \"possibleSyncStates\": [\"not-enabled\", \"store-invalid\", \"clean\", \"source-stale\", \"graph-stale\", \"conflict\"], \"canonicalSourceExtension\": \".0\", \"compilerInput\": ");
-  repo_append_json_string(buf, state->compiler_input_enabled ? "repository-graph" : "source-text");
+  repo_append_json_string(buf, repo_compiler_input_label(state));
   zbuf_append(buf, "}");
   if (state->store_valid) {
     zbuf_append(buf, ",\n  \"store\": {\"format\":\"zero-repository-graph\",\"schemaVersion\":1,\"graphHash\":");
@@ -182,7 +202,7 @@ static void repo_append_diagnostic_json(ZBuf *buf, const RepositoryGraphState *s
   zbuf_append(buf, ",\"message\":");
   repo_append_json_string(buf, message);
   zbuf_append(buf, ",\"path\":");
-  repo_append_json_string(buf, state->input);
+  repo_append_json_string(buf, repo_diagnostic_path(state));
   zbuf_append(buf, ",\"line\":1,\"column\":1,\"length\":1,\"expected\":");
   repo_append_json_string(buf, expected);
   zbuf_append(buf, ",\"actual\":");
@@ -208,7 +228,7 @@ static int repo_graph_error_paths(const RepositoryGraphState *state, bool json, 
     fputs(buf.data, stdout);
     zbuf_free(&buf);
   } else {
-    fprintf(stderr, "%s:1:1 %s: %s\n", state->input, code, message);
+    fprintf(stderr, "%s:1:1 %s: %s\n", repo_diagnostic_path(state), code, message);
     fprintf(stderr, "  expected: %s\n", expected);
     fprintf(stderr, "  actual: %s\n", actual);
     fprintf(stderr, "  help: %s\n", help);
@@ -219,6 +239,19 @@ static int repo_graph_error_paths(const RepositoryGraphState *state, bool json, 
 
 static int repo_graph_error(const RepositoryGraphState *state, bool json, const char *mode, const char *code, const char *message, const char *expected, const char *actual, const char *help, ZRepositoryGraphRepair repair) {
   return repo_graph_error_paths(state, json, mode, code, message, expected, actual, help, false, NULL, 0, repair);
+}
+
+static int repo_compiler_input_error(const RepositoryGraphState *state, bool json, const char *mode) {
+  const ZDiag *diag = state ? &state->compiler_input_diag : NULL;
+  return repo_graph_error(state,
+                          json,
+                          mode,
+                          repo_diag_code(diag),
+                          diag && diag->message[0] ? diag->message : "repositoryGraph.compilerInput is invalid",
+                          diag && diag->expected[0] ? diag->expected : "true or false",
+                          diag && diag->actual[0] ? diag->actual : "invalid repositoryGraph.compilerInput",
+                          diag && diag->help[0] ? diag->help : "set repositoryGraph.compilerInput to true only when zero.graph is checked in and kept in sync",
+                          REPO_GRAPH_REPAIR_NONE);
 }
 
 static bool repo_diag_is_identity_reconcile_error(const ZDiag *diag) {
@@ -289,6 +322,11 @@ int z_repository_graph_status_command(const char *input, const ZTargetInfo *targ
     repo_graph_state_free(&state);
     return rc;
   }
+  if (!state.compiler_input_valid) {
+    int rc = repo_compiler_input_error(&state, json, "status");
+    repo_graph_state_free(&state);
+    return rc;
+  }
   if (state.store_present && !state.store_valid) {
     int rc = repo_missing_or_invalid_store_error(&state, json, "status");
     repo_graph_state_free(&state);
@@ -307,7 +345,7 @@ int z_repository_graph_status_command(const char *input, const ZTargetInfo *targ
     printf("store: %s\n", state.store_path);
     printf("store valid: %s\n", state.store_valid ? "true" : "false");
     printf("source projection: checked-in .0 source text\n");
-    printf("compiler input: %s\n", state.compiler_input_enabled ? "repository-graph" : "source-text");
+    printf("compiler input: %s\n", repo_compiler_input_label(&state));
     printf("writes: false\n");
   }
   repo_graph_state_free(&state);
@@ -318,6 +356,11 @@ int z_repository_graph_verify_sync_command(const char *input, const ZTargetInfo 
   RepositoryGraphState state = repo_graph_state(input, target, source_graph, NULL);
   if (from_graph || from_source) {
     int rc = repo_graph_direction_error(&state, json, from_graph, from_source);
+    repo_graph_state_free(&state);
+    return rc;
+  }
+  if (!state.compiler_input_valid) {
+    int rc = repo_compiler_input_error(&state, json, "verify-sync");
     repo_graph_state_free(&state);
     return rc;
   }
@@ -358,6 +401,11 @@ int z_repository_graph_sync_command(const char *input, const ZTargetInfo *target
   RepositoryGraphState state = repo_graph_state(input, target, from_source ? source_graph : NULL, from_graph ? source_graph_diag : NULL);
   if (from_graph == from_source) {
     int rc = repo_graph_direction_error(&state, json, from_graph, from_source);
+    repo_graph_state_free(&state);
+    return rc;
+  }
+  if (!state.compiler_input_valid) {
+    int rc = repo_compiler_input_error(&state, json, from_graph ? "sync-from-graph" : "sync-from-source");
     repo_graph_state_free(&state);
     return rc;
   }
@@ -447,13 +495,13 @@ bool z_repository_graph_needs_source_graph(const char *kind, const char *input, 
   if (kind && strcmp(kind, "sync") == 0) return from_source && !from_graph;
   if (kind && strcmp(kind, "status") == 0 && !from_graph && !from_source) {
     RepositoryGraphState state = repo_graph_state(input, target, NULL, NULL);
-    bool needs_source = state.store_valid && state.projection_checked && state.projection_current;
+    bool needs_source = state.compiler_input_valid && state.store_valid && state.projection_checked && state.projection_current;
     repo_graph_state_free(&state);
     return needs_source;
   }
   if (!kind || strcmp(kind, "verify-sync") != 0 || from_graph || from_source) return false;
   RepositoryGraphState state = repo_graph_state(input, target, NULL, NULL);
-  bool needs_source = state.store_valid;
+  bool needs_source = state.compiler_input_valid && state.store_valid;
   repo_graph_state_free(&state);
   return needs_source;
 }

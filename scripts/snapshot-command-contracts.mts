@@ -699,6 +699,21 @@ assert.equal(repoGraphStatus.contract.commands.syncFromSource.available, true);
 assert.equal(repoGraphStatus.contract.commands.syncFromGraph.writes, true);
 assert.equal(repoGraphStatus.contract.commands.syncFromGraph.available, false);
 assert.deepEqual(repoGraphStatus.repairCommands, []);
+const invalidRepoGraphCompilerInputRoot = join("/tmp", `zero-repo-graph-invalid-compiler-input-${process.pid}`);
+rmSync(invalidRepoGraphCompilerInputRoot, { force: true, recursive: true });
+mkdirSync(invalidRepoGraphCompilerInputRoot, { recursive: true });
+writeFileSync(join(invalidRepoGraphCompilerInputRoot, "zero.json"), `${JSON.stringify({
+  package: { name: "invalid-repo-graph-compiler-input", version: "0.1.0" },
+  targets: { cli: { kind: "exe", main: "main.0" } },
+  repositoryGraph: { compilerInput: "true" },
+}, null, 2)}\n`);
+const invalidRepoGraphCompilerInputStatus = json(["graph", "status", "--json", invalidRepoGraphCompilerInputRoot], { allowFailure: true });
+assert.notEqual(invalidRepoGraphCompilerInputStatus.code, 0);
+assert.equal(invalidRepoGraphCompilerInputStatus.body.ok, false);
+assert.equal(invalidRepoGraphCompilerInputStatus.body.repositoryGraph.compilerInput, "invalid");
+assert.equal(invalidRepoGraphCompilerInputStatus.body.diagnostics[0].code, "BLD002");
+assert.equal(invalidRepoGraphCompilerInputStatus.body.diagnostics[0].path, join(invalidRepoGraphCompilerInputRoot, "zero.json"));
+assert.equal(invalidRepoGraphCompilerInputStatus.body.diagnostics[0].message, "repositoryGraph.compilerInput must be a boolean");
 const standaloneRepoGraphRoot = join("/tmp", `zero-repo-graph-contract-${process.pid}`);
 const standaloneRepoGraphSource = join(standaloneRepoGraphRoot, "standalone.0");
 const standaloneRepoGraphStore = join(standaloneRepoGraphRoot, "zero.graph");
