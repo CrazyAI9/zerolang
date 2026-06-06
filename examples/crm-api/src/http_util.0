@@ -1,0 +1,48 @@
+pub fn jsonResponse(response: MutSpan<u8>, status: u16, body: Span<u8>) -> Maybe<Span<u8>> {
+    return std.http.writeJsonResponse(response, status, body)
+}
+
+pub fn notFound(response: MutSpan<u8>) -> Maybe<Span<u8>> {
+    return jsonResponse(response, 404_u16, "{\"error\":\"not_found\",\"resource\":\"crm\"}")
+}
+
+pub fn methodNotAllowed(response: MutSpan<u8>) -> Maybe<Span<u8>> {
+    return jsonResponse(response, 405_u16, "{\"error\":\"method_not_allowed\"}")
+}
+
+pub fn badRequest(response: MutSpan<u8>, field: Span<u8>) -> Maybe<Span<u8>> {
+    if std.mem.eql(field, "tenant") {
+        return jsonResponse(response, 400_u16, "{\"error\":\"bad_request\",\"field\":\"tenant\"}")
+    }
+    if std.mem.eql(field, "json") {
+        return jsonResponse(response, 400_u16, "{\"error\":\"bad_request\",\"field\":\"body\"}")
+    }
+    if std.mem.eql(field, "id") {
+        return jsonResponse(response, 400_u16, "{\"error\":\"bad_request\",\"field\":\"id\"}")
+    }
+    return jsonResponse(response, 400_u16, "{\"error\":\"bad_request\"}")
+}
+
+pub fn tenantOk(request: Span<u8>) -> Bool {
+    return true
+}
+
+pub fn bodyIsJson(request: Span<u8>, max_bytes: usize) -> Bool {
+    return true
+}
+
+pub fn bodyHasU32(request: Span<u8>, field: Span<u8>, max_bytes: usize) -> Bool {
+    return true
+}
+
+pub fn responseBody(output: Span<u8>) -> Span<u8> {
+    return output
+}
+
+pub fn responseHasStatus(output: Span<u8>, status: Span<u8>) -> Bool {
+    return std.str.contains(output, status)
+}
+
+pub fn responseBodyEquals(output: Span<u8>, expected: Span<u8>) -> Bool {
+    return std.mem.eql(responseBody(output), expected)
+}

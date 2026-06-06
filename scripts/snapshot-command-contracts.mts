@@ -110,16 +110,22 @@ function assertProgramGraphCompilerInput(body, artifact) {
   assert.equal(body.incrementalInvalidation.interfaceFingerprints.graphHash, body.graph.graphHash);
 }
 
-function assertRepositoryGraphNativeCheck(body, sourceProjectionState = "clean") {
+function assertRepositoryGraphNativeCheck(body, sourceProjectionState = "clean", options = {}) {
+  const astToMirFallbackUsed = options.allowAstToMirFallback === true
+    ? body.graphCompiler.astToMirFallbackUsed === true
+    : options.astToMirFallbackUsed === true;
+  const graphHirToMirUsed = options.graphHirToMirUsed === false ? false : true;
+  const sourceBackedStdHelpersUsed = options.sourceBackedStdHelpersUsed === true;
   assert.equal(body.graphCompiler.input, "repository-graph-store");
   assert.equal(body.graphCompiler.graphStoreLoaded, true);
   assert.equal(body.graphCompiler.sourceProjectionRequiredForCompilerInput, false);
   assert.equal(body.graphCompiler.sourceProjectionState, sourceProjectionState);
   assert.equal(body.graphCompiler.legacyProgramAstReconstructed, false);
-  assert.equal(body.graphCompiler.graphToProgramLoweringUsed, false);
+  assert.equal(body.graphCompiler.graphToProgramLoweringUsed, astToMirFallbackUsed);
   assert.equal(body.graphCompiler.graphNativeCheckerUsed, true);
-  assert.equal(body.graphCompiler.graphHirToMirUsed, true);
-  assert.equal(body.graphCompiler.astToMirFallbackUsed, false);
+  assert.equal(body.graphCompiler.graphHirToMirUsed, graphHirToMirUsed);
+  assert.equal(body.graphCompiler.astToMirFallbackUsed, astToMirFallbackUsed);
+  assert.equal(body.graphCompiler.sourceBackedStdHelpersUsed, sourceBackedStdHelpersUsed);
   assert.equal(body.graphCompiler.unsupportedGraphFacts.count, 0);
   assert.equal(body.graphCompiler.resolution.ok, true);
   assert.equal(body.graphCompiler.resolution.state, "resolved-graph-facts");
@@ -137,7 +143,10 @@ function assertRepositoryGraphNativeCheck(body, sourceProjectionState = "clean")
   assert.equal(body.graphCompiler.defaultReadiness.sourceFreeCompile, targetReady);
   assert.equal(body.graphCompiler.defaultReadiness.sourceProjectionRequired, false);
   assert.equal(body.graphCompiler.defaultReadiness.sourceProjectionState, sourceProjectionState);
-  assert.equal(body.graphCompiler.defaultReadiness.fallback.astToMirFallbackUsed, false);
+  assert.equal(body.graphCompiler.defaultReadiness.fallback.graphToProgramLoweringUsed, astToMirFallbackUsed);
+  assert.equal(body.graphCompiler.defaultReadiness.fallback.graphHirToMirUsed, graphHirToMirUsed);
+  assert.equal(body.graphCompiler.defaultReadiness.fallback.astToMirFallbackUsed, astToMirFallbackUsed);
+  assert.equal(body.graphCompiler.defaultReadiness.fallback.sourceBackedStdHelpersUsed, sourceBackedStdHelpersUsed);
   assert.equal(body.graphCompiler.defaultReadiness.performance.validationInLoad, true);
   assert.equal(body.graphCompiler.defaultReadiness.cacheInvalidation.parserArtifactsInKey, false);
   assert(body.graphCompiler.defaultReadiness.cacheInvalidation.keyedBy.includes("nodeHashes"));
@@ -838,9 +847,9 @@ assert.match(graphHelp, /zero graph merge --base <base-zero\.graph> --left <left
 assert.match(graphHelp, /zero graph size \[--json\] \[--target <target>\] --out <artifact> <input>/);
 assert.match(graphHelp, /Patch usage: zero patch \[--json\] \[--check-only\|--dry-run\] \[--out <program-graph-artifact>\] \[<input>\] \(<patch-file>\|--op <operation>\)/);
 assert.match(graphHelp, /Patch operation help: zero patch --op help/);
-assert.match(graphHelp, /setMainArgsAddCli fn="add_u32"/);
-assert.match(graphHelp, /setMainGreetingCli prefix="hello " fallback="anonymous"/);
+assert.doesNotMatch(graphHelp, /setMain[A-Za-z]+Cli/);
 assert.match(graphHelp, /replaceFunctionBody main \.\.\. end/);
+assert.match(graphHelp, /replaceBlockBody #block_id \.\.\. end/);
 assert.match(graphHelp, /addLetBinary fn="add" name="sum" type="i32" operator="\+"/);
 assert.match(graphHelp, /zero graph build \[--json\] \[--emit exe\|obj\|llvm-ir\].*<program-graph-or-package>/);
 assert.match(graphHelp, /zero graph run \[--target <host-target>\].*<program-graph-or-package> \[-- args\.\.\.\]/);
@@ -871,9 +880,9 @@ assert.match(graphPatchHelp, /accepted by zero patch --op, --patch-text, and zer
 assert.match(graphPatchHelp, /insert node="#id" kind="Literal"/);
 assert.match(graphPatchHelp, /insertEdge from="#from" to="#to"/);
 assert.match(graphPatchHelp, /replace node="#id" expect="nodehash:abc123"/);
-assert.match(graphPatchHelp, /setMainArgsAddCli fn="add_u32"/);
-assert.match(graphPatchHelp, /setMainGreetingCli prefix="hello " fallback="anonymous"/);
+assert.doesNotMatch(graphPatchHelp, /setMain[A-Za-z]+Cli/);
 assert.match(graphPatchHelp, /replaceFunctionBody main/);
+assert.match(graphPatchHelp, /replaceBlockBody #block_id/);
 assert.match(graphPatchHelp, /addLetLiteral fn="main" name="count" type="u32" value="0"/);
 assert.match(graphPatchHelp, /addReturnValue fn="identity" value="input" type="i32"/);
 const graphPatchHelpJson = json(["patch", "--op", "help", "--json"]).body;
@@ -882,9 +891,9 @@ assert.equal(graphPatchHelpJson.command, "zero patch");
 assert.equal(graphPatchHelpJson.operations.includes("insert node=\"#id\" kind=\"Literal\" parent=\"#parent\" edge=\"arg\" order=\"0\" type=\"String\" value=\"text\""), true);
 assert.equal(graphPatchHelpJson.operations.includes("insertEdge from=\"#from\" to=\"#to\" edge=\"arg\" target=\"node\" order=\"0\""), true);
 assert.equal(graphPatchHelpJson.operations.includes("replace node=\"#id\" expect=\"nodehash:abc123\" kind=\"Literal\" type=\"String\" value=\"text\""), true);
-assert.equal(graphPatchHelpJson.operations.includes("setMainArgsAddCli fn=\"add_u32\""), true);
-assert.equal(graphPatchHelpJson.operations.includes("setMainGreetingCli prefix=\"hello \" fallback=\"anonymous\""), true);
+assert.equal(graphPatchHelpJson.operations.some((op) => op.includes("setMain")), false);
 assert.equal(graphPatchHelpJson.operations.some((op) => op.startsWith("replaceFunctionBody main\n")), true);
+assert.equal(graphPatchHelpJson.operations.some((op) => op.startsWith("replaceBlockBody #block_id\n")), true);
 assert.equal(graphPatchHelpJson.operations.includes("addLetBinary fn=\"add\" name=\"sum\" type=\"i32\" operator=\"+\" left=\"left\" right=\"right\""), true);
 assert.equal(graphPatchHelpJson.operations.includes("addCheckWriteValue fn=\"main\" value=\"message\" type=\"String\""), true);
 const retiredGraphCheckJson = json(["graph", "check", "--json", "examples/hello.0"], { allowFailure: true });
@@ -2174,6 +2183,7 @@ const graphPatchDeleteNodeFactPath = join(outDir, "hello.delete-node-fact.progra
 const graphDeletedNodeFactPath = join(outDir, "hello.delete-node-fact.program-graph");
 const graphRepositoryPatchPackageDir = join(outDir, "repository-graph-patch-package");
 const graphRepositoryBodyPatchPath = join(outDir, "repository-graph.replace-body.patch");
+const graphRepositoryBlockPatchPath = join(outDir, "repository-graph.replace-block.patch");
 const graphPatchDeleteExternalRootRefPath = join(outDir, "hello.delete-external-root-ref.program-graph.patch");
 const graphPatchDeleteExtraOwnerPath = join(outDir, "hello.delete-extra-owner.program-graph.patch");
 const graphPatchReplacePath = join(outDir, "hello.replace.program-graph.patch");
@@ -2439,9 +2449,9 @@ assert.equal(checkedInGraphQueryJson.inputKind, "repository-graph");
 assert.equal(checkedInGraphQueryJson.functions.some((fun) => fun.name === "main" && fun.public === true), true);
 assert.equal(checkedInGraphQueryJson.patchOperations.includes("insert node=\"#id\" kind=\"Literal\" parent=\"#parent\" edge=\"arg\" order=\"0\" type=\"String\" value=\"text\""), true);
 assert.equal(checkedInGraphQueryJson.patchOperations.includes("replace node=\"#id\" expect=\"nodehash:abc123\" kind=\"Literal\" type=\"String\" value=\"text\""), true);
-assert.equal(checkedInGraphQueryJson.patchOperations.includes("setMainArgsAddCli fn=\"add_u32\""), true);
-assert.equal(checkedInGraphQueryJson.patchOperations.includes("setMainGreetingCli prefix=\"hello \" fallback=\"anonymous\""), true);
+assert.equal(checkedInGraphQueryJson.patchOperations.some((op) => op.includes("setMain")), false);
 assert.equal(checkedInGraphQueryJson.patchOperations.some((op) => op.startsWith("replaceFunctionBody main\n")), true);
+assert.equal(checkedInGraphQueryJson.patchOperations.some((op) => op.startsWith("replaceBlockBody #block_id\n")), true);
 assert.equal(checkedInGraphQueryJson.patchOperations.includes("addLetLiteral fn=\"main\" name=\"count\" type=\"u32\" value=\"0\""), true);
 assert.equal(checkedInGraphQueryJson.patchOperations.includes("addReturnValue fn=\"identity\" value=\"input\" type=\"i32\""), true);
 rmSync(graphRepositoryPatchPackageDir, { recursive: true, force: true });
@@ -2477,6 +2487,32 @@ assert.equal(repositoryBodyPatchJson.saved.path, join(graphRepositoryPatchPackag
 assert.match(zero(["graph", "view", graphRepositoryPatchPackageDir]).stdout, /let name: Maybe<String> = std\.args\.get\(1\)/);
 assert.equal(zero(["check", graphRepositoryPatchPackageDir]).stdout, "ok\n");
 assert.equal(zero(["run", graphRepositoryPatchPackageDir, "--", "Ada"]).stdout, "hello Ada\n");
+const repositoryBlockQueryJson = json(["graph", "query", "--json", "--find", "Block", graphRepositoryPatchPackageDir]).body;
+const repositoryThenBlock = repositoryBlockQueryJson.matches.find((node) => node.kind === "Block" && node.name === "then");
+assert(repositoryThenBlock, "expected replaceFunctionBody patch to expose a then block handle");
+writeFileSync(graphRepositoryBlockPatchPath, [
+  "zero-program-graph-patch v1",
+  `expect graphHash "${repositoryBlockQueryJson.graphHash}"`,
+  `replaceBlockBody ${repositoryThenBlock.id}`,
+  "  check world.out.write \"name: \"",
+  "  check world.out.write name.value",
+  "  check world.out.write \"\\n\"",
+  "end",
+  "",
+].join("\n"));
+const repositoryBlockPatchDryRunJson = json(["patch", "--json", "--check-only", graphRepositoryPatchPackageDir, graphRepositoryBlockPatchPath]).body;
+assert.equal(repositoryBlockPatchDryRunJson.ok, true);
+assert.equal(repositoryBlockPatchDryRunJson.checkOnly, true);
+assert.equal(repositoryBlockPatchDryRunJson.saved, null);
+const repositoryBlockPatchJson = json(["patch", "--json", graphRepositoryPatchPackageDir, graphRepositoryBlockPatchPath]).body;
+assert.equal(repositoryBlockPatchJson.ok, true);
+assert.equal(repositoryBlockPatchJson.operations[0].op, "replaceBlockBody");
+assert.equal(repositoryBlockPatchJson.saved.path, join(graphRepositoryPatchPackageDir, "zero.graph"));
+const repositoryBlockView = zero(["graph", "view", graphRepositoryPatchPackageDir]).stdout;
+assert.match(repositoryBlockView, /check world\.out\.write\("name: "\)/);
+assert.match(repositoryBlockView, /check world\.out\.write\("hello anonymous\\n"\)/);
+assert.equal(zero(["check", graphRepositoryPatchPackageDir]).stdout, "ok\n");
+assert.equal(zero(["run", graphRepositoryPatchPackageDir, "--", "Ada"]).stdout, "name: Ada\n");
 assert.match(zero(["graph", "status", graphRepositoryPatchPackageDir]).stdout, /source-stale/);
 assert.match(zero(["graph", "sync", "--from-graph", graphRepositoryPatchPackageDir]).stdout, /repository graph sync ok/);
 assert.equal(zero(["graph", "verify-sync", graphRepositoryPatchPackageDir]).stdout, "repository graph verify-sync ok\n");
@@ -2783,11 +2819,11 @@ assert.equal(graphTargetBackendMismatchCheck.body.ok, true);
 assert.equal(graphTargetBackendMismatchCheck.body.targetReadiness.ok, false);
 assert.equal(graphTargetBackendMismatchCheck.body.targetReadiness.diagnostics[0].code, "BLD004");
 assert.equal(graphTargetBackendMismatchCheck.body.targetReadiness.diagnostics[0].backendBlocker.backend, "zero-coff-x64");
-const sourceFreeStdGraphRoot = join(outDir, "source-free-std-str-graph-package");
+const sourceFreeStdGraphRoot = join(outDir, "source-free-std-str");
 rmSync(sourceFreeStdGraphRoot, { recursive: true, force: true });
 mkdirSync(sourceFreeStdGraphRoot, { recursive: true });
 writeFileSync(join(sourceFreeStdGraphRoot, "zero.json"), JSON.stringify({
-  package: { name: "source-free-std-str-graph-package", version: "0.1.0" },
+  package: { name: "source-free-std-str", version: "0.1.0" },
   targets: { cli: { kind: "exe", main: "main.0" } },
   repositoryGraph: { compilerInput: true },
 }, null, 2));
@@ -2797,9 +2833,11 @@ assert.equal(sourceFreeStdGraphSync.body.ok, true);
 rmSync(join(sourceFreeStdGraphRoot, "main.0"), { force: true });
 const sourceFreeStdGraphCheckJson = json(["check", "--json", sourceFreeStdGraphRoot]).body;
 assert.equal(sourceFreeStdGraphCheckJson.ok, true);
-assertSourceGraph(sourceFreeStdGraphCheckJson, join(sourceFreeStdGraphRoot, "zero.graph"), "package:source-free-std-str-graph-package@0.1.0", "graph-native-check", false, "missing");
+assertSourceGraph(sourceFreeStdGraphCheckJson, join(sourceFreeStdGraphRoot, "zero.graph"), "package:source-free-std-str@0.1.0", "graph-native-check", false, "missing");
 assertProgramGraphCompilerInput(sourceFreeStdGraphCheckJson, join(sourceFreeStdGraphRoot, "zero.graph"));
-assertRepositoryGraphNativeCheck(sourceFreeStdGraphCheckJson, "missing");
+assertRepositoryGraphNativeCheck(sourceFreeStdGraphCheckJson, "missing", { graphHirToMirUsed: false, sourceBackedStdHelpersUsed: true });
+assert.equal(sourceFreeStdGraphCheckJson.targetReadiness.diagnostics[0].actual, "source-backed-std-helpers");
+assert.equal(sourceFreeStdGraphCheckJson.targetReadiness.diagnostics[0].backendBlocker.unsupportedFeature, "source-backed-std-helpers");
 assert(sourceFreeStdGraphCheckJson.graphCompiler.semanticFacts.calls.some((call) => call.qualifiedName === "std.str.reverse" && call.contract.kind === "stdlib" && call.resolution.targetKind === "stdlib" && call.returnType === "Maybe<Span<u8>>"));
 assert(sourceFreeStdGraphCheckJson.graphCompiler.tables.capability > 0);
 const checkedInGraphPackageSizeJson = json(["size", "--json", "--target", "linux-musl-x64", checkedInGraphPackageDir]).body;

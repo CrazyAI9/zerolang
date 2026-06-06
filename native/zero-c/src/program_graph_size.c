@@ -177,6 +177,11 @@ void z_program_graph_seed_source_metadata(SourceInput *input, const ZProgramGrap
   if (!input || !graph) return;
   free(input->source);
   input->source = z_strdup(graph->graph_hash ? graph->graph_hash : "");
+  z_program_graph_seed_source_metadata_facts(input, graph);
+}
+
+void z_program_graph_seed_source_metadata_facts(SourceInput *input, const ZProgramGraph *graph) {
+  if (!input || !graph) return;
   graph_size_clear_module_metadata(input);
   graph_size_clear_import_metadata(input);
   graph_size_clear_symbol_metadata(input);

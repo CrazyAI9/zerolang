@@ -80,6 +80,7 @@ Core examples:
 - `examples/std-http-headers.0`: hosted HTTP request envelope, response buffer, and header-value lookup.
 - `examples/json-api-client.0`: hosted JSON API client with request-envelope writing and response-body parsing.
 - `examples/json-api-router.0`: dependency-free JSON API request parsing and response-envelope writing.
+- `examples/crm-api/`: larger CRM API router package with account, contact, deal, activity, and search routes over HTTP request envelopes.
 - `examples/std-platform.0`: `std.time`, `std.rand`, `std.proc`, and `std.crypto` capability-shaped helpers.
 - `examples/cli-file.0`: args, env, file writes, stdout, and stderr.
 - `examples/cli-config.0`: option parsing, environment fallback, and JSON output checks.
@@ -166,3 +167,43 @@ bin/zero check --json --target linux-musl-x64 examples/zero-hash
 filesystem requirements.
 
 Use `examples/memory-package/` for target-neutral cross-target direct builds.
+
+## Larger HTTP API: `crm-api`
+
+`examples/crm-api/` is a larger graph-first API-router package. It compiles
+from `examples/crm-api/zero.graph`; the `.0` files under `src/` are synced
+source projections for human review. The package models a CRM request handler
+over Zero's HTTP envelope helpers and includes more than ten route branches:
+
+- account CRUD routes
+- contact CRUD routes
+- deal CRUD routes
+- activity list/create routes
+- health and search routes
+
+The graph-runnable update/delete routes use explicit POST action paths such as
+`/crm/deals/42/update` and `/crm/deals/42/delete`; this keeps the example
+inside the current executable graph backend while still modeling CRUD behavior.
+
+Check command:
+
+```sh
+bin/zero check examples/crm-api
+```
+
+Build and run commands:
+
+```sh
+bin/zero build --emit exe --profile debug --out /tmp/zero-crm-api examples/crm-api
+/tmp/zero-crm-api $'GET /health\n\n'
+```
+
+Expected output:
+
+```text
+HTTP/1.1 200 OK
+content-type: application/json
+content-length: 27
+
+{"ok":true,"service":"crm"}
+```

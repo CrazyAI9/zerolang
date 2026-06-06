@@ -10,6 +10,7 @@ typedef struct {
   const char *lowering;
   const char *source_projection_state;
   bool canonical_source;
+  bool source_std_helpers_used;
 } ZProgramGraphArtifactSource;
 
 bool z_program_graph_artifact_source_present(const ZProgramGraphArtifactSource *source);

@@ -18,7 +18,7 @@ const fileBudgets = {
   "native/zero-c/include/zero.h": { maxLines: 990, maxStrcmpCalls: 0 },
   "native/zero-c/include/zero_runtime.h": { maxLines: 100, maxStrcmpCalls: 0 },
   "native/zero-c/src/checker.c": { maxLines: 11710, maxStrcmpCalls: 287 },
-  "native/zero-c/src/main.c": { maxLines: 14206, maxStrcmpCalls: 500 },
+  "native/zero-c/src/main.c": { maxLines: 14266, maxStrcmpCalls: 500 },
   "native/zero-c/src/ir.c": { maxLines: 4213, maxStrcmpCalls: 229 },
   "native/zero-c/src/llvm_backend_metadata.c": { maxLines: 80, maxStrcmpCalls: 0 },
   "native/zero-c/src/llvm_toolchain.c": { maxLines: 335, maxStrcmpCalls: 19 },
@@ -87,9 +87,9 @@ const fileBudgets = {
   "native/zero-c/src/program_graph_manifest.c": { maxLines: 240, maxStrcmpCalls: 8 },
   "native/zero-c/src/program_graph_manifest.h": { maxLines: 15, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_manifest_identity.c": { maxLines: 92, maxStrcmpCalls: 0 },
-  "native/zero-c/src/program_graph_mir.c": { maxLines: 1575, maxStrcmpCalls: 4 },
-  "native/zero-c/src/program_graph_mir_std.c": { maxLines: 175, maxStrcmpCalls: 2 },
-  "native/zero-c/src/program_graph_mir_std.h": { maxLines: 10, maxStrcmpCalls: 0 },
+  "native/zero-c/src/program_graph_mir.c": { maxLines: 1732, maxStrcmpCalls: 4 },
+  "native/zero-c/src/program_graph_mir_std.c": { maxLines: 330, maxStrcmpCalls: 2 },
+  "native/zero-c/src/program_graph_mir_std.h": { maxLines: 15, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_query.c": { maxLines: 350, maxStrcmpCalls: 1 },
   "native/zero-c/src/program_graph_query.h": { maxLines: 10, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_query_internal.h": { maxLines: 20, maxStrcmpCalls: 0 },
@@ -134,8 +134,8 @@ const fileBudgets = {
   "native/zero-c/src/program_graph_semantics.h": { maxLines: 15, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_roundtrip.c": { maxLines: 55, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_roundtrip.h": { maxLines: 15, maxStrcmpCalls: 0 },
-  "native/zero-c/src/program_graph_size.c": { maxLines: 184, maxStrcmpCalls: 2 },
-  "native/zero-c/src/program_graph_size.h": { maxLines: 8, maxStrcmpCalls: 0 },
+  "native/zero-c/src/program_graph_size.c": { maxLines: 189, maxStrcmpCalls: 2 },
+  "native/zero-c/src/program_graph_size.h": { maxLines: 9, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_source_map.c": { maxLines: 460, maxStrcmpCalls: 1 },
   "native/zero-c/src/program_graph_source_map.h": { maxLines: 20, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_view.c": { maxLines: 841, maxStrcmpCalls: 1 },
@@ -910,7 +910,7 @@ function budgetViolations(files, allLargeFunctions, stdlib, backendFormats, prog
       !programGraph.repositoryGraphCheckNoProgramLowering ||
       !programGraph.repositoryGraphCheckNoLegacyChecker ||
       !programGraph.repositoryGraphCheckReportsSemanticFacts ||
-      !programGraph.repositoryGraphCheckReportsNoFallback ||
+      !programGraph.repositoryGraphCheckReportsFallbackState ||
       !programGraph.repositoryGraphCheckDefaultReadiness ||
       !programGraph.repositoryGraphCheckPerformanceBudget ||
       !programGraph.repositoryGraphCacheKeyFacts) {
@@ -920,7 +920,8 @@ function budgetViolations(files, allLargeFunctions, stdlib, backendFormats, prog
     });
   }
   if (!programGraph.repositoryGraphMirPrepTypedLowering ||
-      !programGraph.repositoryGraphMirPrepStdOnlyAstFallback ||
+      !programGraph.repositoryGraphMirPrepSourceFreeFirst ||
+      !programGraph.repositoryGraphMirPrepStdHelpersRetryGraphMir ||
       !programGraph.repositoryGraphMirPrepReportsUnsupportedFacts) {
     violations.push({
       kind: "program-graph-repository-mir-prep",
@@ -1652,10 +1653,13 @@ const programGraph = {
   repositoryGraphCheckNoLegacyChecker: !/z_check_program\s*\(/.test(repositoryGraphCheckBody) &&
     !/load_graph_from_checked_current_source\s*\(/.test(repositoryGraphCheckBody),
   repositoryGraphCheckReportsSemanticFacts: /z_program_graph_append_semantics_json\s*\(/.test(repositoryGraphCheckJsonBody),
-  repositoryGraphCheckReportsNoFallback: /legacyProgramAstReconstructed\\":false/.test(main) &&
-    /graphToProgramLoweringUsed\\":false/.test(main) &&
+  repositoryGraphCheckReportsFallbackState: /legacyProgramAstReconstructed\\":false/.test(main) &&
+    /graphToProgramLoweringUsed/.test(repositoryGraphDefaultReadinessRawBody) &&
     /graphNativeCheckerUsed\\":true/.test(main) &&
-    /astToMirFallbackUsed\\":false/.test(main),
+    /astToMirFallbackUsed/.test(repositoryGraphDefaultReadinessRawBody),
+  repositoryGraphCheckReportsStdHelperBridge: /sourceBackedStdHelpersUsed/.test(main) &&
+    /source_std_helpers_used/.test(repositoryGraphMirPrepRawBody) &&
+    /source_std_helpers_used/.test(repositoryGraphDefaultReadinessRawBody),
   repositoryGraphCheckDefaultReadiness: /defaultReadiness/.test(main) &&
     /compilerInputReady/.test(repositoryGraphDefaultReadinessRawBody) &&
     /sourceFreeCompile/.test(repositoryGraphDefaultReadinessRawBody) &&
@@ -1674,9 +1678,14 @@ const programGraph = {
     !/GRAPH_CACHE_INPUTS_(?:PARSE|CHECK|SPECIALIZATION|OBJECT|AGGREGATE)\s*=\s*"\[[^\]]*sourceFiles/.test(main),
   repositoryGraphMirPrepTypedLowering: /z_lower_program_graph_with_source\s*\(/.test(repositoryGraphMirPrepBody) &&
     /source\s*->\s*lowering\s*=\s*graph_mir_valid\s*\?\s*"typed-program-graph-mir"\s*:\s*"program-graph-ast-mir"/.test(repositoryGraphMirPrepRawBody),
-  repositoryGraphMirPrepStdOnlyAstFallback: /z_program_graph_append_source_std_functions\s*\(\s*program\s*,\s*&appended_std_functions\s*,\s*diag\s*\)/.test(repositoryGraphMirPrepBody) &&
+  repositoryGraphMirPrepSourceFreeFirst: repositoryGraphMirPrepBody.indexOf("IrProgram graph_ir = z_lower_program_graph_with_source(&store.graph, input, target)") >= 0 &&
+    repositoryGraphMirPrepBody.indexOf("ir_graph_lower_checked_program(&store.graph") >= 0 &&
+    repositoryGraphMirPrepBody.indexOf("IrProgram graph_ir = z_lower_program_graph_with_source(&store.graph, input, target)") < repositoryGraphMirPrepBody.indexOf("ir_graph_lower_checked_program(&store.graph"),
+  repositoryGraphMirPrepStdHelpersRetryGraphMir: /z_program_graph_append_source_std_functions\s*\(\s*program\s*,\s*&appended_std_functions\s*,\s*diag\s*\)/.test(repositoryGraphMirPrepBody) &&
     /appended_std_functions\s*==\s*0/.test(repositoryGraphMirPrepBody) &&
-    /z_lower_program_with_source\s*\(\s*program\s*,\s*input\s*,\s*target\s*\)/.test(repositoryGraphMirPrepBody) &&
+    /IrProgram\s+source_ir\s*=\s*z_lower_program_with_source\s*\(\s*program\s*,\s*input\s*,\s*target\s*\)/.test(repositoryGraphMirPrepBody) &&
+    /ir_lower_program_graph_with_source_helpers\s*\([^,]+,\s*input\s*,\s*target\s*,\s*&source_ir\s*\)/.test(repositoryGraphMirPrepBody) &&
+    /helper_graph_ir\.mir_valid/.test(repositoryGraphMirPrepBody) &&
     /source\s*->\s*lowering\s*=\s*graph_mir_valid\s*\?\s*"typed-program-graph-mir"\s*:\s*"program-graph-ast-mir"/.test(repositoryGraphMirPrepRawBody),
   repositoryGraphMirPrepReportsUnsupportedFacts: /ir_graph_init_lowering_diag\s*\(/.test(repositoryGraphMirPrepBody) &&
     /graph_ir\.mir_valid/.test(repositoryGraphMirPrepBody),

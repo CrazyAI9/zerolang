@@ -49,16 +49,21 @@ async function fileExists(path) {
   }
 }
 
-function assertRepositoryGraphNativeCheck(body, sourceProjectionState = "clean") {
+function assertRepositoryGraphNativeCheck(body, sourceProjectionState = "clean", options = {}) {
+  const astToMirFallbackUsed = options.astToMirFallbackUsed === true;
+  const graphHirToMirUsed = options.graphHirToMirUsed === false ? false : true;
+  const sourceBackedStdHelpersUsed = options.sourceBackedStdHelpersUsed === true;
+  const compilerInputReady = body.targetReadiness?.ok === true && graphHirToMirUsed && !sourceBackedStdHelpersUsed;
   assert.equal(body.graphCompiler.input, "repository-graph-store");
   assert.equal(body.graphCompiler.graphStoreLoaded, true);
   assert.equal(body.graphCompiler.sourceProjectionRequiredForCompilerInput, false);
   assert.equal(body.graphCompiler.sourceProjectionState, sourceProjectionState);
   assert.equal(body.graphCompiler.legacyProgramAstReconstructed, false);
-  assert.equal(body.graphCompiler.graphToProgramLoweringUsed, false);
+  assert.equal(body.graphCompiler.graphToProgramLoweringUsed, astToMirFallbackUsed);
   assert.equal(body.graphCompiler.graphNativeCheckerUsed, true);
-  assert.equal(body.graphCompiler.graphHirToMirUsed, true);
-  assert.equal(body.graphCompiler.astToMirFallbackUsed, false);
+  assert.equal(body.graphCompiler.graphHirToMirUsed, graphHirToMirUsed);
+  assert.equal(body.graphCompiler.astToMirFallbackUsed, astToMirFallbackUsed);
+  assert.equal(body.graphCompiler.sourceBackedStdHelpersUsed, sourceBackedStdHelpersUsed);
   assert.equal(body.graphCompiler.unsupportedGraphFacts.count, 0);
   assert.equal(body.graphCompiler.resolution.ok, true);
   assert.equal(body.graphCompiler.resolution.state, "resolved-graph-facts");
@@ -71,12 +76,15 @@ function assertRepositoryGraphNativeCheck(body, sourceProjectionState = "clean")
   assert.equal(body.graphCompiler.semanticFacts.state, "typed-facts");
   assert.equal(body.graphCompiler.semanticFacts.ok, true);
   const targetReady = body.targetReadiness?.ok === true;
-  assert.equal(body.graphCompiler.defaultReadiness.compilerInputReady, targetReady);
-  assert.equal(body.graphCompiler.defaultReadiness.claim, targetReady ? "ready-for-opted-in-repository-graph-input" : "blocked");
-  assert.equal(body.graphCompiler.defaultReadiness.sourceFreeCompile, targetReady);
+  assert.equal(body.graphCompiler.defaultReadiness.compilerInputReady, compilerInputReady);
+  assert.equal(body.graphCompiler.defaultReadiness.claim, compilerInputReady ? "ready-for-opted-in-repository-graph-input" : "blocked");
+  assert.equal(body.graphCompiler.defaultReadiness.sourceFreeCompile, compilerInputReady);
   assert.equal(body.graphCompiler.defaultReadiness.sourceProjectionRequired, false);
   assert.equal(body.graphCompiler.defaultReadiness.sourceProjectionState, sourceProjectionState);
-  assert.equal(body.graphCompiler.defaultReadiness.fallback.astToMirFallbackUsed, false);
+  assert.equal(body.graphCompiler.defaultReadiness.fallback.graphToProgramLoweringUsed, astToMirFallbackUsed);
+  assert.equal(body.graphCompiler.defaultReadiness.fallback.graphHirToMirUsed, graphHirToMirUsed);
+  assert.equal(body.graphCompiler.defaultReadiness.fallback.astToMirFallbackUsed, astToMirFallbackUsed);
+  assert.equal(body.graphCompiler.defaultReadiness.fallback.sourceBackedStdHelpersUsed, sourceBackedStdHelpersUsed);
   assert.equal(body.graphCompiler.defaultReadiness.performance.validationInLoad, true);
   assert.equal(body.graphCompiler.defaultReadiness.cacheInvalidation.parserArtifactsInKey, false);
   assert(body.graphCompiler.defaultReadiness.cacheInvalidation.keyedBy.includes("nodeHashes"));
@@ -3561,11 +3569,14 @@ const programGraphSourceFreePackage = `${outDir}/program-graph-source-free`;
 const programGraphSourceFreeBuildPath = `${outDir}/program-graph-source-free-build`;
 const programGraphSourceFreeRunPath = `${outDir}/program-graph-source-free-run`;
 const programGraphSourceFreeShipPath = `${outDir}/program-graph-source-free-ship`;
+const programGraphSourceFreeStdStrPackage = `${outDir}/program-graph-source-free-std-str`;
 const programGraphAuthoringPackage = `${outDir}/program-graph-authoring`;
 const programGraphAuthoringRunPath = `${outDir}/program-graph-authoring-run`;
 const programGraphAuthoringRunAfterHumanEditPath = `${outDir}/program-graph-authoring-run-human-edit`;
 const programGraphBuilderOpsPackage = `${outDir}/program-graph-builder-ops`;
 const programGraphBuilderOpsRunPath = `${outDir}/program-graph-builder-ops-run`;
+const programGraphBlockBodyPackage = `${outDir}/program-graph-block-body`;
+const programGraphBlockBodyRunPath = `${outDir}/program-graph-block-body-run`;
 const programGraphAuthoringCliPackage = `${outDir}/program-graph-authoring-cli`;
 const programGraphAuthoringCliGraphBuildPath = `${outDir}/program-graph-authoring-cli-graph-build`;
 const programGraphAuthoringCliBuildPath = `${outDir}/program-graph-authoring-cli-build`;
@@ -3598,11 +3609,14 @@ await rm(programGraphSourceFreePackage, { recursive: true, force: true });
 await rm(programGraphSourceFreeBuildPath, { force: true });
 await rm(programGraphSourceFreeRunPath, { force: true });
 await rm(programGraphSourceFreeShipPath, { recursive: true, force: true });
+await rm(programGraphSourceFreeStdStrPackage, { recursive: true, force: true });
 await rm(programGraphAuthoringPackage, { recursive: true, force: true });
 await rm(programGraphAuthoringRunPath, { force: true });
 await rm(programGraphAuthoringRunAfterHumanEditPath, { force: true });
 await rm(programGraphBuilderOpsPackage, { recursive: true, force: true });
 await rm(programGraphBuilderOpsRunPath, { force: true });
+await rm(programGraphBlockBodyPackage, { recursive: true, force: true });
+await rm(programGraphBlockBodyRunPath, { force: true });
 await rm(programGraphAuthoringCliPackage, { recursive: true, force: true });
 await rm(programGraphAuthoringCliGraphBuildPath, { force: true });
 await rm(programGraphAuthoringCliBuildPath, { force: true });
@@ -3662,6 +3676,16 @@ const programGraphSourceFreeMemJson = JSON.parse((await execFileAsync(zero, ["me
 const programGraphSourceFreeVerify = await execFileAsync(zero, ["graph", "verify-sync", "--json", programGraphSourceFreePackage]).catch((error) => error);
 const programGraphSourceFreeSyncFromGraph = JSON.parse((await execFileAsync(zero, ["graph", "sync", "--from-graph", "--json", programGraphSourceFreePackage])).stdout);
 const programGraphSourceFreeVerifyAfter = JSON.parse((await execFileAsync(zero, ["graph", "verify-sync", "--json", programGraphSourceFreePackage])).stdout);
+await mkdir(programGraphSourceFreeStdStrPackage, { recursive: true });
+await writeFile(`${programGraphSourceFreeStdStrPackage}/zero.json`, JSON.stringify({
+  package: { name: "program-graph-source-free-std-str", version: "0.1.0" },
+  targets: { cli: { kind: "exe", main: "main.0" } },
+  repositoryGraph: { compilerInput: true },
+}, null, 2));
+await writeFile(`${programGraphSourceFreeStdStrPackage}/main.0`, await readFile("examples/std-str.0", "utf8"));
+const programGraphSourceFreeStdStrSync = JSON.parse((await execFileAsync(zero, ["graph", "sync", "--from-source", "--json", programGraphSourceFreeStdStrPackage])).stdout);
+await rm(`${programGraphSourceFreeStdStrPackage}/main.0`, { force: true });
+const programGraphSourceFreeStdStrCheckJson = JSON.parse((await execFileAsync(zero, ["check", "--json", programGraphSourceFreeStdStrPackage])).stdout);
 const programGraphAuthoringInit = JSON.parse((await execFileAsync(zero, ["graph", "init", "--json", programGraphAuthoringPackage])).stdout);
 const programGraphAuthoringProjectionExistsAfterInit = await fileExists(`${programGraphAuthoringPackage}/src/main.0`);
 const programGraphAuthoringPatch = JSON.parse((await execFileAsync(zero, [
@@ -3731,14 +3755,83 @@ const programGraphBuilderOpsTest = JSON.parse((await execFileAsync(zero, ["test"
 const programGraphBuilderOpsRun = await execFileAsync(zero, ["run", "--out", programGraphBuilderOpsRunPath, programGraphBuilderOpsPackage]);
 const programGraphBuilderOpsSync = JSON.parse((await execFileAsync(zero, ["graph", "sync", "--from-graph", "--json", programGraphBuilderOpsPackage])).stdout);
 const programGraphBuilderOpsProjectionText = await readFile(`${programGraphBuilderOpsPackage}/src/main.0`, "utf8");
+const programGraphBlockBodyInit = JSON.parse((await execFileAsync(zero, ["graph", "init", "--json", programGraphBlockBodyPackage])).stdout);
+const programGraphBlockBodyMainPatch = JSON.parse((await execFileAsync(zero, [
+  "patch",
+  "--json",
+  "--op",
+  "addMain",
+], { cwd: programGraphBlockBodyPackage })).stdout);
+const programGraphBlockBodyMainQuery = JSON.parse((await execFileAsync(zero, ["graph", "query", "--json", programGraphBlockBodyPackage])).stdout);
+const programGraphBlockBodyGreetingPatchText = [
+  "zero-program-graph-patch v1",
+  `expect graphHash "${programGraphBlockBodyMainQuery.graphHash}"`,
+  "replaceFunctionBody main",
+  "  let name Maybe<String> = std.args.get 1",
+  "  if name.has",
+  "    check world.out.write \"hello \"",
+  "    check world.out.write name.value",
+  "    check world.out.write \"\\n\"",
+  "  else",
+  "    check world.out.write \"hello anonymous\\n\"",
+  "end",
+  "",
+].join("\n");
+const programGraphBlockBodyGreetingPatch = JSON.parse((await execFileAsync(zero, ["patch", "--json", programGraphBlockBodyPackage, "--patch-text", programGraphBlockBodyGreetingPatchText])).stdout);
+const programGraphBlockBodyBlocks = JSON.parse((await execFileAsync(zero, ["graph", "query", "--json", "--find", "Block", programGraphBlockBodyPackage])).stdout);
+const programGraphBlockBodyThen = programGraphBlockBodyBlocks.matches.find((node) => node.kind === "Block" && node.name === "then");
+assert(programGraphBlockBodyThen, "expected row-patched greeting body to expose a then block handle");
+const programGraphBlockBodyPatchText = [
+  "zero-program-graph-patch v1",
+  `expect graphHash "${programGraphBlockBodyBlocks.graphHash}"`,
+  `replaceBlockBody ${programGraphBlockBodyThen.id}`,
+  "  check world.out.write \"name: \"",
+  "  check world.out.write name.value",
+  "  check world.out.write \"\\n\"",
+  "end",
+  "",
+].join("\n");
+const programGraphBlockBodyDryRun = JSON.parse((await execFileAsync(zero, ["patch", "--json", "--check-only", programGraphBlockBodyPackage, "--patch-text", programGraphBlockBodyPatchText])).stdout);
+const programGraphBlockBodyPatch = JSON.parse((await execFileAsync(zero, ["patch", "--json", programGraphBlockBodyPackage, "--patch-text", programGraphBlockBodyPatchText])).stdout);
+const programGraphBlockBodyView = (await execFileAsync(zero, ["graph", "view", programGraphBlockBodyPackage])).stdout;
+const programGraphBlockBodyCheck = JSON.parse((await execFileAsync(zero, ["check", "--json", programGraphBlockBodyPackage])).stdout);
+const programGraphBlockBodyRun = await execFileAsync(zero, ["run", "--out", programGraphBlockBodyRunPath, programGraphBlockBodyPackage, "--", "Ada"]);
 const programGraphAuthoringCliInit = JSON.parse((await execFileAsync(zero, ["graph", "init", "--json", programGraphAuthoringCliPackage])).stdout);
 const programGraphAuthoringCliProjectionExistsAfterInit = await fileExists(`${programGraphAuthoringCliPackage}/src/main.0`);
 const programGraphAuthoringCliPatch = JSON.parse((await execFileAsync(zero, [
   "patch",
   "--json",
   "--op",
-  "setMainArgsAddCli fn=\"add_u32\"",
+  "addMain",
+  "--op",
+  "addFunction name=\"add_u32\" ret=\"u32\"",
+  "--op",
+  "addParam fn=\"add_u32\" name=\"x\" type=\"u32\"",
+  "--op",
+  "addParam fn=\"add_u32\" name=\"y\" type=\"u32\"",
+  "--op",
+  "addReturnBinary fn=\"add_u32\" name=\"+\" left=\"x\" right=\"y\" type=\"u32\"",
 ], { cwd: programGraphAuthoringCliPackage })).stdout);
+const programGraphAuthoringCliBodyQuery = JSON.parse((await execFileAsync(zero, ["graph", "query", "--json", programGraphAuthoringCliPackage])).stdout);
+const programGraphAuthoringCliBodyPatchText = [
+  "zero-program-graph-patch v1",
+  `expect graphHash "${programGraphAuthoringCliBodyQuery.graphHash}"`,
+  "replaceFunctionBody main",
+  "  let x Maybe<u32> = std.args.parseU32 1",
+  "  let y Maybe<u32> = std.args.parseU32 2",
+  "  if x.has && y.has",
+  "    let result u32 = add_u32 x.value y.value",
+  "    var out [10]u8 = repeat 0_u8 10",
+  "    let text Maybe<Span<u8>> = std.fmt.u32 out result",
+  "    if text.has",
+  "      check world.out.write text.value",
+  "      check world.out.write \"\\n\"",
+  "  else",
+  "    check world.err.write \"usage: zero run . -- <x> <y>\\n\"",
+  "end",
+  "",
+].join("\n");
+const programGraphAuthoringCliBodyPatch = JSON.parse((await execFileAsync(zero, ["patch", "--json", programGraphAuthoringCliPackage, "--patch-text", programGraphAuthoringCliBodyPatchText])).stdout);
 const programGraphAuthoringCliProjectionExistsAfterPatch = await fileExists(`${programGraphAuthoringCliPackage}/src/main.0`);
 const programGraphAuthoringCliStaleAddPatch = JSON.parse((await execFileAsync(zero, [
   "patch",
@@ -4080,6 +4173,15 @@ assert.deepEqual(programGraphSourceFreeSyncFromGraph.changedPaths, [`${programGr
 assert.equal(await readFile(`${programGraphSourceFreePackage}/hello.0`, "utf8"), programGraphSourceFixtureText);
 assert.equal(programGraphSourceFreeVerifyAfter.ok, true);
 assert.equal(programGraphSourceFreeVerifyAfter.repositoryGraph.projectionValidity, "clean");
+assert.equal(programGraphSourceFreeStdStrSync.ok, true);
+assert.equal(programGraphSourceFreeStdStrCheckJson.ok, true);
+assertSourceGraph(programGraphSourceFreeStdStrCheckJson, `${programGraphSourceFreeStdStrPackage}/zero.graph`, "package:program-graph-source-free-std-str@0.1.0", "graph-native-check", false, "missing");
+assertProgramGraphCompilerInput(programGraphSourceFreeStdStrCheckJson, `${programGraphSourceFreeStdStrPackage}/zero.graph`);
+assertRepositoryGraphNativeCheck(programGraphSourceFreeStdStrCheckJson, "missing", { graphHirToMirUsed: false, sourceBackedStdHelpersUsed: true });
+assert.equal(programGraphSourceFreeStdStrCheckJson.targetReadiness.ok, false);
+assert.equal(programGraphSourceFreeStdStrCheckJson.targetReadiness.diagnostics[0].actual, "source-backed-std-helpers");
+assert.equal(programGraphSourceFreeStdStrCheckJson.targetReadiness.diagnostics[0].backendBlocker.unsupportedFeature, "source-backed-std-helpers");
+assert(programGraphSourceFreeStdStrCheckJson.graphCompiler.semanticFacts.calls.some((call) => call.qualifiedName === "std.str.reverse" && call.contract.kind === "stdlib" && call.resolution.targetKind === "stdlib" && call.returnType === "Maybe<Span<u8>>"));
 assert.equal(programGraphAuthoringInit.ok, true);
 assert.equal(programGraphAuthoringInit.compilerInput, "repository-graph");
 assert.equal(programGraphAuthoringInit.sourceProjection.path, "src/main.0");
@@ -4148,10 +4250,34 @@ assert.equal(programGraphBuilderOpsRun.stdout, "graph value write ok\n");
 assert.equal(programGraphBuilderOpsSync.ok, true);
 assert.deepEqual(programGraphBuilderOpsSync.changedPaths, [`${programGraphBuilderOpsPackage}/src/main.0`]);
 assert.equal(programGraphBuilderOpsProjectionText, programGraphBuilderOpsView);
+assert.equal(programGraphBlockBodyInit.ok, true);
+assert.equal(programGraphBlockBodyMainPatch.ok, true);
+assert.equal(programGraphBlockBodyMainPatch.operationCount, 1);
+assert.equal(programGraphBlockBodyGreetingPatch.ok, true);
+assert.equal(programGraphBlockBodyGreetingPatch.operationCount, 1);
+assert.equal(programGraphBlockBodyGreetingPatch.operations[0].op, "replaceFunctionBody");
+assert.equal(programGraphBlockBodyBlocks.ok, true);
+assert(programGraphBlockBodyBlocks.patchOperations.some((op) => op.startsWith("replaceBlockBody #block_id\n")));
+assert.equal(programGraphBlockBodyDryRun.ok, true);
+assert.equal(programGraphBlockBodyDryRun.checkOnly, true);
+assert.equal(programGraphBlockBodyDryRun.saved, null);
+assert.equal(programGraphBlockBodyPatch.ok, true);
+assert.equal(programGraphBlockBodyPatch.operationCount, 1);
+assert.equal(programGraphBlockBodyPatch.operations[0].op, "replaceBlockBody");
+assert.match(programGraphBlockBodyView, /if name\.has \{/);
+assert.match(programGraphBlockBodyView, /check world\.out\.write\("name: "\)/);
+assert.match(programGraphBlockBodyView, /check world\.out\.write\("hello anonymous\\n"\)/);
+assert.equal(programGraphBlockBodyCheck.ok, true);
+assert.equal(programGraphBlockBodyCheck.graph.sourceProjectionState, "missing");
+assertRepositoryGraphNativeCheck(programGraphBlockBodyCheck, "missing");
+assert.equal(programGraphBlockBodyRun.stdout, "name: Ada\n");
 assert.equal(programGraphAuthoringCliInit.ok, true);
 assert.equal(programGraphAuthoringCliInit.sourceProjection.materialized, false);
 assert.equal(programGraphAuthoringCliPatch.ok, true);
-assert.equal(programGraphAuthoringCliPatch.operationCount, 1);
+assert.equal(programGraphAuthoringCliPatch.operationCount, 5);
+assert.equal(programGraphAuthoringCliBodyPatch.ok, true);
+assert.equal(programGraphAuthoringCliBodyPatch.operationCount, 1);
+assert.equal(programGraphAuthoringCliBodyPatch.operations[0].op, "replaceFunctionBody");
 assert.equal(programGraphAuthoringCliProjectionExistsAfterInit, false);
 assert.equal(programGraphAuthoringCliProjectionExistsAfterPatch, false);
 assert.equal(programGraphAuthoringCliStaleAddPatch.ok, true);
@@ -4180,12 +4306,12 @@ assert(programGraphAuthoringCliQuery.functions.some((fun) => fun.name === "main"
 assert(programGraphAuthoringCliQuery.functions.some((fun) => fun.name === "add_u32" && fun.returnType === "u32" && fun.params.length === 2));
 assert(!programGraphAuthoringCliQuery.functions.some((fun) => fun.name === "add"));
 assert(programGraphAuthoringCliQuery.functions.some((fun) => fun.test === "add_u32 works"));
-assert(programGraphAuthoringCliQuery.patchOperations.includes("setMainArgsAddCli fn=\"add_u32\""));
-assert(programGraphAuthoringCliQuery.patchOperations.includes("setMainGreetingCli prefix=\"hello \" fallback=\"anonymous\""));
+assert(!programGraphAuthoringCliQuery.patchOperations.some((op) => op.includes("setMain")));
 assert(programGraphAuthoringCliQuery.patchOperations.some((op) => op.startsWith("replaceFunctionBody main\n")));
 assert.equal(programGraphAuthoringCliCheck.ok, true);
 assert.equal(programGraphAuthoringCliCheck.sourceFile, `${programGraphAuthoringCliPackage}/zero.graph`);
 assert.equal(programGraphAuthoringCliCheck.graph.sourceProjectionState, "missing");
+assertRepositoryGraphNativeCheck(programGraphAuthoringCliCheck, "missing", { sourceBackedStdHelpersUsed: true });
 assert.match(programGraphAuthoringCliGraphBuild.stdout, /program-graph-authoring-cli-graph-build/);
 assert.match(programGraphAuthoringCliBuild.stdout, /program-graph-authoring-cli-build/);
 assert.equal(programGraphAuthoringCliTest.ok, true);
@@ -4193,7 +4319,7 @@ assert.equal(programGraphAuthoringCliTest.passedTests, 1);
 assert.equal(programGraphAuthoringCliGraphTest.stdout, "1 test(s) ok\n");
 assert.equal(programGraphAuthoringCliRun.stdout, "42\n");
 assert.equal(programGraphAuthoringCliGraphRun.stdout, "15\n");
-assertSourceGraph(programGraphAuthoringCliSize, `${programGraphAuthoringCliPackage}/zero.graph`, "package:program-graph-authoring-cli@0.1.0", "program-graph-ast-mir", false, "missing");
+assertSourceGraph(programGraphAuthoringCliSize, `${programGraphAuthoringCliPackage}/zero.graph`, "package:program-graph-authoring-cli@0.1.0", "typed-program-graph-mir", false, "missing");
 assert(programGraphAuthoringCliSize.sizeBreakdown.stdlibHelpers.some((helper) => helper.name === "std.args.parseU32"));
 assert(programGraphAuthoringCliSize.sizeBreakdown.stdlibHelpers.some((helper) => helper.name === "std.fmt.u32"));
 assert.equal(programGraphAuthoringCliSync.ok, true);
@@ -4217,6 +4343,7 @@ assert.equal(programGraphAuthoringCliVerifyAfterHumanEdit.ok, true);
 assert.equal(programGraphAuthoringCliVerifyAfterHumanEdit.repositoryGraph.syncState, "clean");
 assert.equal(programGraphAuthoringCliCheckAfterHumanEdit.ok, true);
 assert.equal(programGraphAuthoringCliCheckAfterHumanEdit.sourceFile, `${programGraphAuthoringCliPackage}/zero.graph`);
+assertRepositoryGraphNativeCheck(programGraphAuthoringCliCheckAfterHumanEdit, "clean", { sourceBackedStdHelpersUsed: true });
 assert.equal(programGraphAuthoringCliTestAfterHumanEdit.ok, true);
 assert.equal(programGraphAuthoringCliTestAfterHumanEdit.passedTests, 1);
 assert.equal(programGraphAuthoringCliRunAfterHumanEdit.stdout, "11\n");

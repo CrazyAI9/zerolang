@@ -430,23 +430,8 @@ static void body_copy_edge(ZProgramGraph *graph, const ZProgramGraphEdge *src, c
   edge->order = src->order;
 }
 
-static bool body_splice(ZProgramGraph *target, ZProgramGraph *source, const char *function_name, ZProgramGraphPatchResult *result, ZProgramGraphPatchOpResult *op) {
-  size_t target_count = 0, source_count = 0;
-  ZProgramGraphNode *target_fn = body_find_function(target, function_name, &target_count);
-  ZProgramGraphNode *source_fn = body_find_function(source, function_name, &source_count);
-  if (!target_fn || !source_fn) {
-    body_fail(result, op, "GPH004", "replaceFunctionBody function was not found", function_name, "");
-    return false;
-  }
-  ZProgramGraphNode *target_body = body_child(target, target_fn->id, "body");
-  ZProgramGraphNode *source_body = body_child(source, source_fn->id, "body");
-  if (!target_body || !source_body) {
-    body_fail(result, op, "GPH004", "replaceFunctionBody function body was not found", "body Block node", function_name);
-    return false;
-  }
-  char *target_body_id = z_strdup(target_body->id ? target_body->id : "");
-  char *source_body_id = z_strdup(source_body->id ? source_body->id : "");
-  char *target_path = z_strdup(target_body->path && target_body->path[0] ? target_body->path : "src/main.0");
+static bool body_splice_block(ZProgramGraph *target, ZProgramGraph *source, const char *target_body_id, const char *source_body_id, const char *target_path) {
+  if (!target || !source || !target_body_id || !source_body_id) return false;
   body_clear_statements(target, target_body_id);
   bool *copy = z_checked_calloc(source->node_len ? source->node_len : 1, sizeof(bool));
   for (size_t i = 0; i < source->edge_len; i++) {
@@ -472,12 +457,33 @@ static bool body_splice(ZProgramGraph *target, ZProgramGraph *source, const char
     else if (from_copy && to_copy) body_copy_edge(target, edge, body_mapped_id(map, map_len, edge->from), body_mapped_id(map, map_len, edge->to));
   }
   for (size_t i = 0; i < map_len; i++) free(map[i].to);
-  free(target_body_id);
-  free(source_body_id);
-  free(target_path);
   free(map);
   free(copy);
   return true;
+}
+
+static bool body_splice_function(ZProgramGraph *target, ZProgramGraph *source, const char *function_name, ZProgramGraphPatchResult *result, ZProgramGraphPatchOpResult *op) {
+  size_t target_count = 0, source_count = 0;
+  ZProgramGraphNode *target_fn = body_find_function(target, function_name, &target_count);
+  ZProgramGraphNode *source_fn = body_find_function(source, function_name, &source_count);
+  if (!target_fn || !source_fn) {
+    body_fail(result, op, "GPH004", "replaceFunctionBody function was not found", function_name, "");
+    return false;
+  }
+  ZProgramGraphNode *target_body = body_child(target, target_fn->id, "body");
+  ZProgramGraphNode *source_body = body_child(source, source_fn->id, "body");
+  if (!target_body || !source_body) {
+    body_fail(result, op, "GPH004", "replaceFunctionBody function body was not found", "body Block node", function_name);
+    return false;
+  }
+  char *target_body_id = z_strdup(target_body->id ? target_body->id : "");
+  char *source_body_id = z_strdup(source_body->id ? source_body->id : "");
+  char *target_path = z_strdup(target_body->path && target_body->path[0] ? target_body->path : "src/main.0");
+  bool ok = body_splice_block(target, source, target_body_id, source_body_id, target_path);
+  free(target_body_id);
+  free(source_body_id);
+  free(target_path);
+  return ok;
 }
 
 static bool body_signature_source(ZProgramGraph *graph, const char *function_name, ZBuf *source, ZProgramGraphPatchResult *result, ZProgramGraphPatchOpResult *op) {
@@ -543,7 +549,7 @@ bool z_program_graph_patch_apply_replace_function_body(ZProgramGraph *graph, ZPr
   input.canonical_text_source = true;
   ZProgramGraph body_graph = {0};
   ok = z_program_graph_from_program(&input, &program, &body_graph);
-  if (ok) ok = body_splice(graph, &body_graph, function_name, result, op);
+  if (ok) ok = body_splice_function(graph, &body_graph, function_name, result, op);
   if (!ok && result && !result->message[0]) body_fail(result, op, "GPH006", "replaceFunctionBody could not build ProgramGraph body", "lowerable Zero body rows", source.data ? source.data : "");
   z_program_graph_free(&body_graph);
   z_free_source(&input);
@@ -554,41 +560,45 @@ bool z_program_graph_patch_apply_replace_function_body(ZProgramGraph *graph, ZPr
   return true;
 }
 
-bool z_program_graph_patch_apply_set_main_greeting_cli(ZProgramGraph *graph, ZProgramGraphPatchResult *result, ZProgramGraphPatchOpResult *op) {
-  const char *prefix = op && op->value && op->value[0] ? op->value : "hello ";
-  const char *fallback = op && op->right && op->right[0] ? op->right : "anonymous";
-  ZBuf rows;
-  zbuf_init(&rows);
-  zbuf_append(&rows, "let name Maybe<String> = std.args.get 1\n");
-  zbuf_append(&rows, "if name.has\n");
-  zbuf_append(&rows, "  check world.out.write \"");
-  for (const char *p = prefix; *p; p++) {
-    if (*p == '"' || *p == '\\') zbuf_append_char(&rows, '\\');
-    if (*p == '\n') zbuf_append(&rows, "\\n");
-    else zbuf_append_char(&rows, *p);
+bool z_program_graph_patch_apply_replace_block_body(ZProgramGraph *graph, ZProgramGraphPatchResult *result, ZProgramGraphPatchOpResult *op) {
+  const char *block_id = op && op->node && op->node[0] ? op->node : "";
+  ZProgramGraphNode *target_block = body_find_node(graph, block_id);
+  if (!target_block) { body_fail(result, op, "GPH004", "replaceBlockBody block was not found", "Block node id", block_id); return false; }
+  if (target_block->kind != Z_PROGRAM_GRAPH_NODE_BLOCK) { body_fail(result, op, "GPH003", "replaceBlockBody target must be a Block node", "Block", z_program_graph_node_kind_name(target_block->kind)); return false; }
+  char *target_body_id = z_strdup(target_block->id ? target_block->id : "");
+  char *target_path = z_strdup(target_block->path && target_block->path[0] ? target_block->path : "src/main.0");
+  ZBuf source;
+  zbuf_init(&source);
+  zbuf_append(&source, "fn __zero_patch_block() -> Void raises {\n");
+  if (!body_append_source_rows(&source, op ? op->value : "", result, op)) { free(target_body_id); free(target_path); zbuf_free(&source); return false; }
+  zbuf_append(&source, "}\n");
+  Program program = {0};
+  ZDiag diag = {0};
+  bool ok = z_parse_canonical_text_program_source(source.data ? source.data : "", &program, &diag);
+  if (!ok) {
+    body_fail(result, op, "GPH001", "replaceBlockBody rows did not parse as a Zero block body", diag.expected[0] ? diag.expected : "valid body rows", diag.message[0] ? diag.message : (source.data ? source.data : ""));
+    free(target_body_id); free(target_path); zbuf_free(&source);
+    return false;
   }
-  zbuf_append(&rows, "\"\n");
-  zbuf_append(&rows, "  check world.out.write name.value\n");
-  zbuf_append(&rows, "  check world.out.write \"\\n\"\n");
-  zbuf_append(&rows, "else\n");
-  zbuf_append(&rows, "  check world.out.write \"");
-  for (const char *p = prefix; *p; p++) {
-    if (*p == '"' || *p == '\\') zbuf_append_char(&rows, '\\');
-    if (*p == '\n') zbuf_append(&rows, "\\n");
-    else zbuf_append_char(&rows, *p);
+  SourceInput input = {0};
+  input.source_file = z_strdup(target_path);
+  input.source = z_strdup(source.data ? source.data : "");
+  input.canonical_text_source = true;
+  ZProgramGraph body_graph = {0};
+  ok = z_program_graph_from_program(&input, &program, &body_graph);
+  if (ok) {
+    ZProgramGraphNode *source_fn = body_find_function(&body_graph, "__zero_patch_block", NULL);
+    ZProgramGraphNode *source_body = source_fn ? body_child(&body_graph, source_fn->id, "body") : NULL;
+    if (!source_fn || !source_body) { ok = false; body_fail(result, op, "GPH004", "replaceBlockBody source body was not found", "generated Block body", "__zero_patch_block"); }
+    else ok = body_splice_block(graph, &body_graph, target_body_id, source_body->id, target_path);
   }
-  for (const char *p = fallback; *p; p++) {
-    if (*p == '"' || *p == '\\') zbuf_append_char(&rows, '\\');
-    if (*p == '\n') zbuf_append(&rows, "\\n");
-    else zbuf_append_char(&rows, *p);
-  }
-  zbuf_append(&rows, "\\n\"\n");
-  ZProgramGraphPatchOpResult body_op = *op;
-  body_op.op = "replaceFunctionBody";
-  body_op.function = op && op->function && op->function[0] ? op->function : "main";
-  body_op.value = rows.data ? rows.data : "";
-  bool ok = z_program_graph_patch_apply_replace_function_body(graph, result, &body_op);
-  zbuf_free(&rows);
+  if (!ok && result && !result->message[0]) body_fail(result, op, "GPH006", "replaceBlockBody could not build ProgramGraph block body", "lowerable Zero body rows", source.data ? source.data : "");
+  z_program_graph_free(&body_graph);
+  z_free_source(&input);
+  z_free_program(&program);
+  free(target_body_id);
+  free(target_path);
+  zbuf_free(&source);
   if (!ok) return false;
   op->ok = true;
   return true;

@@ -9,6 +9,7 @@
 #include "program_graph_size.h"
 #include "program_graph_store.h"
 #include "program_graph_mir_std.h"
+#include "std_source.h"
 
 #include <limits.h>
 #include <stdint.h>
@@ -274,6 +275,12 @@ static IrValue *ir_new_integer_literal_value(IrProgram *ir, IrTypeKind type, uns
   return value;
 }
 
+static IrValue *ir_new_index_literal(IrProgram *ir, unsigned index, int line, int column) {
+  IrValue *value = ir_new_value(ir, IR_VALUE_INT, IR_TYPE_USIZE, line, column);
+  value->int_value = index;
+  return value;
+}
+
 static IrValue *ir_new_maybe_byte_view_literal(IrProgram *ir, bool has, IrValue *view, int line, int column) {
   IrValue *value = ir_new_value(ir, IR_VALUE_MAYBE_BYTE_VIEW_LITERAL, IR_TYPE_MAYBE_BYTE_VIEW, line, column);
   value->data_len = has ? 1u : 0u;
@@ -418,7 +425,7 @@ static void ir_value_push_arg(IrProgram *ir, IrValue *value, IrValue *arg) {
   value->args[value->arg_len++] = arg;
 }
 
-static bool ir_add_readonly_data(IrProgram *ir, const unsigned char *bytes, unsigned len, int line, int column, unsigned *out_offset) {
+bool z_program_graph_ir_add_readonly_data(IrProgram *ir, const unsigned char *bytes, unsigned len, int line, int column, unsigned *out_offset) {
   for (size_t i = 0; i < ir->data_segment_len; i++) {
     IrDataSegment *segment = &ir->data_segments[i];
     if (segment->len == len && (len == 0 || memcmp(segment->bytes, bytes, len) == 0)) {
@@ -450,7 +457,7 @@ static bool ir_make_string_literal_value(IrProgram *ir, const char *text, int li
   unsigned char *nul_terminated = z_checked_malloc((size_t)len + 1);
   memcpy(nul_terminated, text, len);
   nul_terminated[len] = 0;
-  bool added = ir_add_readonly_data(ir, nul_terminated, len + 1, line, column, &offset);
+  bool added = z_program_graph_ir_add_readonly_data(ir, nul_terminated, len + 1, line, column, &offset);
   free(nul_terminated);
   if (!added) return false;
   IrValue *value = ir_new_value(ir, IR_VALUE_STRING_LITERAL, IR_TYPE_BYTE_VIEW, line, column);
@@ -862,6 +869,31 @@ static bool ir_graph_lower_byte_view(const ZProgramGraph *graph, IrProgram *ir, 
   if (expr->kind == Z_PROGRAM_GRAPH_NODE_LITERAL && ir_type_kind(expr->type) == IR_TYPE_BYTE_VIEW) {
     return ir_make_string_literal_value(ir, expr->value ? expr->value : "", ir_graph_line(expr), ir_graph_column(expr), out);
   }
+  if (expr->kind == Z_PROGRAM_GRAPH_NODE_IDENTIFIER) {
+    const IrLocal *local = ir_function_find_local(fun, expr->name);
+    if (local && local->type == IR_TYPE_BYTE_VIEW) {
+      IrValue *value = ir_new_value(ir, IR_VALUE_LOCAL, IR_TYPE_BYTE_VIEW, ir_graph_line(expr), ir_graph_column(expr));
+      value->local_index = local->index;
+      value->element_type = local->element_type == IR_TYPE_UNSUPPORTED ? IR_TYPE_U8 : local->element_type;
+      *out = value;
+      return true;
+    }
+    if (local && local->type == IR_TYPE_MAYBE_BYTE_VIEW) {
+      IrValue *value = ir_new_value(ir, IR_VALUE_MAYBE_VALUE, IR_TYPE_BYTE_VIEW, ir_graph_line(expr), ir_graph_column(expr));
+      value->local_index = local->index;
+      value->element_type = IR_TYPE_U8;
+      *out = value;
+      return true;
+    }
+    if (local && local->is_array && (ir_type_is_value(local->element_type) || local->element_type == IR_TYPE_BOOL)) {
+      IrValue *value = ir_new_value(ir, IR_VALUE_ARRAY_BYTE_VIEW, IR_TYPE_BYTE_VIEW, ir_graph_line(expr), ir_graph_column(expr));
+      value->array_index = local->index;
+      value->data_len = local->array_len;
+      value->element_type = local->element_type;
+      *out = value;
+      return true;
+    }
+  }
   IrValue *value = NULL;
   if (!ir_graph_lower_expr(graph, ir, fun, expr, &value)) return false;
   if (value->type != IR_TYPE_BYTE_VIEW) {
@@ -919,6 +951,58 @@ static bool ir_graph_lower_literal(const ZProgramGraphNode *expr, IrProgram *ir,
   return true;
 }
 
+static bool ir_graph_lower_array_initializer(const ZProgramGraph *graph, IrProgram *ir, const IrFunction *fun, const IrLocal *local, const ZProgramGraphNode *expr, IrInstr **out_items, size_t *out_len, size_t *out_cap, int line, int column) {
+  if (!local || !local->is_array || !expr || expr->kind != Z_PROGRAM_GRAPH_NODE_ARRAY_LITERAL) {
+    ir_mark_unsupported(ir, "typed graph MIR fixed array locals require array literal initialization", line, column, local ? local->name : "array local");
+    return false;
+  }
+  if (ir_text_eq(expr->value, "repeat")) {
+    if (ir_graph_edge_count(graph, expr->id, "arg") != 2) {
+      ir_graph_mark_unsupported(ir, expr, "typed graph MIR fixed array repeat literal requires value and count", local->name);
+      return false;
+    }
+    const ZProgramGraphNode *value_node = ir_graph_ordered_node(graph, expr->id, "arg", 0);
+    for (size_t i = 0; i < local->array_len; i++) {
+      IrValue *index = ir_new_index_literal(ir, (unsigned)i, ir_graph_line(value_node), ir_graph_column(value_node));
+      IrValue *value = NULL;
+      if (!ir_graph_lower_expr_for_type(graph, ir, fun, value_node, local->element_type, false, ir_graph_line(value_node), ir_graph_column(value_node), &value)) {
+        ir_free_value(index);
+        return false;
+      }
+      if (value->type != local->element_type) {
+        ir_free_value(index);
+        ir_free_value(value);
+        ir_graph_mark_unsupported(ir, value_node, "typed graph MIR array repeat element type does not match local type", local->name);
+        return false;
+      }
+      ir_instr_vec_push(ir, out_items, out_len, out_cap, (IrInstr){.kind = IR_INSTR_INDEX_STORE, .array_index = local->index, .index = index, .value = value, .line = ir_graph_line(value_node), .column = ir_graph_column(value_node)});
+    }
+    return true;
+  }
+  size_t arg_count = ir_graph_edge_count(graph, expr->id, "arg");
+  if (arg_count != local->array_len) {
+    ir_graph_mark_unsupported(ir, expr, "typed graph MIR fixed array literal length must match local type", local->name);
+    return false;
+  }
+  for (size_t i = 0; i < arg_count; i++) {
+    const ZProgramGraphNode *value_node = ir_graph_ordered_node(graph, expr->id, "arg", i);
+    IrValue *index = ir_new_index_literal(ir, (unsigned)i, ir_graph_line(value_node), ir_graph_column(value_node));
+    IrValue *value = NULL;
+    if (!ir_graph_lower_expr_for_type(graph, ir, fun, value_node, local->element_type, false, ir_graph_line(value_node), ir_graph_column(value_node), &value)) {
+      ir_free_value(index);
+      return false;
+    }
+    if (value->type != local->element_type) {
+      ir_free_value(index);
+      ir_free_value(value);
+      ir_graph_mark_unsupported(ir, value_node, "typed graph MIR array literal element type does not match local type", local->name);
+      return false;
+    }
+    ir_instr_vec_push(ir, out_items, out_len, out_cap, (IrInstr){.kind = IR_INSTR_INDEX_STORE, .array_index = local->index, .index = index, .value = value, .line = ir_graph_line(value_node), .column = ir_graph_column(value_node)});
+  }
+  return true;
+}
+
 static bool ir_graph_lower_identifier(const ZProgramGraphNode *expr, IrProgram *ir, const IrFunction *fun, IrValue **out) {
   const IrLocal *local = ir_function_find_local(fun, expr ? expr->name : NULL);
   if (!local) {
@@ -954,6 +1038,7 @@ static bool ir_graph_lower_field_access(const ZProgramGraph *graph, IrProgram *i
     }
     if (local && local->type == IR_TYPE_MAYBE_SCALAR) {
       IrTypeKind value_type = ir_type_kind(ir_graph_node_type(graph, expr));
+      if (!(value_type == IR_TYPE_BOOL || ir_type_is_value(value_type))) value_type = local->element_type;
       if (!(value_type == IR_TYPE_BOOL || ir_type_is_value(value_type))) value_type = IR_TYPE_I32;
       IrValue *value = ir_new_value(ir, IR_VALUE_MAYBE_VALUE, value_type, ir_graph_line(expr), ir_graph_column(expr));
       value->local_index = local->index;
@@ -1051,6 +1136,9 @@ static bool ir_graph_lower_named_call(const ZProgramGraph *graph, IrProgram *ir,
   IrValue *value = ir_new_value(ir, IR_VALUE_CALL, callee->raises ? IR_TYPE_I64 : callee->value_return_type, ir_graph_line(expr), ir_graph_column(expr));
   value->callee_index = callee_index;
   if (callee->raises) value->element_type = callee->value_return_type;
+  else if (callee->value_return_type == IR_TYPE_BYTE_VIEW) value->element_type = callee->return_element_type == IR_TYPE_UNSUPPORTED ? IR_TYPE_U8 : callee->return_element_type;
+  else if (callee->value_return_type == IR_TYPE_MAYBE_SCALAR) value->element_type = callee->return_element_type;
+  else value->element_type = callee->value_return_type;
   size_t arg_index = 0;
   for (size_t local_index = 0; local_index < callee->local_len && arg_index < callee->param_count; local_index++) {
     const IrLocal *param = &callee->locals[local_index];
@@ -1180,6 +1268,12 @@ static bool ir_graph_lower_call(const ZProgramGraph *graph, IrProgram *ir, const
     free(qualified);
     return ok;
   }
+  const char *source_backed_std = z_std_source_target_for_public_call(callee_name);
+  if (source_backed_std) {
+    bool lowered = ir_graph_lower_named_call(graph, ir, fun, expr, source_backed_std, out);
+    free(qualified);
+    return lowered;
+  }
   bool c_import_handled = false;
   if (!ir_graph_lower_c_import_call(graph, ir, fun, expr, callee_name, &c_import_handled, out)) {
     free(qualified);
@@ -1240,8 +1334,13 @@ static bool ir_graph_lower_stmt(const ZProgramGraph *graph, IrProgram *ir, IrFun
   if (stmt->kind == Z_PROGRAM_GRAPH_NODE_LET) {
     const IrLocal *local = ir_function_find_local(fun, stmt->name);
     if (!local) return false;
-    IrValue *value = NULL;
     const ZProgramGraphNode *expr = ir_graph_ordered_node(graph, stmt->id, "expr", 0);
+    if (local->is_array) {
+      if (!ir_graph_lower_array_initializer(graph, ir, fun, local, expr, out_items, out_len, out_cap, ir_graph_line(stmt), ir_graph_column(stmt))) return false;
+      ir_active_local_push(ir, stmt->name);
+      return true;
+    }
+    IrValue *value = NULL;
     if (!ir_graph_lower_expr_for_type(graph, ir, fun, expr, local->type, false, ir_graph_line(stmt), ir_graph_column(stmt), &value)) return false;
     ir_instr_vec_push(ir, out_items, out_len, out_cap, (IrInstr){.kind = IR_INSTR_LOCAL_SET, .local_index = local->index, .value = value, .line = ir_graph_line(stmt), .column = ir_graph_column(stmt)});
     ir_active_local_push(ir, stmt->name);
@@ -1389,7 +1488,7 @@ static bool ir_graph_lower_function_body(IrProgram *ir, IrFunction *fun, const Z
   return true;
 }
 
-IrProgram z_lower_program_graph_with_source(const ZProgramGraph *graph, const SourceInput *input, const ZTargetInfo *target) {
+static IrProgram ir_lower_program_graph_with_source_helpers(const ZProgramGraph *graph, const SourceInput *input, const ZTargetInfo *target, IrProgram *source_helper_ir) {
   IrProgram ir = {0};
   ir.target = target;
   ir.mir_valid = true;
@@ -1416,8 +1515,7 @@ IrProgram z_lower_program_graph_with_source(const ZProgramGraph *graph, const So
   qsort(order, ordered_len, sizeof(IrFunctionOrder), ir_function_order_compare);
   for (size_t i = 0; i < ordered_len; i++) ir_graph_push_function(&ir, graph, &graph->nodes[order[i].source_index]);
 
-  bool has_export = false;
-  for (size_t i = 0; i < ir.function_len; i++) {
+  for (size_t i = 0; i < ordered_len; i++) {
     const ZProgramGraphNode *source = &graph->nodes[order[i].source_index];
     if (!ir_graph_collect_function_locals(&ir, &ir.functions[i], graph, source)) {
       ir_free_function_order(order, stable_ids, ordered_len);
@@ -1425,18 +1523,27 @@ IrProgram z_lower_program_graph_with_source(const ZProgramGraph *graph, const So
     }
   }
 
-  for (size_t i = 0; i < ir.function_len; i++) {
+  if (source_helper_ir && !z_program_graph_steal_source_std_helpers(&ir, source_helper_ir)) {
+    ir_mark_unsupported(&ir, "typed graph MIR source-backed std helper import failed", 1, 1, "unmappable std helper MIR");
+    ir_free_function_order(order, stable_ids, ordered_len);
+    return ir;
+  }
+
+  for (size_t i = 0; i < ordered_len; i++) {
     const ZProgramGraphNode *source = &graph->nodes[order[i].source_index];
-    if (ir.functions[i].is_exported) {
-      has_export = true;
-      ir.direct_export_count++;
-    }
     if (!ir_graph_lower_function_body(&ir, &ir.functions[i], graph, source)) {
       ir_free_function_order(order, stable_ids, ordered_len);
       return ir;
     }
   }
   ir.direct_function_count = ir.function_len;
+  bool has_export = false;
+  for (size_t i = 0; i < ir.function_len; i++) {
+    if (ir.functions[i].is_exported) {
+      has_export = true;
+      ir.direct_export_count++;
+    }
+  }
   if (!has_export) {
     ir_mark_unsupported(&ir, "typed graph MIR requires at least one exported C ABI entry function", 1, 1, "no exported function");
   } else if (!z_mir_verify_direct_contracts(&ir)) {
@@ -1448,29 +1555,45 @@ IrProgram z_lower_program_graph_with_source(const ZProgramGraph *graph, const So
   return ir;
 }
 
-bool z_program_graph_prepare_artifact_mir_input(const char *artifact_path, const ZTargetInfo *target, Program *program, SourceInput *input, IrProgram *ir, ZProgramGraphArtifactSource *source, ZDiag *diag) {
-  if (!ir) return false;
-  ZProgramGraph graph = {0};
-  if (!z_program_graph_load(artifact_path, &graph, diag)) return false;
+IrProgram z_lower_program_graph_with_source(const ZProgramGraph *graph, const SourceInput *input, const ZTargetInfo *target) {
+  return ir_lower_program_graph_with_source_helpers(graph, input, target, NULL);
+}
 
-  bool ok = z_program_graph_lower_to_program_with_source(&graph, artifact_path, program, input, diag);
+static bool ir_graph_lower_checked_program(const ZProgramGraph *graph, const char *path, const ZTargetInfo *target, Program *program, SourceInput *input, ZDiag *diag) {
+  bool ok = z_program_graph_lower_to_program_with_source(graph, path, program, input, diag);
   if (ok) {
     z_set_check_target(target);
     ok = z_check_program(program, diag);
   }
   if (!ok) {
     if (input && input->source_file) z_map_source_diag(input, diag);
-    if (diag && !diag->path) diag->path = input && input->source_file ? input->source_file : artifact_path;
-    z_program_graph_free(&graph);
-    return false;
+    if (diag && !diag->path) diag->path = input && input->source_file ? input->source_file : path;
   }
+  return ok;
+}
+
+bool z_program_graph_prepare_artifact_mir_input(const char *artifact_path, const ZTargetInfo *target, Program *program, SourceInput *input, IrProgram *ir, ZProgramGraphArtifactSource *source, ZDiag *diag) {
+  if (!ir) return false;
+  ZProgramGraph graph = {0};
+  if (!z_program_graph_load(artifact_path, &graph, diag)) return false;
 
   z_program_graph_seed_source_metadata(input, &graph);
   IrProgram graph_ir = z_lower_program_graph_with_source(&graph, input, target);
   bool graph_mir_valid = graph_ir.mir_valid;
+  bool source_std_helpers_used = false;
   if (graph_mir_valid) {
     *ir = graph_ir;
+    if (!ir_graph_lower_checked_program(&graph, artifact_path, target, program, input, diag)) {
+      z_free_ir_program(ir);
+      z_program_graph_free(&graph);
+      return false;
+    }
   } else {
+    if (!ir_graph_lower_checked_program(&graph, artifact_path, target, program, input, diag)) {
+      z_free_ir_program(&graph_ir);
+      z_program_graph_free(&graph);
+      return false;
+    }
     size_t appended_std_functions = 0;
     if (!z_program_graph_append_source_std_functions(program, &appended_std_functions, diag) || appended_std_functions == 0) {
       if (diag && diag->code == 0) ir_graph_init_lowering_diag(diag, input, target, NULL, NULL, &graph_ir, artifact_path);
@@ -1480,22 +1603,38 @@ bool z_program_graph_prepare_artifact_mir_input(const char *artifact_path, const
       z_program_graph_free(&graph);
       return false;
     }
+    source_std_helpers_used = true;
     z_free_ir_program(&graph_ir);
-    z_set_check_target(target);
     if (!z_check_program(program, diag)) {
       if (input && input->source_file) z_map_source_diag(input, diag);
       if (diag && !diag->path) diag->path = input && input->source_file ? input->source_file : artifact_path;
       z_program_graph_free(&graph);
       return false;
     }
-    *ir = z_lower_program_with_source(program, input, target);
-    if (!ir->mir_valid) {
-      z_free_ir_program(ir);
+    IrProgram source_ir = z_lower_program_with_source(program, input, target);
+    if (!source_ir.mir_valid) {
+      z_free_ir_program(&source_ir);
       z_program_graph_free(&graph);
       return false;
     }
+    IrProgram helper_graph_ir = ir_lower_program_graph_with_source_helpers(&graph, input, target, &source_ir);
+    if (helper_graph_ir.mir_valid) {
+      *ir = helper_graph_ir;
+      graph_mir_valid = true;
+      z_free_ir_program(&source_ir);
+    } else {
+      z_free_ir_program(&helper_graph_ir);
+      z_free_ir_program(&source_ir);
+      *ir = z_lower_program_with_source(program, input, target);
+      if (!ir->mir_valid) {
+        z_free_ir_program(ir);
+        z_program_graph_free(&graph);
+        return false;
+      }
+    }
   }
   if (input) {
+    z_program_graph_seed_source_metadata_facts(input, &graph);
     input->program_graph_hash = z_strdup(graph.graph_hash ? graph.graph_hash : "");
     input->program_graph_module_identity = z_strdup(graph.module_identity ? graph.module_identity : "");
   }
@@ -1505,6 +1644,7 @@ bool z_program_graph_prepare_artifact_mir_input(const char *artifact_path, const
     source->module_identity = input ? input->program_graph_module_identity : "";
     source->lowering = graph_mir_valid ? "typed-program-graph-mir" : "program-graph-ast-mir";
     source->canonical_source = graph.canonical_source;
+    source->source_std_helpers_used = source_std_helpers_used;
   }
   z_program_graph_free(&graph);
   return true;
@@ -1515,24 +1655,23 @@ bool z_program_graph_prepare_repository_store_mir_input(const char *store_path, 
   ZProgramGraphStore store;
   if (!z_program_graph_store_load_path(store_path, &store, diag)) return false;
 
-  bool ok = z_program_graph_lower_to_program_with_source(&store.graph, store_path, program, input, diag);
-  if (ok) {
-    z_set_check_target(target);
-    ok = z_check_program(program, diag);
-  }
-  if (!ok) {
-    if (input && input->source_file) z_map_source_diag(input, diag);
-    if (diag && !diag->path) diag->path = input && input->source_file ? input->source_file : store_path;
-    z_program_graph_store_free(&store);
-    return false;
-  }
-
   z_program_graph_seed_source_metadata(input, &store.graph);
   IrProgram graph_ir = z_lower_program_graph_with_source(&store.graph, input, target);
   bool graph_mir_valid = graph_ir.mir_valid;
+  bool source_std_helpers_used = false;
   if (graph_mir_valid) {
     *ir = graph_ir;
+    if (!ir_graph_lower_checked_program(&store.graph, store_path, target, program, input, diag)) {
+      z_free_ir_program(ir);
+      z_program_graph_store_free(&store);
+      return false;
+    }
   } else {
+    if (!ir_graph_lower_checked_program(&store.graph, store_path, target, program, input, diag)) {
+      z_free_ir_program(&graph_ir);
+      z_program_graph_store_free(&store);
+      return false;
+    }
     size_t appended_std_functions = 0;
     if (!z_program_graph_append_source_std_functions(program, &appended_std_functions, diag) || appended_std_functions == 0) {
       if (diag && diag->code == 0) ir_graph_init_lowering_diag(diag, input, target, emit_kind, requested_backend, &graph_ir, store_path);
@@ -1542,23 +1681,40 @@ bool z_program_graph_prepare_repository_store_mir_input(const char *store_path, 
       z_program_graph_store_free(&store);
       return false;
     }
+    source_std_helpers_used = true;
     z_free_ir_program(&graph_ir);
-    z_set_check_target(target);
     if (!z_check_program(program, diag)) {
       if (input && input->source_file) z_map_source_diag(input, diag);
       if (diag && !diag->path) diag->path = input && input->source_file ? input->source_file : store_path;
       z_program_graph_store_free(&store);
       return false;
     }
-    *ir = z_lower_program_with_source(program, input, target);
-    if (!ir->mir_valid) {
-      ir_graph_init_lowering_diag(diag, input, target, emit_kind, requested_backend, ir, store_path);
-      z_free_ir_program(ir);
+    IrProgram source_ir = z_lower_program_with_source(program, input, target);
+    if (!source_ir.mir_valid) {
+      ir_graph_init_lowering_diag(diag, input, target, emit_kind, requested_backend, &source_ir, store_path);
+      z_free_ir_program(&source_ir);
       z_program_graph_store_free(&store);
       return false;
     }
+    IrProgram helper_graph_ir = ir_lower_program_graph_with_source_helpers(&store.graph, input, target, &source_ir);
+    if (helper_graph_ir.mir_valid) {
+      *ir = helper_graph_ir;
+      graph_mir_valid = true;
+      z_free_ir_program(&source_ir);
+    } else {
+      z_free_ir_program(&helper_graph_ir);
+      z_free_ir_program(&source_ir);
+      *ir = z_lower_program_with_source(program, input, target);
+      if (!ir->mir_valid) {
+        ir_graph_init_lowering_diag(diag, input, target, emit_kind, requested_backend, ir, store_path);
+        z_free_ir_program(ir);
+        z_program_graph_store_free(&store);
+        return false;
+      }
+    }
   }
   if (input) {
+    z_program_graph_seed_source_metadata_facts(input, &store.graph);
     input->program_graph_hash = z_strdup(store.graph.graph_hash ? store.graph.graph_hash : "");
     input->program_graph_module_identity = z_strdup(store.graph.module_identity ? store.graph.module_identity : "");
   }
@@ -1569,6 +1725,7 @@ bool z_program_graph_prepare_repository_store_mir_input(const char *store_path, 
     source->lowering = graph_mir_valid ? "typed-program-graph-mir" : "program-graph-ast-mir";
     source->source_projection_state = z_program_graph_projection_state_label(&store, target, NULL, NULL, NULL);
     source->canonical_source = store.graph.canonical_source;
+    source->source_std_helpers_used = source_std_helpers_used;
   }
   z_program_graph_store_free(&store);
   return true;

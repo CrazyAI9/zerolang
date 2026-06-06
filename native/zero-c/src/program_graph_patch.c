@@ -623,46 +623,61 @@ static bool patch_parse_add_test(const char *line, int line_number, ZProgramGrap
   return true;
 }
 
-static bool patch_parse_set_main_args_add_cli(const char *line, int line_number, ZProgramGraphPatchResult *result) {
-  ZProgramGraphPatchOpResult *op = patch_push_operation(result);
-  op->line = line_number;
-  op->op = z_strdup("setMainArgsAddCli");
-  if (!patch_parse_structural_attrs(line, "setMainArgsAddCli", result, op)) return false;
-  if (!patch_reject_attrs(op, result, line, false, false, false, false, false, false, false, false, true, true)) return false;
-  return true;
-}
-
-static bool patch_parse_set_main_greeting_cli(const char *line, int line_number, ZProgramGraphPatchResult *result) {
-  ZProgramGraphPatchOpResult *op = patch_push_operation(result);
-  op->line = line_number;
-  op->op = z_strdup("setMainGreetingCli");
-  if (!patch_parse_structural_attrs(line, "setMainGreetingCli", result, op)) return false;
-  if (!patch_reject_attrs(op, result, line, false, false, false, false, false, false, false, false, true, true)) return false;
-  return true;
-}
-
-static bool patch_parse_replace_function_body(const char *line, int line_number, const char *body, ZProgramGraphPatchResult *result) {
-  const char *cursor = line + strlen("replaceFunctionBody");
+static bool patch_parse_replace_body_target(const char *line, int line_number, const char *body, bool block, ZProgramGraphPatchResult *result) {
+  const char *operation = block ? "replaceBlockBody" : "replaceFunctionBody";
+  const char *usage = block ? "replaceBlockBody #block_id" : "replaceFunctionBody main";
+  const char *cursor = line + strlen(operation);
   patch_skip_spaces(&cursor);
-  if (!*cursor) {
-    patch_result_fail(result, "GPH001", "replaceFunctionBody is missing a function name", "replaceFunctionBody main", line);
-    return false;
-  }
+  if (!*cursor) { patch_result_fail(result, "GPH001", block ? "replaceBlockBody is missing a block node id" : "replaceFunctionBody is missing a function name", usage, line); return false; }
   const char *start = cursor;
   while (*cursor && !isspace((unsigned char)*cursor)) cursor++;
-  char *function = z_strndup(start, (size_t)(cursor - start));
+  char *target = z_strndup(start, (size_t)(cursor - start));
   patch_skip_spaces(&cursor);
-  if (*cursor) {
-    patch_result_fail(result, "GPH001", "replaceFunctionBody has trailing header text", "replaceFunctionBody main", line);
-    free(function);
-    return false;
-  }
+  if (*cursor) { patch_result_fail(result, "GPH001", block ? "replaceBlockBody has trailing header text" : "replaceFunctionBody has trailing header text", usage, line); free(target); return false; }
+  if (block && target[0] != '#') { patch_result_fail(result, "GPH003", "replaceBlockBody target must be a graph node id", "#block_id", target); free(target); return false; }
   ZProgramGraphPatchOpResult *op = patch_push_operation(result);
   op->line = line_number;
-  op->op = z_strdup("replaceFunctionBody");
-  op->function = function;
+  op->op = z_strdup(operation);
+  if (block) op->node = target;
+  else op->function = target;
   op->value = z_strdup(body ? body : "");
   return true;
+}
+
+static bool patch_parse_replace_body_rows(char *header, int *line_number, char **cursor, bool block, ZProgramGraphPatchResult *result) {
+  ZBuf body;
+  zbuf_init(&body);
+  bool ended = false;
+  int header_line = *line_number;
+  while (**cursor) {
+    (*line_number)++;
+    char *body_line = *cursor;
+    char *body_end = strchr(*cursor, '\n');
+    if (body_end) {
+      *body_end = '\0';
+      *cursor = body_end + 1;
+    } else {
+      *cursor += strlen(*cursor);
+    }
+    char *body_trimmed = patch_trim(body_line);
+    if (strcmp(body_trimmed, "end") == 0) {
+      ended = true;
+      break;
+    }
+    char *append_line = body_line;
+    if (append_line[0] == ' ' && append_line[1] == ' ') append_line += 2;
+    else if (append_line[0] == '\t') append_line += 1;
+    zbuf_append(&body, append_line);
+    zbuf_append_char(&body, '\n');
+  }
+  if (!ended) {
+    zbuf_free(&body);
+    patch_result_fail(result, "GPH001", "body replacement is missing end marker", block ? "replaceBlockBody ... end" : "replaceFunctionBody ... end", header);
+    return false;
+  }
+  bool parsed_body = patch_parse_replace_body_target(header, header_line, body.data ? body.data : "", block, result);
+  zbuf_free(&body);
+  return parsed_body;
 }
 
 static bool patch_parse_text(char *text, ZProgramGraphPatchResult *result) {
@@ -728,50 +743,12 @@ static bool patch_parse_text(char *text, ZProgramGraphPatchResult *result) {
       if (!patch_parse_add_check_write(trimmed, line_number, result)) return false;
     } else if (strncmp(trimmed, "addTest", strlen("addTest")) == 0 && isspace((unsigned char)trimmed[strlen("addTest")])) {
       if (!patch_parse_add_test(trimmed, line_number, result)) return false;
-    } else if (strncmp(trimmed, "setMainArgsAddCli", strlen("setMainArgsAddCli")) == 0 && isspace((unsigned char)trimmed[strlen("setMainArgsAddCli")])) {
-      if (!patch_parse_set_main_args_add_cli(trimmed, line_number, result)) return false;
-    } else if (strcmp(trimmed, "setMainArgsAddCli") == 0) {
-      if (!patch_parse_set_main_args_add_cli(trimmed, line_number, result)) return false;
-    } else if (strncmp(trimmed, "setMainGreetingCli", strlen("setMainGreetingCli")) == 0 && isspace((unsigned char)trimmed[strlen("setMainGreetingCli")])) {
-      if (!patch_parse_set_main_greeting_cli(trimmed, line_number, result)) return false;
-    } else if (strcmp(trimmed, "setMainGreetingCli") == 0) {
-      if (!patch_parse_set_main_greeting_cli(trimmed, line_number, result)) return false;
     } else if (strncmp(trimmed, "replaceFunctionBody", strlen("replaceFunctionBody")) == 0 && isspace((unsigned char)trimmed[strlen("replaceFunctionBody")])) {
-      ZBuf body;
-      zbuf_init(&body);
-      bool ended = false;
-      int header_line = line_number;
-      while (*cursor) {
-        line_number++;
-        char *body_line = cursor;
-        char *body_end = strchr(cursor, '\n');
-        if (body_end) {
-          *body_end = '\0';
-          cursor = body_end + 1;
-        } else {
-          cursor += strlen(cursor);
-        }
-        char *body_trimmed = patch_trim(body_line);
-        if (strcmp(body_trimmed, "end") == 0) {
-          ended = true;
-          break;
-        }
-        char *append_line = body_line;
-        if (append_line[0] == ' ' && append_line[1] == ' ') append_line += 2;
-        else if (append_line[0] == '\t') append_line += 1;
-        zbuf_append(&body, append_line);
-        zbuf_append_char(&body, '\n');
-      }
-      if (!ended) {
-        zbuf_free(&body);
-        patch_result_fail(result, "GPH001", "replaceFunctionBody is missing end marker", "end", trimmed);
-        return false;
-      }
-      bool parsed_body = patch_parse_replace_function_body(trimmed, header_line, body.data ? body.data : "", result);
-      zbuf_free(&body);
-      if (!parsed_body) return false;
+      if (!patch_parse_replace_body_rows(trimmed, &line_number, &cursor, false, result)) return false;
+    } else if (strncmp(trimmed, "replaceBlockBody", strlen("replaceBlockBody")) == 0 && isspace((unsigned char)trimmed[strlen("replaceBlockBody")])) {
+      if (!patch_parse_replace_body_rows(trimmed, &line_number, &cursor, true, result)) return false;
     } else {
-      patch_result_fail(result, "GPH001", "unknown program graph patch operation", "expect, set, insert, insertEdge, replace, delete, rename, addFunction, addMain, addParam, addReturnBinary, addLetLiteral, addLetBinary, addReturnValue, addCheckWriteValue, addCheckWrite, addTest, setMainArgsAddCli, setMainGreetingCli, or replaceFunctionBody", trimmed);
+      patch_result_fail(result, "GPH001", "unknown program graph patch operation", "expect, set, insert, insertEdge, replace, delete, rename, addFunction, addMain, addParam, addReturnBinary, addLetLiteral, addLetBinary, addReturnValue, addCheckWriteValue, addCheckWrite, addTest, replaceFunctionBody, or replaceBlockBody", trimmed);
       return false;
     }
   }

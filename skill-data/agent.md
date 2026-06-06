@@ -93,23 +93,10 @@ zero patch \
 zero check .
 ```
 
-For a small argument-parsing CLI that adds two numbers, use the structured graph
-operation instead of hand-authoring node tables:
-
-```sh
-zero patch --op 'setMainArgsAddCli fn="add_u32"'
-zero run . -- 40 2
-```
-
-For a simple greeting CLI, use the graph builder:
-
-```sh
-zero patch --op 'setMainGreetingCli prefix="hello " fallback="anonymous"'
-zero run . -- Ada
-```
-
-For custom body edits, write row syntax inside `replaceFunctionBody` and apply
-it as a graph patch:
+For custom behavior such as CLI argument flow, write row syntax inside
+`replaceFunctionBody` for a whole function or `replaceBlockBody` for a selected
+`Block` node. Avoid program-specific patch shortcuts; row patches are the
+reusable graph surface agents should learn.
 
 ```text
 zero-program-graph-patch v1
@@ -121,6 +108,20 @@ replaceFunctionBody main
     check world.out.write "\n"
   else
     check world.out.write "hello anonymous\n"
+end
+```
+
+For branch-local changes, query block handles and replace only the selected
+block:
+
+```sh
+zero graph query --find Block <file-or-package>
+```
+
+```text
+zero-program-graph-patch v1
+replaceBlockBody #block_id
+  check world.out.write "updated\n"
 end
 ```
 

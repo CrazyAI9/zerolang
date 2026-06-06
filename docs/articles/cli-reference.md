@@ -241,8 +241,9 @@ rename node="#decl_ad8d9028" expect="main" value="start"
 delete node="#patch001"
 ```
 
-For common function-body edits, patch files can use row syntax inside
-`replaceFunctionBody`:
+For common body edits, patch files can use row syntax inside
+`replaceFunctionBody` for a whole function or `replaceBlockBody` for a selected
+`Block` node:
 
 ```text
 zero-program-graph-patch v1
@@ -258,6 +259,23 @@ replaceFunctionBody main
 end
 ```
 
+To replace only one branch or nested block, query a block handle and patch that
+block body:
+
+```sh
+zero graph query --find Block .
+```
+
+```text
+zero-program-graph-patch v1
+expect graphHash "graph:a7f7e6899a73f3b4"
+replaceBlockBody #block_32cefdd9
+  check world.out.write "name: "
+  check world.out.write name.value
+  check world.out.write "\n"
+end
+```
+
 Use `--patch-text <text>` when a tool already has a complete patch document in
 memory and should not create a temporary file.
 
@@ -269,20 +287,22 @@ value differs.
 Supported operations are `set`, `insert`, `insertEdge`, `replace`, `delete`,
 `rename`, `addFunction`, `addMain`, `addParam`, `addReturnBinary`,
 `addLetLiteral`, `addLetBinary`, `addReturnValue`, `addCheckWrite`,
-`addCheckWriteValue`, `addTest`, `setMainArgsAddCli`, `setMainGreetingCli`, and
-`replaceFunctionBody`. `insert` creates a node and connects it to a parent node
-with an ordered node edge; missing `order` defaults to `0`. `insertEdge`
+`addCheckWriteValue`, `addTest`, `replaceFunctionBody`, and
+`replaceBlockBody`. `insert` creates a node and
+connects it to a parent node with an ordered node edge; missing `order` defaults
+to `0`. `insertEdge`
 connects existing graph facts across `node`, `symbol`, `type`, or `effect`
 target domains. `replace` updates a node in place and can require the current
 node hash through `expect`. `delete` removes an owned subtree and rejects
 external references into that subtree. `rename` updates a node name with an
 optional current-name precondition. The `add*` operations create common
 function, parameter, local value, return, output, and test structures without
-requiring an agent to hand-author graph node IDs. `setMainArgsAddCli` replaces
-`main` with a small hosted CLI that parses two `u32` arguments, calls the named
-add function, and writes the formatted sum. `setMainGreetingCli` creates a
-first-argument greeting CLI. `replaceFunctionBody` replaces a function body from
-compact row syntax while still writing the repository graph.
+requiring an agent to hand-author graph node IDs. Use row syntax for
+workflow-specific behavior such as CLI argument parsing rather than relying on
+program-specific patch shortcuts. `replaceFunctionBody` replaces a function body
+from compact row syntax while still writing the repository graph.
+`replaceBlockBody` uses the same row syntax to replace only the statements owned
+by a selected `Block` node, such as an `if` branch.
 
 Run `zero patch --op help` to list supported operation shapes without
 loading or writing a graph.

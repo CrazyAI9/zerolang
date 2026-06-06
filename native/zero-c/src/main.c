@@ -1978,7 +1978,7 @@ static uint64_t source_dependency_hash_ex(const SourceInput *input, bool include
   uint64_t hash = fnv1a_text("dependencies"); if (!input) return hash;
   hash = mix_hash_text(hash, input->package_name);
   hash = mix_hash_text(hash, input->package_version);
-  hash = mix_hash_text(hash, input->manifest_path);
+  if (include_source_files) hash = mix_hash_text(hash, input->manifest_path);
   hash ^= input->manifest_hash; hash *= 1099511628211ull;
   hash ^= input->dependency_graph_hash; hash *= 1099511628211ull;
   hash ^= input->lockfile_hash; hash *= 1099511628211ull;
@@ -2515,7 +2515,7 @@ static void append_compile_time_json(ZBuf *buf, const Program *program, const So
 
 static void append_program_graph_artifact_source_json(ZBuf *buf, const ZProgramGraphArtifactSource *source);
 static void append_safety_facts_json(ZBuf *buf, const char *profile);
-static bool append_repository_graph_target_readiness_json(ZBuf *buf, SourceInput *input, const ZProgramGraph *graph, const ZTargetInfo *target, const Command *command, long long *lower_ms_out, bool *graph_mir_used_out);
+static bool append_repository_graph_target_readiness_json(ZBuf *buf, SourceInput *input, const ZProgramGraphStore *store, const ZProgramGraphResolutionFacts *resolution, const ZTargetInfo *target, const Command *command, long long *lower_ms_out, bool *graph_mir_used_out, bool *ast_fallback_used_out, bool *source_std_helpers_used_out);
 
 static bool graph_check_text_eq(const char *left, const char *right) {
   const unsigned char *a = (const unsigned char *)(left ? left : "");
@@ -2611,9 +2611,9 @@ static bool graph_check_target_capabilities_ok(const ZProgramGraph *graph, const
   return true;
 }
 
-static void append_repository_graph_default_readiness_json(ZBuf *buf, const char *projection_state, const ZProgramGraphResolutionFacts *resolution, long long load_ms, long long validate_ms, long long resolve_ms, long long check_ms, long long lower_ms, long long cache_ms, bool validation_in_load, bool target_ready, bool graph_mir_used) {
+static void append_repository_graph_default_readiness_json(ZBuf *buf, const char *projection_state, const ZProgramGraphResolutionFacts *resolution, long long load_ms, long long validate_ms, long long resolve_ms, long long check_ms, long long lower_ms, long long cache_ms, bool validation_in_load, bool target_ready, bool graph_mir_used, bool ast_fallback_used, bool source_std_helpers_used) {
   bool resolution_ok = resolution && resolution->diagnostic_len == 0;
-  bool compiler_input_ready = resolution_ok && graph_mir_used && target_ready;
+  bool compiler_input_ready = resolution_ok && graph_mir_used && target_ready && !source_std_helpers_used;
   bool within_budget =
     load_ms <= 50 &&
     validate_ms <= 50 &&
@@ -2630,9 +2630,15 @@ static void append_repository_graph_default_readiness_json(ZBuf *buf, const char
   zbuf_append(buf, ",\"targetReadinessOk\":");
   zbuf_append(buf, target_ready ? "true" : "false");
   zbuf_append(buf, ",\"targetReadinessReportedIn\":\"targetReadiness\"");
-  zbuf_append(buf, ",\"fallback\":{\"legacyProgramAstReconstructed\":false,\"graphToProgramLoweringUsed\":false,\"graphHirToMirUsed\":");
+  zbuf_append(buf, ",\"fallback\":{\"legacyProgramAstReconstructed\":false,\"graphToProgramLoweringUsed\":");
+  zbuf_append(buf, ast_fallback_used ? "true" : "false");
+  zbuf_append(buf, ",\"graphHirToMirUsed\":");
   zbuf_append(buf, graph_mir_used ? "true" : "false");
-  zbuf_append(buf, ",\"astToMirFallbackUsed\":false}");
+  zbuf_append(buf, ",\"astToMirFallbackUsed\":");
+  zbuf_append(buf, ast_fallback_used ? "true" : "false");
+  zbuf_append(buf, ",\"sourceBackedStdHelpersUsed\":");
+  zbuf_append(buf, source_std_helpers_used ? "true" : "false");
+  zbuf_append(buf, "}");
   zbuf_append(buf, ",\"unsupportedGraphFacts\":{\"count\":0,\"facts\":[]}");
   zbuf_append(buf, ",\"performance\":{\"withinBudget\":");
   zbuf_append(buf, within_budget ? "true" : "false");
@@ -2647,7 +2653,7 @@ static void append_repository_graph_default_readiness_json(ZBuf *buf, const char
   zbuf_append(buf, "}");
 }
 
-static void append_repository_graph_compiler_path_json(ZBuf *buf, const ZTargetInfo *target, const ZProgramGraphStore *store, const ZProgramGraphResolutionFacts *resolution, long long load_ms, long long validate_ms, long long resolve_ms, long long check_ms, long long lower_ms, long long cache_ms, bool validation_in_load, bool target_ready, bool graph_mir_used) {
+static void append_repository_graph_compiler_path_json(ZBuf *buf, const ZTargetInfo *target, const ZProgramGraphStore *store, const ZProgramGraphResolutionFacts *resolution, long long load_ms, long long validate_ms, long long resolve_ms, long long check_ms, long long lower_ms, long long cache_ms, bool validation_in_load, bool target_ready, bool graph_mir_used, bool ast_fallback_used, bool source_std_helpers_used) {
   ZProgramGraphStoreTableCounts tables;
   z_program_graph_store_table_counts_for_graph(store ? &store->graph : NULL,
                                                store ? store->source_path_len : 0,
@@ -2657,13 +2663,18 @@ static void append_repository_graph_compiler_path_json(ZBuf *buf, const ZTargetI
   zbuf_append(buf, "{\"schemaVersion\":1,\"input\":\"repository-graph-store\",\"graphStoreLoaded\":true");
   zbuf_append(buf, ",\"sourceProjectionRequiredForCompilerInput\":false,\"sourceProjectionState\":");
   append_json_string(buf, projection_state);
-  zbuf_append(buf, ",\"legacyProgramAstReconstructed\":false,\"graphToProgramLoweringUsed\":false,\"graphNativeCheckerUsed\":true,\"graphHirToMirUsed\":");
+  zbuf_append(buf, ",\"legacyProgramAstReconstructed\":false,\"graphToProgramLoweringUsed\":");
+  zbuf_append(buf, ast_fallback_used ? "true" : "false");
+  zbuf_append(buf, ",\"graphNativeCheckerUsed\":true,\"graphHirToMirUsed\":");
   zbuf_append(buf, graph_mir_used ? "true" : "false");
-  zbuf_append(buf, ",\"astToMirFallbackUsed\":false");
+  zbuf_append(buf, ",\"astToMirFallbackUsed\":");
+  zbuf_append(buf, ast_fallback_used ? "true" : "false");
+  zbuf_append(buf, ",\"sourceBackedStdHelpersUsed\":");
+  zbuf_append(buf, source_std_helpers_used ? "true" : "false");
   zbuf_append(buf, ",\"unsupportedGraphFacts\":{\"count\":0,\"facts\":[]}");
   zbuf_appendf(buf, ",\"timings\":{\"loadMs\":%lld,\"validateMs\":%lld,\"resolveMs\":%lld,\"checkMs\":%lld,\"lowerMs\":%lld,\"cacheMs\":%lld,\"validationInLoad\":%s}", load_ms, validate_ms, resolve_ms, check_ms, lower_ms, cache_ms, validation_in_load ? "true" : "false");
   zbuf_append(buf, ",\"defaultReadiness\":");
-  append_repository_graph_default_readiness_json(buf, projection_state, resolution, load_ms, validate_ms, resolve_ms, check_ms, lower_ms, cache_ms, validation_in_load, target_ready, graph_mir_used);
+  append_repository_graph_default_readiness_json(buf, projection_state, resolution, load_ms, validate_ms, resolve_ms, check_ms, lower_ms, cache_ms, validation_in_load, target_ready, graph_mir_used, ast_fallback_used, source_std_helpers_used);
   zbuf_append(buf, ",\"tables\":");
   z_program_graph_store_append_table_counts_json(buf, &tables);
   zbuf_append(buf, ",\"resolution\":{\"state\":\"resolved-graph-facts\",\"ok\":");
@@ -2682,7 +2693,9 @@ static void print_repository_graph_check_json_success(const Command *command, co
   zbuf_init(&target_readiness);
   long long lower_ms = 0;
   bool graph_mir_used = false;
-  bool target_ready = append_repository_graph_target_readiness_json(&target_readiness, input, store ? &store->graph : NULL, target, command, &lower_ms, &graph_mir_used);
+  bool ast_fallback_used = false;
+  bool source_std_helpers_used = false;
+  bool target_ready = append_repository_graph_target_readiness_json(&target_readiness, input, store, resolution, target, command, &lower_ms, &graph_mir_used, &ast_fallback_used, &source_std_helpers_used);
   ZBuf buf;
   zbuf_init(&buf);
   zbuf_append(&buf, "{\n  \"schemaVersion\": 1,\n  \"ok\": true,\n  \"sourceFile\": ");
@@ -2694,6 +2707,7 @@ static void print_repository_graph_check_json_success(const Command *command, co
     .lowering = "graph-native-check",
     .source_projection_state = z_program_graph_projection_state_label(store, target, NULL, NULL, NULL),
     .canonical_source = false,
+    .source_std_helpers_used = source_std_helpers_used,
   };
   append_program_graph_artifact_source_json(&buf, &graph_source);
   const char *profile = command && command->profile ? command->profile : "release";
@@ -2708,7 +2722,7 @@ static void print_repository_graph_check_json_success(const Command *command, co
   zbuf_append(&buf, ",\n  \"safetyFacts\": ");
   append_safety_facts_json(&buf, profile);
   zbuf_append(&buf, ",\n  \"graphCompiler\": ");
-  append_repository_graph_compiler_path_json(&buf, target, store, resolution, load_ms, 0, resolve_ms, check_ms, lower_ms, cache_ms, true, target_ready, graph_mir_used);
+  append_repository_graph_compiler_path_json(&buf, target, store, resolution, load_ms, 0, resolve_ms, check_ms, lower_ms, cache_ms, true, target_ready, graph_mir_used, ast_fallback_used, source_std_helpers_used);
   zbuf_append(&buf, ",\n  \"compilerPhases\": ");
   append_compiler_phases_json(&buf, input);
   zbuf_append(&buf, ",\n  \"compilerCaches\": ");
@@ -2851,6 +2865,8 @@ static void append_program_graph_artifact_source_json(ZBuf *buf, const ZProgramG
   append_json_string(buf, source->graph_hash ? source->graph_hash : "");
   zbuf_append(buf, ",\"lowering\":");
   append_json_string(buf, source->lowering ? source->lowering : "direct-program-graph");
+  zbuf_append(buf, ",\"sourceBackedStdHelpersUsed\":");
+  zbuf_append(buf, source->source_std_helpers_used ? "true" : "false");
   if (source->source_projection_state) {
     zbuf_append(buf, ",\"sourceProjectionState\":");
     append_json_string(buf, source->source_projection_state);
@@ -10707,34 +10723,107 @@ static bool repository_graph_target_readiness_select_diag(const Command *command
   return false;
 }
 
-static bool append_repository_graph_target_readiness_json(ZBuf *buf, SourceInput *input, const ZProgramGraph *graph, const ZTargetInfo *target, const Command *command, long long *lower_ms_out, bool *graph_mir_used_out) {
+static void init_repository_graph_source_std_helpers_diag(ZDiag *diag, SourceInput *input, const ZProgramGraphStore *store, const ZTargetInfo *target, const Command *command, const char *emit_kind) {
+  memset(diag, 0, sizeof(*diag));
+  diag->code = 2004;
+  diag->path = input ? input->source_file : (store ? store->path : NULL);
+  diag->line = 1;
+  diag->column = 1;
+  diag->length = 1;
+  snprintf(diag->message, sizeof(diag->message), "repository graph target readiness requires graph-native stdlib helpers");
+  snprintf(diag->expected, sizeof(diag->expected), "graph-native stdlib helper MIR");
+  snprintf(diag->actual, sizeof(diag->actual), "source-backed-std-helpers");
+  snprintf(diag->help, sizeof(diag->help), "move the required stdlib helpers into graph-native MIR before treating this repository graph as source-free buildable");
+  complete_backend_blocker_diag(diag, target, command, emit_kind, "lower");
+}
+
+static void init_repository_graph_missing_store_diag(ZDiag *diag, SourceInput *input) {
+  memset(diag, 0, sizeof(*diag));
+  diag->code = 2002;
+  diag->path = input ? input->source_file : NULL;
+  diag->line = 1;
+  diag->column = 1;
+  diag->length = 1;
+  snprintf(diag->message, sizeof(diag->message), "repository graph target readiness requires a graph store");
+  snprintf(diag->expected, sizeof(diag->expected), "loaded repository ProgramGraph");
+  snprintf(diag->actual, sizeof(diag->actual), "missing graph");
+  snprintf(diag->help, sizeof(diag->help), "run zero graph status to inspect the repository graph store");
+}
+
+static bool repository_graph_source_backed_std_helper_blocks_pre_mir(const char *qualified_name) {
+  return qualified_name && strncmp(qualified_name, "std.str.", strlen("std.str.")) == 0;
+}
+
+static bool repository_graph_resolution_uses_pre_mir_source_backed_std_blocker(const ZProgramGraphResolutionFacts *resolution) {
+  for (size_t i = 0; resolution && i < resolution->reference_len; i++) {
+    const ZProgramGraphResolutionReference *ref = &resolution->references[i];
+    if ((graph_check_text_eq(ref->target_kind, "sourceBackedStdlib") ||
+         z_std_source_target_for_public_call(ref->qualified_name)) &&
+        repository_graph_source_backed_std_helper_blocks_pre_mir(ref->qualified_name)) return true;
+  }
+  return false;
+}
+
+static bool append_repository_graph_target_readiness_json(ZBuf *buf, SourceInput *input, const ZProgramGraphStore *store, const ZProgramGraphResolutionFacts *resolution, const ZTargetInfo *target, const Command *command, long long *lower_ms_out, bool *graph_mir_used_out, bool *ast_fallback_used_out, bool *source_std_helpers_used_out) {
   ZDiag diag = {0};
   IrProgram ir = {0};
+  Program readiness_program = {0};
+  SourceInput readiness_input = {0};
   bool ready = true;
   if (lower_ms_out) *lower_ms_out = 0;
   if (graph_mir_used_out) *graph_mir_used_out = false;
+  if (ast_fallback_used_out) *ast_fallback_used_out = false;
+  if (source_std_helpers_used_out) *source_std_helpers_used_out = false;
+  const char *emit_kind = emit_kind_name(command ? command->emit : EMIT_EXE);
 
-  if (!graph) {
+  if (!store || !store->path) {
     ready = false;
-    diag.code = 2002;
-    diag.path = input ? input->source_file : NULL;
-    diag.line = 1;
-    diag.column = 1;
-    diag.length = 1;
-    snprintf(diag.message, sizeof(diag.message), "repository graph target readiness requires a graph store");
-    snprintf(diag.expected, sizeof(diag.expected), "loaded repository ProgramGraph");
-    snprintf(diag.actual, sizeof(diag.actual), "missing graph");
-    snprintf(diag.help, sizeof(diag.help), "run zero graph status to inspect the repository graph store");
+    init_repository_graph_missing_store_diag(&diag, input);
+  } else if (repository_graph_resolution_uses_pre_mir_source_backed_std_blocker(resolution)) {
+    ready = false;
+    if (source_std_helpers_used_out) *source_std_helpers_used_out = true;
+    init_repository_graph_source_std_helpers_diag(&diag, input, store, target, command, emit_kind);
   } else {
+    ZProgramGraphArtifactSource graph_source = {0};
     long long phase_started = now_ms();
-    ir = z_lower_program_graph_with_source(graph, input, target);
+    bool prepared = z_program_graph_prepare_repository_store_mir_input(store->path,
+                                                                       target,
+                                                                       emit_kind,
+                                                                       command ? command->backend : NULL,
+                                                                       &readiness_program,
+                                                                       &readiness_input,
+                                                                       &ir,
+                                                                       &graph_source,
+                                                                       &diag);
     long long lower_ms = now_ms() - phase_started;
     if (lower_ms_out) *lower_ms_out = lower_ms;
     if (graph_mir_used_out) *graph_mir_used_out = true;
+    bool ast_fallback_used = graph_source.lowering && strcmp(graph_source.lowering, "program-graph-ast-mir") == 0;
+    if (ast_fallback_used_out) *ast_fallback_used_out = ast_fallback_used;
+    bool source_std_helpers_used = graph_source.source_std_helpers_used;
+    if (source_std_helpers_used_out) *source_std_helpers_used_out = source_std_helpers_used;
     if (input) input->lower_ms = lower_ms;
-    apply_ir_metrics_to_input(input, &ir, target);
+    if (prepared) apply_ir_metrics_to_input(input, &ir, target);
 
-    if (!validate_c_libraries_for_target(input, target, command, &diag)) {
+    if (!prepared) {
+      ready = false;
+    } else if (source_std_helpers_used) {
+      ready = false;
+      init_repository_graph_source_std_helpers_diag(&diag, input, store, target, command, emit_kind);
+    } else if (ast_fallback_used) {
+      ready = false;
+      memset(&diag, 0, sizeof(diag));
+      diag.code = 2004;
+      diag.path = input ? input->source_file : store->path;
+      diag.line = 1;
+      diag.column = 1;
+      diag.length = 1;
+      snprintf(diag.message, sizeof(diag.message), "repository graph target readiness requires typed graph MIR");
+      snprintf(diag.expected, sizeof(diag.expected), "typed-program-graph-mir");
+      snprintf(diag.actual, sizeof(diag.actual), "program-graph-ast-mir");
+      snprintf(diag.help, sizeof(diag.help), "make the required graph or stdlib helpers graph-native before treating this target as source-free buildable");
+      complete_backend_blocker_diag(&diag, target, command, emit_kind, "lower");
+    } else if (!validate_c_libraries_for_target(input, target, command, &diag)) {
       ready = false;
     }
 
@@ -10751,11 +10840,12 @@ static bool append_repository_graph_target_readiness_json(ZBuf *buf, SourceInput
   }
 
   if (!ready && input) {
-    if (diag.code != 8003 && diag.code != 8005) z_map_source_diag(input, &diag);
+    bool graph_mir_fallback_diag = diag.code == 2004 && strcmp(diag.actual, "program-graph-ast-mir") == 0;
+    bool std_bridge_diag = diag.code == 2004 && strcmp(diag.actual, "source-backed-std-helpers") == 0;
+    if (!graph_mir_fallback_diag && !std_bridge_diag && diag.code != 8003 && diag.code != 8005) z_map_source_diag(input, &diag);
     if (!diag.path) diag.path = input->source_file;
   }
 
-  const char *emit_kind = emit_kind_name(command ? command->emit : EMIT_EXE);
   zbuf_append(buf, "{\"schemaVersion\":1,\"ok\":");
   zbuf_append(buf, ready ? "true" : "false");
   zbuf_append(buf, ",\"languageOk\":true,\"buildable\":");
@@ -10780,7 +10870,16 @@ static bool append_repository_graph_target_readiness_json(ZBuf *buf, SourceInput
   zbuf_append(buf, ",\"diagnostics\":[");
   if (!ready) append_target_readiness_diagnostic_json(buf, input ? input->source_file : NULL, &diag);
   zbuf_append(buf, "]}");
-  z_free_ir_program(&ir);
+  /*
+   * Source-backed std fallback moves helper functions through the temporary
+   * Program used for readiness and the prepared MIR may retain shared helper
+   * ownership. Keep that short-lived graph preparation state alive until
+   * process exit so `check --json` never tears down fallback structures while
+   * assembling the command result.
+   */
+  (void)ir;
+  (void)readiness_program;
+  (void)readiness_input;
   return ready;
 }
 

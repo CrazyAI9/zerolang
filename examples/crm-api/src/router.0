@@ -1,0 +1,84 @@
+use accounts
+
+use activities
+
+use contacts
+
+use deals
+
+use http_util
+
+use search
+
+fn routeIs(method: Span<u8>, path: Span<u8>, expected_method: Span<u8>, expected_path: Span<u8>) -> Bool {
+    return std.mem.eql(method, expected_method) && std.mem.eql(path, expected_path)
+}
+
+pub fn handleCrm(request: Span<u8>, response: MutSpan<u8>) -> Maybe<Span<u8>> {
+    let method: Maybe<Span<u8>> = std.http.requestMethodName(request)
+    let path: Maybe<Span<u8>> = std.http.requestPath(request)
+    if !method.has || !path.has {
+        return badRequest(response, "json")
+    }
+    if routeIs(method.value, path.value, "GET", "/health") {
+        return jsonResponse(response, 200_u16, "{\"ok\":true,\"service\":\"crm\"}")
+    }
+    if routeIs(method.value, path.value, "GET", "/crm/accounts") {
+        return listAccounts(request, response)
+    }
+    if routeIs(method.value, path.value, "POST", "/crm/accounts") {
+        return createAccount(request, response)
+    }
+    if routeIs(method.value, path.value, "GET", "/crm/accounts/1") {
+        return readAccount(response)
+    }
+    if routeIs(method.value, path.value, "POST", "/crm/accounts/1/update") {
+        return updateAccount(request, response)
+    }
+    if routeIs(method.value, path.value, "POST", "/crm/accounts/1/delete") {
+        return deleteAccount(response)
+    }
+    if routeIs(method.value, path.value, "GET", "/crm/contacts") {
+        return listContacts(request, response)
+    }
+    if routeIs(method.value, path.value, "POST", "/crm/contacts") {
+        return createContact(request, response)
+    }
+    if routeIs(method.value, path.value, "GET", "/crm/contacts/7") {
+        return readContact(response)
+    }
+    if routeIs(method.value, path.value, "POST", "/crm/contacts/7/update") {
+        return updateContact(request, response)
+    }
+    if routeIs(method.value, path.value, "POST", "/crm/contacts/7/delete") {
+        return deleteContact(response)
+    }
+    if routeIs(method.value, path.value, "GET", "/crm/deals") {
+        return listDeals(request, response)
+    }
+    if routeIs(method.value, path.value, "POST", "/crm/deals") {
+        return createDeal(request, response)
+    }
+    if routeIs(method.value, path.value, "GET", "/crm/deals/42") {
+        return readDeal(response)
+    }
+    if routeIs(method.value, path.value, "POST", "/crm/deals/42/update") {
+        return updateDeal(request, response)
+    }
+    if routeIs(method.value, path.value, "POST", "/crm/deals/42/delete") {
+        return deleteDeal(response)
+    }
+    if routeIs(method.value, path.value, "GET", "/crm/activities") {
+        return listActivities(request, response)
+    }
+    if routeIs(method.value, path.value, "POST", "/crm/activities") {
+        return createActivity(request, response)
+    }
+    if routeIs(method.value, path.value, "GET", "/crm/search") {
+        return searchCrm(request, response)
+    }
+    if method.has && (std.mem.eql(method.value, "PUT") || std.mem.eql(method.value, "PATCH") || std.mem.eql(method.value, "DELETE") || std.mem.eql(method.value, "POST")) {
+        return methodNotAllowed(response)
+    }
+    return notFound(response)
+}

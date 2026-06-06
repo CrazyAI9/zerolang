@@ -73,23 +73,10 @@ zero patch \
   --op 'addCheckWriteValue fn="main" value="message" type="String"'
 ```
 
-Create a simple CLI that parses two `u32` command-line arguments, adds them,
-and writes the result:
-
-```sh
-zero patch --op 'setMainArgsAddCli fn="add_u32"'
-zero run . -- 40 2
-```
-
-Create a simple greeting CLI without writing source:
-
-```sh
-zero patch --op 'setMainGreetingCli prefix="hello " fallback="anonymous"'
-zero run . -- Ada
-```
-
-For custom function bodies, use row syntax in a graph patch file. This keeps the
-write on `zero.graph`; the `.0` file is only the human projection you sync later:
+For CLI behavior and other multi-statement workflows, use row syntax in a graph
+patch file. This keeps the write on `zero.graph`; the `.0` file is only the
+human projection you sync later. Do not add or depend on program-specific patch
+operations for toy workflows.
 
 ```text
 zero-program-graph-patch v1
@@ -102,6 +89,23 @@ replaceFunctionBody main
     check world.out.write "\n"
   else
     check world.out.write "hello anonymous\n"
+end
+```
+
+To replace only one branch or nested body, query block handles and patch the
+selected `Block` node instead of rewriting the whole function:
+
+```sh
+zero graph query --find Block <file-or-package>
+```
+
+```text
+zero-program-graph-patch v1
+expect graphHash "graph:a7f7e6899a73f3b4"
+replaceBlockBody #block_32cefdd9
+  check world.out.write "name: "
+  check world.out.write name.value
+  check world.out.write "\n"
 end
 ```
 
@@ -197,13 +201,6 @@ zero check .
 zero run .
 ```
 
-For common CLI scaffolding, prefer the structured operation:
-
-```sh
-zero patch --op 'setMainArgsAddCli fn="add_u32"'
-zero run . -- 40 2
-```
-
 List supported patch operation shapes without loading or writing a graph:
 
 ```sh
@@ -230,8 +227,6 @@ addLetBinary fn="add" name="sum" type="i32" operator="+" left="left" right="righ
 addReturnValue fn="identity" value="input" type="i32"
 addCheckWriteValue fn="main" value="message" type="String"
 addTest name="addition works" call="add" arg0="40" arg1="2" expect="42" type="i32"
-setMainArgsAddCli fn="add_u32"
-setMainGreetingCli prefix="hello " fallback="anonymous"
 replaceFunctionBody main
   let name Maybe<String> = std.args.get 1
   if name.has
@@ -240,6 +235,9 @@ replaceFunctionBody main
     check world.out.write "\n"
   else
     check world.out.write "hello anonymous\n"
+end
+replaceBlockBody #block_id
+  check world.out.write "updated\n"
 end
 ```
 

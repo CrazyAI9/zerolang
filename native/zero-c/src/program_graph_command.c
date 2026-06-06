@@ -166,7 +166,6 @@ void z_program_graph_print_command_help(void) {
   printf("  addReturnValue fn=\"identity\" value=\"input\" type=\"i32\"\n");
   printf("  addCheckWriteValue fn=\"main\" value=\"message\" type=\"String\"\n");
   printf("  addTest name=\"addition works\" call=\"add\" arg0=\"40\" arg1=\"2\" expect=\"42\" type=\"i32\"\n");
-  printf("  setMainArgsAddCli fn=\"add_u32\"\n");
-  printf("  setMainGreetingCli prefix=\"hello \" fallback=\"anonymous\"\n");
   printf("  replaceFunctionBody main ... end\n");
+  printf("  replaceBlockBody #block_id ... end\n");
 }
