@@ -51,6 +51,28 @@ zero graph patch \
 zero test .
 ```
 
+For multi-statement functions, use builder operations instead of hand-authoring
+node tables:
+
+```sh
+zero graph patch \
+  --op 'addFunction name="add_twice" ret="u32"' \
+  --op 'addParam fn="add_twice" name="x" type="u32"' \
+  --op 'addParam fn="add_twice" name="y" type="u32"' \
+  --op 'addLetBinary fn="add_twice" name="first" type="u32" operator="+" left="x" right="y"' \
+  --op 'addLetBinary fn="add_twice" name="total" type="u32" operator="+" left="first" right="y"' \
+  --op 'addReturnValue fn="add_twice" value="total" type="u32"'
+zero check .
+```
+
+For output from a local value:
+
+```sh
+zero graph patch \
+  --op 'addLetLiteral fn="main" name="message" type="String" value="hello\n"' \
+  --op 'addCheckWriteValue fn="main" value="message" type="String"'
+```
+
 Create a simple CLI that parses two `u32` command-line arguments, adds them,
 and writes the result:
 

@@ -165,6 +165,10 @@ void z_program_graph_print_command_help(void) {
   printf("  addFunction name=\"add\" ret=\"i32\"\n");
   printf("  addParam fn=\"add\" name=\"left\" type=\"i32\"\n");
   printf("  addReturnBinary fn=\"add\" name=\"+\" left=\"left\" right=\"right\" type=\"i32\"\n");
+  printf("  addLetLiteral fn=\"main\" name=\"count\" type=\"u32\" value=\"0\"\n");
+  printf("  addLetBinary fn=\"add\" name=\"sum\" type=\"i32\" operator=\"+\" left=\"left\" right=\"right\"\n");
+  printf("  addReturnValue fn=\"identity\" value=\"input\" type=\"i32\"\n");
+  printf("  addCheckWriteValue fn=\"main\" value=\"message\" type=\"String\"\n");
   printf("  addTest name=\"addition works\" call=\"add\" arg0=\"40\" arg1=\"2\" expect=\"42\" type=\"i32\"\n");
   printf("  setMainArgsAddCli fn=\"add_u32\"\n");
 }

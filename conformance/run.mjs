@@ -3564,6 +3564,8 @@ const programGraphSourceFreeShipPath = `${outDir}/program-graph-source-free-ship
 const programGraphAuthoringPackage = `${outDir}/program-graph-authoring`;
 const programGraphAuthoringRunPath = `${outDir}/program-graph-authoring-run`;
 const programGraphAuthoringRunAfterHumanEditPath = `${outDir}/program-graph-authoring-run-human-edit`;
+const programGraphBuilderOpsPackage = `${outDir}/program-graph-builder-ops`;
+const programGraphBuilderOpsRunPath = `${outDir}/program-graph-builder-ops-run`;
 const programGraphAuthoringCliPackage = `${outDir}/program-graph-authoring-cli`;
 const programGraphAuthoringCliGraphBuildPath = `${outDir}/program-graph-authoring-cli-graph-build`;
 const programGraphAuthoringCliBuildPath = `${outDir}/program-graph-authoring-cli-build`;
@@ -3599,6 +3601,8 @@ await rm(programGraphSourceFreeShipPath, { recursive: true, force: true });
 await rm(programGraphAuthoringPackage, { recursive: true, force: true });
 await rm(programGraphAuthoringRunPath, { force: true });
 await rm(programGraphAuthoringRunAfterHumanEditPath, { force: true });
+await rm(programGraphBuilderOpsPackage, { recursive: true, force: true });
+await rm(programGraphBuilderOpsRunPath, { force: true });
 await rm(programGraphAuthoringCliPackage, { recursive: true, force: true });
 await rm(programGraphAuthoringCliGraphBuildPath, { force: true });
 await rm(programGraphAuthoringCliBuildPath, { force: true });
@@ -3695,6 +3699,40 @@ const programGraphAuthoringStatusAfterHumanEdit = JSON.parse((await execFileAsyn
 const programGraphAuthoringSyncFromSource = JSON.parse((await execFileAsync(zero, ["graph", "sync", "--from-source", "--json", programGraphAuthoringPackage])).stdout);
 const programGraphAuthoringCheckAfterHumanEdit = JSON.parse((await execFileAsync(zero, ["check", "--json", programGraphAuthoringPackage])).stdout);
 const programGraphAuthoringRunAfterHumanEdit = await execFileAsync(zero, ["run", "--out", programGraphAuthoringRunAfterHumanEditPath, programGraphAuthoringPackage]);
+const programGraphBuilderOpsInit = JSON.parse((await execFileAsync(zero, ["graph", "init", "--json", programGraphBuilderOpsPackage])).stdout);
+const programGraphBuilderOpsPatch = JSON.parse((await execFileAsync(zero, [
+  "graph",
+  "patch",
+  "--json",
+  "--op",
+  "addMain",
+  "--op",
+  "addLetLiteral fn=\"main\" name=\"message\" type=\"String\" value=\"graph value write ok\\n\"",
+  "--op",
+  "addCheckWriteValue fn=\"main\" value=\"message\" type=\"String\"",
+  "--op",
+  "addFunction name=\"add_twice\" ret=\"u32\"",
+  "--op",
+  "addParam fn=\"add_twice\" name=\"x\" type=\"u32\"",
+  "--op",
+  "addParam fn=\"add_twice\" name=\"y\" type=\"u32\"",
+  "--op",
+  "addLetBinary fn=\"add_twice\" name=\"first\" type=\"u32\" operator=\"+\" left=\"x\" right=\"y\"",
+  "--op",
+  "addLetBinary fn=\"add_twice\" name=\"total\" type=\"u32\" operator=\"+\" left=\"first\" right=\"y\"",
+  "--op",
+  "addReturnValue fn=\"add_twice\" value=\"total\" type=\"u32\"",
+  "--op",
+  "addTest name=\"add twice\" call=\"add_twice\" arg0=\"3\" arg1=\"2\" expect=\"7\" type=\"u32\"",
+], { cwd: programGraphBuilderOpsPackage })).stdout);
+const programGraphBuilderOpsProjectionExistsAfterPatch = await fileExists(`${programGraphBuilderOpsPackage}/src/main.0`);
+const programGraphBuilderOpsQuery = JSON.parse((await execFileAsync(zero, ["graph", "query", "--json", programGraphBuilderOpsPackage])).stdout);
+const programGraphBuilderOpsView = (await execFileAsync(zero, ["graph", "view", programGraphBuilderOpsPackage])).stdout;
+const programGraphBuilderOpsCheck = JSON.parse((await execFileAsync(zero, ["check", "--json", programGraphBuilderOpsPackage])).stdout);
+const programGraphBuilderOpsTest = JSON.parse((await execFileAsync(zero, ["test", "--json", programGraphBuilderOpsPackage])).stdout);
+const programGraphBuilderOpsRun = await execFileAsync(zero, ["run", "--out", programGraphBuilderOpsRunPath, programGraphBuilderOpsPackage]);
+const programGraphBuilderOpsSync = JSON.parse((await execFileAsync(zero, ["graph", "sync", "--from-graph", "--json", programGraphBuilderOpsPackage])).stdout);
+const programGraphBuilderOpsProjectionText = await readFile(`${programGraphBuilderOpsPackage}/src/main.0`, "utf8");
 const programGraphAuthoringCliInit = JSON.parse((await execFileAsync(zero, ["graph", "init", "--json", programGraphAuthoringCliPackage])).stdout);
 const programGraphAuthoringCliProjectionExistsAfterInit = await fileExists(`${programGraphAuthoringCliPackage}/src/main.0`);
 const programGraphAuthoringCliPatch = JSON.parse((await execFileAsync(zero, [
@@ -4090,6 +4128,31 @@ assert.deepEqual(programGraphAuthoringSyncFromSource.changedPaths, [`${programGr
 assert.equal(programGraphAuthoringCheckAfterHumanEdit.ok, true);
 assert.equal(programGraphAuthoringCheckAfterHumanEdit.graph.sourceProjectionState, "clean");
 assert.equal(programGraphAuthoringRunAfterHumanEdit.stdout, "human edit ok\n");
+assert.equal(programGraphBuilderOpsInit.ok, true);
+assert.equal(programGraphBuilderOpsInit.sourceProjection.materialized, false);
+assert.equal(programGraphBuilderOpsPatch.ok, true);
+assert.equal(programGraphBuilderOpsPatch.operationCount, 10);
+assert.equal(programGraphBuilderOpsProjectionExistsAfterPatch, false);
+assert.equal(programGraphBuilderOpsQuery.ok, true);
+assert(programGraphBuilderOpsQuery.functions.some((fun) => fun.name === "add_twice" && fun.returnType === "u32"));
+assert(programGraphBuilderOpsQuery.patchOperations.includes("addLetLiteral fn=\"main\" name=\"count\" type=\"u32\" value=\"0\""));
+assert(programGraphBuilderOpsQuery.patchOperations.includes("addLetBinary fn=\"add\" name=\"sum\" type=\"i32\" operator=\"+\" left=\"left\" right=\"right\""));
+assert(programGraphBuilderOpsQuery.patchOperations.includes("addReturnValue fn=\"identity\" value=\"input\" type=\"i32\""));
+assert(programGraphBuilderOpsQuery.patchOperations.includes("addCheckWriteValue fn=\"main\" value=\"message\" type=\"String\""));
+assert.match(programGraphBuilderOpsView, /let message: String = "graph value write ok\\n"/);
+assert.match(programGraphBuilderOpsView, /check world\.out\.write\(message\)/);
+assert.match(programGraphBuilderOpsView, /let first: u32 = x \+ y/);
+assert.match(programGraphBuilderOpsView, /let total: u32 = first \+ y/);
+assert.match(programGraphBuilderOpsView, /return total/);
+assert.equal(programGraphBuilderOpsCheck.ok, true);
+assert.equal(programGraphBuilderOpsCheck.graph.sourceProjectionState, "missing");
+assertRepositoryGraphNativeCheck(programGraphBuilderOpsCheck, "missing");
+assert.equal(programGraphBuilderOpsTest.ok, true);
+assert.equal(programGraphBuilderOpsTest.passedTests, 1);
+assert.equal(programGraphBuilderOpsRun.stdout, "graph value write ok\n");
+assert.equal(programGraphBuilderOpsSync.ok, true);
+assert.deepEqual(programGraphBuilderOpsSync.changedPaths, [`${programGraphBuilderOpsPackage}/src/main.0`]);
+assert.equal(programGraphBuilderOpsProjectionText, programGraphBuilderOpsView);
 assert.equal(programGraphAuthoringCliInit.ok, true);
 assert.equal(programGraphAuthoringCliInit.sourceProjection.materialized, false);
 assert.equal(programGraphAuthoringCliPatch.ok, true);

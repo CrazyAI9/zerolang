@@ -839,6 +839,7 @@ assert.match(graphHelp, /zero graph size \[--json\] \[--target <target>\] --out 
 assert.match(graphHelp, /zero graph patch \[--json\] \[--out <program-graph-artifact>\] \[<program-graph-or-source>\] \(<patch-file>\|--op <operation>\)/);
 assert.match(graphHelp, /Patch operation help: zero graph patch --op help/);
 assert.match(graphHelp, /setMainArgsAddCli fn="add_u32"/);
+assert.match(graphHelp, /addLetBinary fn="add" name="sum" type="i32" operator="\+"/);
 assert.match(graphHelp, /zero graph build \[--json\] \[--emit exe\|obj\|llvm-ir\].*<program-graph-or-package>/);
 assert.match(graphHelp, /zero graph run \[--target <host-target>\].*<program-graph-or-package> \[-- args\.\.\.\]/);
 assert.match(graphHelp, /zero graph test \[--json\] \[--filter <name>\] \[--target <target>\] <program-graph-or-package>/);
@@ -864,10 +865,14 @@ assert.match(rootHelp, /zero graph test \[--json\] \[--filter <name>\] \[--targe
 const graphPatchHelp = zero(["graph", "patch", "--op", "help"]).stdout;
 assert.match(graphPatchHelp, /program graph patch operations/);
 assert.match(graphPatchHelp, /setMainArgsAddCli fn="add_u32"/);
+assert.match(graphPatchHelp, /addLetLiteral fn="main" name="count" type="u32" value="0"/);
+assert.match(graphPatchHelp, /addReturnValue fn="identity" value="input" type="i32"/);
 const graphPatchHelpJson = json(["graph", "patch", "--op", "help", "--json"]).body;
 assert.equal(graphPatchHelpJson.ok, true);
 assert.equal(graphPatchHelpJson.command, "zero graph patch");
 assert.equal(graphPatchHelpJson.operations.includes("setMainArgsAddCli fn=\"add_u32\""), true);
+assert.equal(graphPatchHelpJson.operations.includes("addLetBinary fn=\"add\" name=\"sum\" type=\"i32\" operator=\"+\" left=\"left\" right=\"right\""), true);
+assert.equal(graphPatchHelpJson.operations.includes("addCheckWriteValue fn=\"main\" value=\"message\" type=\"String\""), true);
 
 const graphDump = zero(["graph", "dump", "examples/hello.0"]).stdout;
 const graphDumpAgain = zero(["graph", "dump", "examples/hello.0"]).stdout;
@@ -2409,6 +2414,8 @@ assert.equal(checkedInGraphQueryJson.ok, true);
 assert.equal(checkedInGraphQueryJson.inputKind, "repository-graph");
 assert.equal(checkedInGraphQueryJson.functions.some((fun) => fun.name === "main" && fun.public === true), true);
 assert.equal(checkedInGraphQueryJson.patchOperations.includes("setMainArgsAddCli fn=\"add_u32\""), true);
+assert.equal(checkedInGraphQueryJson.patchOperations.includes("addLetLiteral fn=\"main\" name=\"count\" type=\"u32\" value=\"0\""), true);
+assert.equal(checkedInGraphQueryJson.patchOperations.includes("addReturnValue fn=\"identity\" value=\"input\" type=\"i32\""), true);
 const checkedInGraphCallsJson = json(["graph", "query", "--json", "--fn", "main", "--calls", "write", checkedInGraphPackageDir]).body;
 assert.equal(checkedInGraphCallsJson.ok, true);
 assert.equal(checkedInGraphCallsJson.query.function, "main");

@@ -84,6 +84,16 @@ zero check .
 zero test .
 ```
 
+For multi-statement functions, compose graph builder operations instead of
+writing `.0` source by hand:
+
+```sh
+zero graph patch \
+  --op 'addLetLiteral fn="main" name="message" type="String" value="hello\n"' \
+  --op 'addCheckWriteValue fn="main" value="message" type="String"'
+zero check .
+```
+
 For a small argument-parsing CLI that adds two numbers, use the structured graph
 operation instead of hand-authoring node tables:
 

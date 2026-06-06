@@ -199,6 +199,19 @@ zero check .
 zero run .
 ```
 
+Agents can compose larger functions without writing node tables or `.0` source:
+
+```sh
+zero graph patch \
+  --op 'addFunction name="add_twice" ret="u32"' \
+  --op 'addParam fn="add_twice" name="x" type="u32"' \
+  --op 'addParam fn="add_twice" name="y" type="u32"' \
+  --op 'addLetBinary fn="add_twice" name="first" type="u32" operator="+" left="x" right="y"' \
+  --op 'addLetBinary fn="add_twice" name="total" type="u32" operator="+" left="first" right="y"' \
+  --op 'addReturnValue fn="add_twice" value="total" type="u32"'
+zero check .
+```
+
 It can also patch canonical `.0` source without comments; that path rewrites
 the source after lowering, formatting, re-parsing, and semantic graph
 comparison succeeds:
@@ -231,17 +244,18 @@ value differs.
 
 Supported operations are `set`, `insert`, `insertEdge`, `replace`, `delete`,
 `rename`, `addFunction`, `addMain`, `addParam`, `addReturnBinary`,
-`addCheckWrite`, `addTest`, and `setMainArgsAddCli`. `insert` creates a node and
-connects it to a parent node with an ordered node edge. `insertEdge` connects
-existing graph facts across `node`, `symbol`, `type`, or `effect` target
-domains. `replace` updates a node in place and can require the current node hash
-through `expect`. `delete` removes an owned subtree and rejects external
-references into that subtree. `rename` updates a node name with an optional
-current-name precondition. The `add*` operations create common function,
-parameter, return, output, and test structures without requiring an agent to
-hand-author graph node IDs. `setMainArgsAddCli` replaces `main` with a small
-hosted CLI that parses two `u32` arguments, calls the named add function, and
-writes the formatted sum.
+`addLetLiteral`, `addLetBinary`, `addReturnValue`, `addCheckWrite`,
+`addCheckWriteValue`, `addTest`, and `setMainArgsAddCli`. `insert` creates a
+node and connects it to a parent node with an ordered node edge. `insertEdge`
+connects existing graph facts across `node`, `symbol`, `type`, or `effect`
+target domains. `replace` updates a node in place and can require the current
+node hash through `expect`. `delete` removes an owned subtree and rejects
+external references into that subtree. `rename` updates a node name with an
+optional current-name precondition. The `add*` operations create common
+function, parameter, local value, return, output, and test structures without
+requiring an agent to hand-author graph node IDs. `setMainArgsAddCli` replaces
+`main` with a small hosted CLI that parses two `u32` arguments, calls the named
+add function, and writes the formatted sum.
 
 Run `zero graph patch --op help` to list supported operation shapes without
 loading or writing a graph.

@@ -12389,6 +12389,10 @@ static void print_graph_patch_help_json(void) {
     "addFunction name=\"add\" ret=\"i32\"",
     "addParam fn=\"add\" name=\"left\" type=\"i32\"",
     "addReturnBinary fn=\"add\" name=\"+\" left=\"left\" right=\"right\" type=\"i32\"",
+    "addLetLiteral fn=\"main\" name=\"count\" type=\"u32\" value=\"0\"",
+    "addLetBinary fn=\"add\" name=\"sum\" type=\"i32\" operator=\"+\" left=\"left\" right=\"right\"",
+    "addReturnValue fn=\"identity\" value=\"input\" type=\"i32\"",
+    "addCheckWriteValue fn=\"main\" value=\"message\" type=\"String\"",
     "addTest name=\"addition works\" call=\"add\" arg0=\"40\" arg1=\"2\" expect=\"42\" type=\"i32\"",
     "setMainArgsAddCli fn=\"add_u32\"",
     "set node=\"#id\" field=\"value\" expect=\"old\" value=\"new\"",
@@ -12412,6 +12416,10 @@ static void print_graph_patch_help_text(void) {
   printf("  addFunction name=\"add\" ret=\"i32\"\n");
   printf("  addParam fn=\"add\" name=\"left\" type=\"i32\"\n");
   printf("  addReturnBinary fn=\"add\" name=\"+\" left=\"left\" right=\"right\" type=\"i32\"\n");
+  printf("  addLetLiteral fn=\"main\" name=\"count\" type=\"u32\" value=\"0\"\n");
+  printf("  addLetBinary fn=\"add\" name=\"sum\" type=\"i32\" operator=\"+\" left=\"left\" right=\"right\"\n");
+  printf("  addReturnValue fn=\"identity\" value=\"input\" type=\"i32\"\n");
+  printf("  addCheckWriteValue fn=\"main\" value=\"message\" type=\"String\"\n");
   printf("  addTest name=\"addition works\" call=\"add\" arg0=\"40\" arg1=\"2\" expect=\"42\" type=\"i32\"\n");
   printf("  setMainArgsAddCli fn=\"add_u32\"\n");
   printf("  set node=\"#id\" field=\"value\" expect=\"old\" value=\"new\"\n");

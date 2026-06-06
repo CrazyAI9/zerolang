@@ -1,4 +1,5 @@
 #include "program_graph_patch.h"
+#include "program_graph_patch_builders.h"
 #include "type_core.h"
 
 #include <ctype.h>
@@ -1685,6 +1686,10 @@ bool z_program_graph_patch_apply_operation(ZProgramGraph *graph, ZProgramGraphPa
   if (patch_text_eq(op->op, "addMain")) return patch_apply_add_main(graph, result, op);
   if (patch_text_eq(op->op, "addParam")) return patch_apply_add_param(graph, result, op);
   if (patch_text_eq(op->op, "addReturnBinary")) return patch_apply_add_return_binary(graph, result, op);
+  if (patch_text_eq(op->op, "addLetLiteral")) return z_program_graph_patch_apply_add_let_literal(graph, result, op);
+  if (patch_text_eq(op->op, "addLetBinary")) return z_program_graph_patch_apply_add_let_binary(graph, result, op);
+  if (patch_text_eq(op->op, "addReturnValue")) return z_program_graph_patch_apply_add_return_value(graph, result, op);
+  if (patch_text_eq(op->op, "addCheckWriteValue")) return z_program_graph_patch_apply_add_check_write_value(graph, result, op);
   if (patch_text_eq(op->op, "addCheckWrite")) return patch_apply_add_check_write(graph, result, op);
   if (patch_text_eq(op->op, "addTest")) return patch_apply_add_test(graph, result, op);
   if (patch_text_eq(op->op, "setMainArgsAddCli")) return patch_apply_set_main_args_add_cli(graph, result, op);

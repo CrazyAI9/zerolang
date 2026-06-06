@@ -357,6 +357,7 @@ static bool patch_parse_structural_attrs(const char *line, const char *verb, ZPr
     else if (strcmp(key, "arg0") == 0) ok = patch_assign_attr(&op->arg0, value);
     else if (strcmp(key, "arg1") == 0) ok = patch_assign_attr(&op->arg1, value);
     else if (strcmp(key, "call") == 0) ok = patch_assign_attr(&op->call, value);
+    else if (strcmp(key, "operator") == 0) ok = patch_assign_attr(&op->call, value);
     else if (strcmp(key, "want") == 0) ok = patch_assign_attr(&op->value, value);
     else if (strcmp(key, "text") == 0) ok = patch_assign_attr(&op->value, value);
     else if (strcmp(key, "message") == 0) ok = patch_assign_attr(&op->value, value);
@@ -539,6 +540,58 @@ static bool patch_parse_add_return_binary(const char *line, int line_number, ZPr
   return true;
 }
 
+static bool patch_parse_add_let_literal(const char *line, int line_number, ZProgramGraphPatchResult *result) {
+  ZProgramGraphPatchOpResult *op = patch_push_operation(result);
+  op->line = line_number;
+  op->op = z_strdup("addLetLiteral");
+  if (!patch_parse_structural_attrs(line, "addLetLiteral", result, op)) return false;
+  if (!patch_reject_attrs(op, result, line, false, false, false, false, false, false, false, false, true, true)) return false;
+  if (!op->function || !op->name || !op->type || !op->value) {
+    patch_op_fail(result, op, "GPH001", "addLetLiteral operation is missing required attributes", "fn, name, type, and value", line);
+    return false;
+  }
+  return true;
+}
+
+static bool patch_parse_add_let_binary(const char *line, int line_number, ZProgramGraphPatchResult *result) {
+  ZProgramGraphPatchOpResult *op = patch_push_operation(result);
+  op->line = line_number;
+  op->op = z_strdup("addLetBinary");
+  if (!patch_parse_structural_attrs(line, "addLetBinary", result, op)) return false;
+  if (!patch_reject_attrs(op, result, line, false, false, false, false, false, false, false, false, true, true)) return false;
+  if (!op->function || !op->name || !op->type || !op->call || !op->left || !op->right) {
+    patch_op_fail(result, op, "GPH001", "addLetBinary operation is missing required attributes", "fn, name, type, operator, left, and right", line);
+    return false;
+  }
+  return true;
+}
+
+static bool patch_parse_add_return_value(const char *line, int line_number, ZProgramGraphPatchResult *result) {
+  ZProgramGraphPatchOpResult *op = patch_push_operation(result);
+  op->line = line_number;
+  op->op = z_strdup("addReturnValue");
+  if (!patch_parse_structural_attrs(line, "addReturnValue", result, op)) return false;
+  if (!patch_reject_attrs(op, result, line, false, false, false, false, false, false, false, false, true, true)) return false;
+  if (!op->function || !op->value) {
+    patch_op_fail(result, op, "GPH001", "addReturnValue operation is missing required attributes", "fn and value", line);
+    return false;
+  }
+  return true;
+}
+
+static bool patch_parse_add_check_write_value(const char *line, int line_number, ZProgramGraphPatchResult *result) {
+  ZProgramGraphPatchOpResult *op = patch_push_operation(result);
+  op->line = line_number;
+  op->op = z_strdup("addCheckWriteValue");
+  if (!patch_parse_structural_attrs(line, "addCheckWriteValue", result, op)) return false;
+  if (!patch_reject_attrs(op, result, line, false, false, false, false, false, false, false, false, true, true)) return false;
+  if (!op->function || !op->value) {
+    patch_op_fail(result, op, "GPH001", "addCheckWriteValue operation is missing required attributes", "fn and value", line);
+    return false;
+  }
+  return true;
+}
+
 static bool patch_parse_add_check_write(const char *line, int line_number, ZProgramGraphPatchResult *result) {
   ZProgramGraphPatchOpResult *op = patch_push_operation(result);
   op->line = line_number;
@@ -625,6 +678,14 @@ static bool patch_parse_text(char *text, ZProgramGraphPatchResult *result) {
       if (!patch_parse_add_param(trimmed, line_number, result)) return false;
     } else if (strncmp(trimmed, "addReturnBinary", strlen("addReturnBinary")) == 0 && isspace((unsigned char)trimmed[strlen("addReturnBinary")])) {
       if (!patch_parse_add_return_binary(trimmed, line_number, result)) return false;
+    } else if (strncmp(trimmed, "addLetLiteral", strlen("addLetLiteral")) == 0 && isspace((unsigned char)trimmed[strlen("addLetLiteral")])) {
+      if (!patch_parse_add_let_literal(trimmed, line_number, result)) return false;
+    } else if (strncmp(trimmed, "addLetBinary", strlen("addLetBinary")) == 0 && isspace((unsigned char)trimmed[strlen("addLetBinary")])) {
+      if (!patch_parse_add_let_binary(trimmed, line_number, result)) return false;
+    } else if (strncmp(trimmed, "addReturnValue", strlen("addReturnValue")) == 0 && isspace((unsigned char)trimmed[strlen("addReturnValue")])) {
+      if (!patch_parse_add_return_value(trimmed, line_number, result)) return false;
+    } else if (strncmp(trimmed, "addCheckWriteValue", strlen("addCheckWriteValue")) == 0 && isspace((unsigned char)trimmed[strlen("addCheckWriteValue")])) {
+      if (!patch_parse_add_check_write_value(trimmed, line_number, result)) return false;
     } else if (strncmp(trimmed, "addCheckWrite", strlen("addCheckWrite")) == 0 && isspace((unsigned char)trimmed[strlen("addCheckWrite")])) {
       if (!patch_parse_add_check_write(trimmed, line_number, result)) return false;
     } else if (strncmp(trimmed, "addTest", strlen("addTest")) == 0 && isspace((unsigned char)trimmed[strlen("addTest")])) {
@@ -634,7 +695,7 @@ static bool patch_parse_text(char *text, ZProgramGraphPatchResult *result) {
     } else if (strcmp(trimmed, "setMainArgsAddCli") == 0) {
       if (!patch_parse_set_main_args_add_cli(trimmed, line_number, result)) return false;
     } else {
-      patch_result_fail(result, "GPH001", "unknown program graph patch operation", "expect, set, insert, insertEdge, replace, delete, rename, addFunction, addMain, addParam, addReturnBinary, addCheckWrite, addTest, or setMainArgsAddCli", trimmed);
+      patch_result_fail(result, "GPH001", "unknown program graph patch operation", "expect, set, insert, insertEdge, replace, delete, rename, addFunction, addMain, addParam, addReturnBinary, addLetLiteral, addLetBinary, addReturnValue, addCheckWriteValue, addCheckWrite, addTest, or setMainArgsAddCli", trimmed);
       return false;
     }
   }
