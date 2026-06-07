@@ -3119,11 +3119,14 @@ assert.equal(graphCheckJson.graphHash, graphDumpJson.graphHash);
 assert.equal(graphCheckJson.check.ok, true);
 assert.equal(graphCheckJson.check.phase, "typecheck");
 assert.match(graphCheckJson.check.target, /^(darwin|linux|win32)-/);
-assert.equal(graphCheckJson.check.lowering, "direct-program-graph");
+assert.equal(graphCheckJson.check.lowering, "graph-native-check");
 assert.equal(graphCheckJson.check.sourcePath, null);
 assert.equal(graphCheckJson.targetReadiness.ok, true);
 assert.equal(graphCheckJson.targetReadiness.languageOk, true);
 assert.equal(graphCheckJson.targetReadiness.buildable, true);
+assert.equal(graphCheckJson.graphCompiler.graphNativeCheckerUsed, true);
+assert.equal(graphCheckJson.graphCompiler.graphHirToMirUsed, true);
+assert.equal(graphCheckJson.graphCompiler.input, "program-graph-artifact");
 assert.equal(graphCheckJson.safetyFacts.schemaVersion, 1);
 assert.equal(graphCheckJson.safetyFacts.bounds.runtimeTraps, true);
 assert.equal(graphCheckJson.safetyFacts.bounds.optimizerElision, false);
@@ -3869,9 +3872,11 @@ assert.equal(graphRenamePatchJson.ok, true);
 assert.equal(graphRenamePatchJson.operations[0].op, "rename");
 assert.equal(graphRenamePatchJson.operations[0].actual, "main");
 assert.match(zero(["view", graphRenamedPath]).stdout, /pub fn start\(world: World\) -> Void raises/);
-const graphRenamedCheck = json(["check", "--json", graphRenamedPath], { allowFailure: true });
-assert.notEqual(graphRenamedCheck.code, 0);
-assert.equal(graphRenamedCheck.body.diagnostics[0].message, "missing main function");
+const graphRenamedCheck = json(["check", "--json", graphRenamedPath]);
+assert.equal(graphRenamedCheck.body.ok, true);
+assert.equal(graphRenamedCheck.body.check.lowering, "graph-native-check");
+assert.equal(graphRenamedCheck.body.targetReadiness.ok, false);
+assert.equal(graphRenamedCheck.body.targetReadiness.diagnostics[0].message, "typed graph MIR requires at least one exported C ABI entry function");
 writeFileSync(graphPatchInvalidRenamePath, [
   "zero-program-graph-patch v1",
   `expect graphHash "${graphDumpJson.graphHash}"`,
@@ -3897,7 +3902,7 @@ assert.equal(graphUncheckedInline.body.ok, false);
 assert.equal(graphUncheckedInline.body.canonicalSource, false);
 assert.equal(graphUncheckedInline.body.check.ok, false);
 assert.equal(graphUncheckedInline.body.check.phase, "typecheck");
-assert.equal(graphUncheckedInline.body.check.lowering, "direct-program-graph");
+assert.equal(graphUncheckedInline.body.check.lowering, "graph-native-check");
 assert.equal(graphUncheckedInline.body.check.sourcePath, null);
 assert.equal(graphUncheckedInline.body.targetReadiness, null);
 assert.equal(graphUncheckedInline.body.saved, null);
@@ -4060,7 +4065,7 @@ const graphReservedParam = json(["check", "--json", graphReservedParamPath], { a
 assert.notEqual(graphReservedParam.code, 0);
 assert.equal(graphReservedParam.body.ok, false);
 assert.equal(graphReservedParam.body.check.phase, "lower");
-assert.equal(graphReservedParam.body.check.lowering, "direct-program-graph");
+assert.equal(graphReservedParam.body.check.lowering, "graph-native-check");
 assert.equal(graphReservedParam.body.diagnostics[0].message, "program graph parameter name is not valid Zero identifier syntax");
 writeFileSync(graphPatchInternalFunctionPath, [
   "zero-program-graph-patch v1",
@@ -4073,7 +4078,7 @@ const graphInternalFunction = json(["check", "--json", graphInternalFunctionPath
 assert.notEqual(graphInternalFunction.code, 0);
 assert.equal(graphInternalFunction.body.ok, false);
 assert.equal(graphInternalFunction.body.check.phase, "lower");
-assert.equal(graphInternalFunction.body.check.lowering, "direct-program-graph");
+assert.equal(graphInternalFunction.body.check.lowering, "graph-native-check");
 assert.equal(graphInternalFunction.body.diagnostics[0].message, "program graph declaration uses a reserved compiler-internal symbol name");
 assert.equal(zero(["dump", "--out", graphPackageDumpPath, "examples/systems-package"]).stdout, "");
 assert.equal(zero(["view", "--out", graphPackageViewPath, "examples/systems-package"]).stdout, "");
@@ -4126,7 +4131,7 @@ const graphInvalidImportName = json(["check", "--json", graphInvalidImportNamePa
 assert.notEqual(graphInvalidImportName.code, 0);
 assert.equal(graphInvalidImportName.body.ok, false);
 assert.equal(graphInvalidImportName.body.check.phase, "lower");
-assert.equal(graphInvalidImportName.body.check.lowering, "direct-program-graph");
+assert.equal(graphInvalidImportName.body.check.lowering, "graph-native-check");
 assert.equal(graphInvalidImportName.body.diagnostics[0].message, "program graph import module is not valid Zero import syntax");
 writeFileSync(graphPatchMissingImportPath, [
   "zero-program-graph-patch v1",
@@ -4139,7 +4144,7 @@ const graphMissingImport = json(["check", "--json", graphMissingImportPath], { a
 assert.notEqual(graphMissingImport.code, 0);
 assert.equal(graphMissingImport.body.ok, false);
 assert.equal(graphMissingImport.body.check.phase, "lower");
-assert.equal(graphMissingImport.body.check.lowering, "direct-program-graph");
+assert.equal(graphMissingImport.body.check.lowering, "graph-native-check");
 assert.equal(graphMissingImport.body.diagnostics[0].message, "program graph import target module is missing");
 writeFileSync(graphPatchBadHashPath, [
   "zero-program-graph-patch v1",

@@ -10,6 +10,7 @@
 #include "program_graph_build.h"
 #include "program_graph_command.h"
 #include "program_graph_compare.h"
+#include "program_graph_contracts.h"
 #include "program_graph_format.h"
 #include "program_graph_import.h"
 #include "program_graph_lower.h"
@@ -2470,6 +2471,7 @@ static void append_self_host_routing_json(ZBuf *buf, const char *command_name, c
 static void append_target_capability_facts_json(ZBuf *buf, const ZTargetInfo *target, const CapabilitySummary *caps);
 static void append_target_readiness_json(ZBuf *buf, SourceInput *input, const Program *program, const ZTargetInfo *target, const Command *command);
 static void append_target_readiness_from_ir_json(ZBuf *buf, SourceInput *input, const Program *program, const ZTargetInfo *target, const Command *command, const IrProgram *ir);
+static bool repository_graph_target_readiness_select_diag(const Command *command, const SourceInput *input, const ZTargetInfo *target, const IrProgram *ir, ZDiag *diag);
 static const char *emit_kind_name(EmitKind emit);
 static void append_backend_blocker_json(ZBuf *buf, const ZBackendBlocker *blocker);
 static void complete_backend_blocker_diag(ZDiag *diag, const ZTargetInfo *target, const Command *command, const char *emit_kind, const char *stage);
@@ -2796,7 +2798,7 @@ static void print_check_json_success(const char *path, SourceInput *input, const
   zbuf_append(&buf, "\n  },\n  \"compileTime\": ");
   append_compile_time_json(&buf, program, input, target);
   zbuf_append(&buf, ",\n  \"targetReadiness\": ");
-  if (prepared_ir && prepared_ir->mir_bytes > 0) append_target_readiness_from_ir_json(&buf, input, program, target, command, prepared_ir);
+  if (prepared_ir && command && z_program_graph_artifact_source_present(&command->graph_source)) append_target_readiness_from_ir_json(&buf, input, program, target, command, prepared_ir);
   else append_target_readiness_json(&buf, input, program, target, command);
   zbuf_append(&buf, ",\n  \"safetyFacts\": ");
   append_safety_facts_json(&buf, profile);
@@ -10920,7 +10922,7 @@ static void append_target_readiness_from_ir_json(ZBuf *buf, SourceInput *input, 
     } else if (!ir->mir_valid) {
       init_lowering_backend_diag(&diag, input, target, command, ir);
       ready = false;
-    } else if (!target_readiness_select_diag(command, input, program, target, ir, &diag)) {
+    } else if (!repository_graph_target_readiness_select_diag(command, input, target, ir, &diag)) {
       ready = false;
     }
   }
@@ -12112,17 +12114,7 @@ static bool validate_repository_graph_patch_output(const Command *command, const
   return ok;
 }
 
-static void append_graph_check_json(
-  ZBuf *buf,
-  const Command *command,
-  const ZTargetInfo *target,
-  const ZProgramGraph *graph,
-  SourceInput *source,
-  const Program *program,
-  bool ok,
-  const ZDiag *diag,
-  const char *phase
-) {
+static void append_graph_check_json(ZBuf *buf, const Command *command, const ZTargetInfo *target, const ZProgramGraph *graph, bool ok, const ZDiag *diag, const char *phase, const char *target_readiness_json, long long lower_ms, bool graph_mir_used) {
   zbuf_append(buf, "{\n  \"schemaVersion\": 1,\n  \"ok\": ");
   zbuf_append(buf, ok ? "true" : "false");
   zbuf_append(buf, ",\n  \"artifact\": ");
@@ -12135,23 +12127,18 @@ static void append_graph_check_json(
   zbuf_append(buf, ok ? "true" : "false");
   zbuf_append(buf, ", \"phase\": ");
   append_json_string(buf, phase ? phase : (ok ? "typecheck" : "unknown"));
-  zbuf_append(buf, ", \"target\": ");
-  append_json_string(buf, target && target->name ? target->name : "unknown");
-  zbuf_append(buf, ", \"lowering\": \"direct-program-graph\"");
-  zbuf_append(buf, ", \"sourcePath\": null");
+  zbuf_append(buf, ", \"target\": "); append_json_string(buf, target && target->name ? target->name : "unknown");
+  zbuf_append(buf, ", \"lowering\": \"graph-native-check\", \"sourcePath\": null");
   zbuf_append(buf, "},\n  \"targetReadiness\": ");
-  bool include_readiness = source && program && ok;
-  if (include_readiness) append_target_readiness_json(buf, source, program, target, command);
-  else zbuf_append(buf, "null");
+  zbuf_append(buf, target_readiness_json ? target_readiness_json : "null");
+  zbuf_append(buf, ",\n  \"graphCompiler\": {\"schemaVersion\":1,\"input\":\"program-graph-artifact\",\"graphNativeCheckerUsed\":true,\"graphHirToMirUsed\":");
+  zbuf_append(buf, graph_mir_used ? "true" : "false"); zbuf_appendf(buf, ",\"timings\":{\"lowerMs\":%lld},\"semanticFacts\":", lower_ms);
+  z_program_graph_append_semantics_json(buf, graph); zbuf_append(buf, "}");
   zbuf_append(buf, ",\n  \"safetyFacts\": ");
   append_safety_facts_json(buf, command && command->profile ? command->profile : "release");
   zbuf_append(buf, ",\n  \"diagnostics\": [");
   if (!ok && diag) append_fix_plan_diagnostic(buf, diag->path ? diag->path : graph_check_diagnostic_path(command), diag);
-  zbuf_append(buf, "],\n  \"saved\": ");
-  append_graph_saved_json(buf, NULL);
-  zbuf_append(buf, ",\n  \"view\": ");
-  zbuf_append(buf, "null");
-  zbuf_append(buf, "\n}\n");
+  zbuf_append(buf, "],\n  \"saved\": "); append_graph_saved_json(buf, NULL); zbuf_append(buf, ",\n  \"view\": null\n}\n");
 }
 
 static void append_graph_patch_diagnostic_json(ZBuf *buf, const ZProgramGraphPatchResult *result) {
@@ -12930,46 +12917,68 @@ static const char *graph_check_phase_name(GraphCheckPhase phase) {
   return "unknown";
 }
 
+static bool append_graph_artifact_target_readiness_json(ZBuf *buf, SourceInput *input, const ZProgramGraph *graph, const ZTargetInfo *target, const Command *command, ZDiag *diag, long long *lower_ms_out, bool *graph_mir_used_out) {
+  if (lower_ms_out) *lower_ms_out = 0;
+  if (graph_mir_used_out) *graph_mir_used_out = false;
+  ZDiag readiness_diag = {0};
+  long long phase_started = now_ms();
+  IrProgram ir = z_lower_program_graph_with_source(graph, input, target);
+  long long lower_ms = now_ms() - phase_started;
+  if (lower_ms_out) *lower_ms_out = lower_ms;
+  if (graph_mir_used_out) *graph_mir_used_out = true;
+  if (input) input->lower_ms = lower_ms;
+  apply_ir_metrics_to_input(input, &ir, target);
+  bool ready = true;
+  if (!validate_c_libraries_for_target(input, target, command, &readiness_diag)) ready = false;
+  if (ready && !target_readiness_select_emit_target(command, input, target, &readiness_diag)) ready = false;
+  if (ready && !ir.mir_valid) { init_lowering_backend_diag(&readiness_diag, input, target, command, &ir); ready = false; }
+  if (ready && !repository_graph_target_readiness_select_diag(command, input, target, &ir, &readiness_diag)) ready = false;
+  if (!ready && diag) *diag = readiness_diag;
+  append_target_readiness_result_json(buf, input, NULL, target, command, &ir, &readiness_diag, ready);
+  z_free_ir_program(&ir); return ready;
+}
+
 static int run_graph_check_command(const Command *command, const ZTargetInfo *target, ZDiag *diag) {
   if (command->out) {
     return reject_graph_unsupported_out(command, diag);
   }
 
-  SourceInput source_input = {0};
-  Program source_program = {0};
   ZProgramGraph graph = {0};
-  GraphInputKind input_kind = GRAPH_INPUT_ARTIFACT;
-  if (!load_graph_input_for_read(command, target, &source_input, &source_program, &graph, &input_kind, diag)) {
+  if (!z_program_graph_load(command->input, &graph, diag)) {
     print_command_diag(command, diag->path ? diag->path : command->input, diag);
     return 1;
   }
 
   SourceInput checked_input = {0};
-  Program checked_program = {0};
   GraphCheckPhase phase = GRAPH_CHECK_PHASE_TYPECHECK;
-  bool ok = z_program_graph_lower_to_program_with_source(&graph, command->input, &checked_program, &checked_input, diag);
-  if (ok) {
-    z_set_check_target(target);
-    ok = z_check_program(&checked_program, diag);
-  } else {
-    phase = GRAPH_CHECK_PHASE_LOWER;
-  }
-  if (ok && !validate_target_capabilities(&checked_program, target, diag, command->input)) {
+  z_program_graph_seed_source_metadata(&checked_input, &graph);
+  z_program_graph_seed_artifact_source_paths(&checked_input, &graph, command->input);
+  ZProgramGraphResolutionFacts resolution;
+  z_program_graph_resolution_facts_init(&resolution);
+  bool ok = z_program_graph_name_contracts_ok(&graph, command->input, diag);
+  if (!ok) phase = GRAPH_CHECK_PHASE_LOWER;
+  if (ok) ok = z_program_graph_collect_resolution_facts(&graph, &resolution);
+  if (ok) ok = graph_check_resolution_ok(&graph, &resolution, command->input, diag);
+  if (ok) ok = z_program_graph_semantic_contracts_ok(&graph, &resolution, command->input, diag);
+  if (ok && !graph_check_target_capabilities_ok(&graph, &resolution, target, diag)) {
     phase = GRAPH_CHECK_PHASE_TARGET_READINESS;
     ok = false;
   }
+  ZBuf target_readiness;
+  zbuf_init(&target_readiness);
+  long long lower_ms = 0;
+  bool graph_mir_used = false;
+  ZDiag readiness_diag = {0};
+  if (ok) (void)append_graph_artifact_target_readiness_json(&target_readiness, &checked_input, &graph, target, command, &readiness_diag, &lower_ms, &graph_mir_used);
   if (!ok) {
-    if (phase == GRAPH_CHECK_PHASE_TYPECHECK || phase == GRAPH_CHECK_PHASE_TARGET_READINESS) {
-      graph_check_map_diag_path(command, &checked_input, diag);
-    } else if (!diag->path) {
-      diag->path = command->input;
-    }
+    if (phase == GRAPH_CHECK_PHASE_TYPECHECK || phase == GRAPH_CHECK_PHASE_TARGET_READINESS) graph_check_map_diag_path(command, &checked_input, diag);
+    else if (!diag->path) diag->path = command->input;
   }
 
   if (command->json) {
     ZBuf json;
     zbuf_init(&json);
-    append_graph_check_json(&json, command, target, &graph, &checked_input, &checked_program, ok, ok ? NULL : diag, graph_check_phase_name(phase));
+    append_graph_check_json(&json, command, target, &graph, ok, ok ? NULL : diag, graph_check_phase_name(phase), target_readiness.len > 0 ? target_readiness.data : NULL, lower_ms, graph_mir_used);
     fputs(json.data, stdout);
     zbuf_free(&json);
   } else if (ok) {
@@ -12978,12 +12987,10 @@ static int run_graph_check_command(const Command *command, const ZTargetInfo *ta
     print_diag(diag->path ? diag->path : command->input, diag);
   }
 
-  z_free_program(&checked_program);
+  zbuf_free(&target_readiness);
+  z_program_graph_resolution_facts_free(&resolution);
   z_free_source(&checked_input);
-  z_free_program(&source_program);
-  z_free_source(&source_input);
   z_program_graph_free(&graph);
-  (void)input_kind;
   return ok ? 0 : 1;
 }
 

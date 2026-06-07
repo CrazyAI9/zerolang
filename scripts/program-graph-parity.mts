@@ -363,7 +363,9 @@ async function assertCheckParity(fixture) {
   assert.equal(source.graph?.canonicalSource, true, `${fixture}: source check should report canonical source graph input`);
   assert.equal(graph.canonicalSource, false, `${fixture}: graph artifact check should report artifact input`);
   assert.equal(graph.check.phase, "typecheck", `${fixture}: graph artifact check phase`);
-  assert.equal(graph.check.lowering, "direct-program-graph", `${fixture}: graph artifact lowering`);
+  assert.equal(graph.check.lowering, "graph-native-check", `${fixture}: graph artifact lowering`);
+  assert.equal(graph.graphCompiler?.graphNativeCheckerUsed, true, `${fixture}: graph artifact native checker`);
+  assert.equal(graph.graphCompiler?.graphHirToMirUsed, true, `${fixture}: graph artifact HIR-to-MIR readiness`);
   assert.equal(graph.check.ok, source.ok, `${fixture}: source and graph typecheck should agree`);
   assert.equal(graph.check.target, source.targetReadiness?.target ?? graph.check.target, `${fixture}: target should agree`);
   assert.deepEqual(targetReadinessSummary(graph.targetReadiness), targetReadinessSummary(source.targetReadiness), `${fixture}: target readiness should agree`);
@@ -375,7 +377,8 @@ async function assertCheckFailureParity(fixture) {
   const graph = await zeroJsonFailure(["check", "--json", artifact]);
   assert.equal(graph.canonicalSource, false, `${fixture}: graph artifact check failure should report artifact input`);
   assert.equal(graph.check.phase, "typecheck", `${fixture}: graph artifact check failure phase`);
-  assert.equal(graph.check.lowering, "direct-program-graph", `${fixture}: graph artifact check failure lowering`);
+  assert.equal(graph.check.lowering, "graph-native-check", `${fixture}: graph artifact check failure lowering`);
+  assert.equal(graph.graphCompiler?.graphNativeCheckerUsed, true, `${fixture}: graph artifact failure native checker`);
   assert.equal(graph.check.ok, false, `${fixture}: graph artifact check should fail`);
   const sourceDiag = source.diagnostics?.[0];
   const graphDiag = graph.diagnostics?.[0];
@@ -428,7 +431,9 @@ async function assertCommandStateContracts() {
   assert.equal(check.ok, true, "graph check should typecheck the artifact");
   assert.equal(check.canonicalSource, false, "graph check should report artifact input");
   assert.equal(check.check.phase, "typecheck", "graph check should promise typecheck state");
-  assert.equal(check.check.lowering, "direct-program-graph", "graph check should lower through ProgramGraph");
+  assert.equal(check.check.lowering, "graph-native-check", "graph check should use graph-native semantic checks");
+  assert.equal(check.graphCompiler.graphNativeCheckerUsed, true, "graph check should report graph-native checker use");
+  assert.equal(check.graphCompiler.graphHirToMirUsed, true, "graph check should report graph HIR-to-MIR readiness");
   assert.equal(check.targetReadiness.languageOk, true, "graph check should include language readiness");
 
   const size = await zeroJson(["size", "--json", "--target", "linux-musl-x64", artifact]);
