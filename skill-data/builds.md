@@ -94,10 +94,11 @@ MIR cache under
 version, target, emit kind, and backend request. On a miss, the compiler lowers
 the graph once, writes compact final MIR, memory-maps and verifies that cache,
 borrows stable string and readonly-data storage from the mapped file, then sends
-the verified MIR to codegen. On a warm standalone `.program-graph` build/run
-hit, the mapped final MIR is the immediate codegen input: the compiler skips
-graph-to-MIR lowering and checked Program reconstruction. Reporting commands
-such as `zero size` still reconstruct checked Program facts for their summaries.
+the verified MIR to codegen. On warm repository `zero.graph` build/run hits and
+warm standalone `.program-graph` build/run hits, the mapped final MIR is the
+immediate codegen input: the compiler skips graph-to-MIR lowering and checked
+Program reconstruction. Reporting commands such as `zero size` still
+reconstruct checked Program facts for their summaries.
 JSON outputs report graph `lowering: "mapped-final-mir"` when this path is used
 and include a `mappedFinalMir` compiler cache row with `path`, `hit`,
 `written`, `memoryMapped`, `borrowedStorage`, `byteLength`,
@@ -105,13 +106,10 @@ and include a `mappedFinalMir` compiler cache row with `path`, `hit`,
 artifact commands outside build/run/size use the mapped MIR path unless their
 JSON output reports it.
 
-Use normal build and run commands against `.program-graph` only when you
-intentionally need to validate a derived interchange artifact:
-
-```sh
-zero build --out .zero/out/app .zero/agent/app.program-graph
-zero run .zero/agent/app.program-graph
-```
+If another tool hands you a standalone `.program-graph`, normal `zero build`
+and `zero run` can validate it as an interchange artifact. Do not create a
+standalone graph artifact for the ordinary package loop; use the package path so
+the compiler reads `zero.graph` directly.
 
 ## Targets
 

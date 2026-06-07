@@ -2774,11 +2774,18 @@ assert(sourceFreeGraphPackageCheckJson.interfaceFingerprints.modules.some((modul
 const sourceFreeGraphPackageSizeJson = json(["size", "--json", "--target", "linux-musl-x64", sourceFreeGraphPackageRoot]).body;
 assertSourceGraph(sourceFreeGraphPackageSizeJson, sourceFreeGraphPackageStorePath, "package:source-free-graph-package@0.1.0", "mapped-final-mir", false, "missing");
 assertProgramGraphCompilerInput(sourceFreeGraphPackageSizeJson, sourceFreeGraphPackageStorePath);
+const sourceFreeGraphPackageSizeMir = sourceFreeGraphPackageSizeJson.compilerCaches.find((cache) => cache.name === "mappedFinalMir");
+assert.equal(sourceFreeGraphPackageSizeMir.codegenImmediate, false);
+assert.equal(sourceFreeGraphPackageSizeMir.programReconstructed, true);
 const sourceFreeGraphPackageBuildPath = join(outDir, "source-free-graph-package-build");
 const sourceFreeGraphPackageBuildJson = json(["build", "--json", "--target", "linux-musl-x64", "--out", sourceFreeGraphPackageBuildPath, sourceFreeGraphPackageRoot]).body;
 assert.equal(sourceFreeGraphPackageBuildJson.sourceFile, sourceFreeGraphPackageStorePath);
 assertSourceGraph(sourceFreeGraphPackageBuildJson, sourceFreeGraphPackageStorePath, "package:source-free-graph-package@0.1.0", "mapped-final-mir", false, "missing");
 assertProgramGraphCompilerInput(sourceFreeGraphPackageBuildJson, sourceFreeGraphPackageStorePath);
+const sourceFreeGraphPackageBuildMir = sourceFreeGraphPackageBuildJson.compilerCaches.find((cache) => cache.name === "mappedFinalMir");
+assert.equal(sourceFreeGraphPackageBuildMir.hit, true);
+assert.equal(sourceFreeGraphPackageBuildMir.codegenImmediate, true);
+assert.equal(sourceFreeGraphPackageBuildMir.programReconstructed, false);
 const sourceFreeGraphPackageRunPath = join(outDir, "source-free-graph-package-run");
 assert.equal(zero(["run", "--out", sourceFreeGraphPackageRunPath, sourceFreeGraphPackageRoot]).stdout, "package tests\n");
 const sourceFreeGraphPackageTestJson = json(["test", "--json", sourceFreeGraphPackageRoot]).body;
@@ -2882,10 +2889,17 @@ const checkedInGraphPackageSizeJson = json(["size", "--json", "--target", "linux
 assert.equal(checkedInGraphPackageSizeJson.sourceFile, checkedInRepositoryGraphStorePath);
 assertSourceGraph(checkedInGraphPackageSizeJson, checkedInRepositoryGraphStorePath, "package:program-graph-fixture@0.1.0", "mapped-final-mir", false);
 assertProgramGraphCompilerInput(checkedInGraphPackageSizeJson, checkedInRepositoryGraphStorePath);
+const checkedInGraphPackageSizeMir = checkedInGraphPackageSizeJson.compilerCaches.find((cache) => cache.name === "mappedFinalMir");
+assert.equal(checkedInGraphPackageSizeMir.codegenImmediate, false);
+assert.equal(checkedInGraphPackageSizeMir.programReconstructed, true);
 const checkedInGraphPackageBuildJson = json(["build", "--json", "--target", "linux-musl-x64", "--out", checkedInGraphBuildPath, checkedInGraphPackageDir]).body;
 assert.equal(checkedInGraphPackageBuildJson.sourceFile, checkedInRepositoryGraphStorePath);
 assertSourceGraph(checkedInGraphPackageBuildJson, checkedInRepositoryGraphStorePath, "package:program-graph-fixture@0.1.0", "mapped-final-mir", false);
 assertProgramGraphCompilerInput(checkedInGraphPackageBuildJson, checkedInRepositoryGraphStorePath);
+const checkedInGraphPackageBuildMir = checkedInGraphPackageBuildJson.compilerCaches.find((cache) => cache.name === "mappedFinalMir");
+assert.equal(checkedInGraphPackageBuildMir.hit, true);
+assert.equal(checkedInGraphPackageBuildMir.codegenImmediate, true);
+assert.equal(checkedInGraphPackageBuildMir.programReconstructed, false);
 assert.equal(checkedInGraphPackageBuildJson.artifactPath, checkedInGraphBuildPath);
 mkdirSync(graphRecordRoot, { recursive: true });
 writeFileSync(join(graphRecordRoot, "zero.json"), JSON.stringify({
@@ -2932,7 +2946,7 @@ assert.equal(graphRecordDirectLlvmIrJson.body.diagnostics[0].backendBlocker.unsu
 assert.equal(existsSync(graphRecordDirectLlvmIrPath), false);
 const graphRecordLlvmIrJson = json(["build", "--json", "--backend", "llvm", "--emit", "llvm-ir", "--target", "linux-musl-x64", "--out", graphRecordLlvmIrPath, graphRecordRoot], { allowFailure: true });
 assert.notEqual(graphRecordLlvmIrJson.code, 0);
-assert.equal(graphRecordLlvmIrJson.body.diagnostics[0].path, "main.0");
+assert.equal(graphRecordLlvmIrJson.body.diagnostics[0].path, join(graphRecordRoot, "zero.graph"));
 assert.equal(graphRecordLlvmIrJson.body.diagnostics[0].message, "LLVM IR backend local type is unsupported");
 assert.equal(graphRecordLlvmIrJson.body.diagnostics[0].backendBlocker.backend, "llvm");
 assert.equal(graphRecordLlvmIrJson.body.diagnostics[0].backendBlocker.stage, "lower");

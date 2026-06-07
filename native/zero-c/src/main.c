@@ -11053,6 +11053,7 @@ static bool append_repository_graph_target_readiness_json(ZBuf *buf, SourceInput
                                                                        target,
                                                                        emit_kind,
                                                                        command ? command->backend : NULL,
+                                                                       true,
                                                                        &readiness_program,
                                                                        &readiness_input,
                                                                        &ir,
@@ -13971,7 +13972,7 @@ int main(int argc, char **argv) {
       }
     }
     bool prepared_graph = command.repository_graph_input
-      ? z_program_graph_prepare_repository_store_mir_input(command.input, target, emit_kind_name(command.emit), command.backend, &program, &input, &graph_prepared_ir, &graph_source, &diag)
+      ? z_program_graph_prepare_repository_store_mir_input(command.input, target, emit_kind_name(command.emit), command.backend, !(strcmp(command.command, "build") == 0 || strcmp(command.command, "run") == 0), &program, &input, &graph_prepared_ir, &graph_source, &diag)
       : (graph_mir_command
           ? z_program_graph_prepare_artifact_mir_input(command.input, target, emit_kind_name(command.emit), command.backend, !(graph_build_command || graph_run_artifact_command), &program, &input, &graph_prepared_ir, &graph_source, &diag)
           : z_program_graph_prepare_artifact_input(command.input, target, &program, &input, &graph_source, &diag));

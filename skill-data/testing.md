@@ -55,13 +55,9 @@ zero test .
 zero test --filter addition .
 ```
 
-When an agent is explicitly validating a derived ProgramGraph artifact, use the
-normal test surface:
-
-```sh
-zero test .zero/agent/app.program-graph
-zero test --filter addition .zero/agent/app.program-graph
-```
+If another tool hands you a derived ProgramGraph artifact, `zero test` can
+validate it. Do not create a standalone graph artifact for the ordinary package
+test loop; test the package path so the compiler reads `zero.graph` directly.
 
 ## JSON Fields
 

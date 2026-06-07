@@ -48,24 +48,13 @@ zero sync --from-graph .zero/out/graph-hello
 zero inspect examples/systems-package
 zero query examples/hello.0
 zero dump examples/hello.0
-zero dump --out .zero/out/hello.program-graph examples/hello.0
-zero import --out .zero/out/hello.program-graph examples/hello.0
 zero inspect examples/hello.0
-zero validate .zero/out/hello.program-graph
 zero view examples/hello.0
-zero view --out .zero/out/hello.view.0 .zero/out/hello.program-graph
 zero source-map examples/hello.0
-zero reconcile .zero/out/hello.program-graph --source examples/hello.0
 zero status .
-zero check .zero/out/hello.program-graph
-zero size .zero/out/hello.program-graph
-zero build --emit obj --target linux-musl-x64 --out .zero/out/hello.o .zero/out/hello.program-graph
-zero run .zero/out/hello.program-graph
-zero test .zero/out/hello.program-graph
 zero patch examples/hello.0 --expect-graph-hash graph:a7f7e6899a73f3b4 --op 'set node="#expr_653eeb6e" field="value" expect="hello from zero\n" value="hello patched\n"'
 zero patch --op help
 zero roundtrip examples/hello.0
-zero roundtrip .zero/out/hello.program-graph
 zero size examples/point.0
 zero ship --target linux-musl-x64 examples/hello.0 --out .zero/ship/hello
 zero doctor
@@ -81,7 +70,18 @@ Pass program arguments after `--`:
 
 ```sh
 zero run examples/cli-file.0 -- input.txt
-zero run .zero/out/cli-file.program-graph -- input.txt
+```
+
+You usually do not need a `.program-graph` file to debug, inspect, diagnose,
+run, or test a graph-first program. Use `zero query`, `zero view`, `zero
+check`, `zero run`, and `zero test` directly on the package. Create a
+standalone `.program-graph` only when another tool needs a file to carry the
+graph outside the repository store:
+
+```sh
+zero dump --out .zero/out/hello.program-graph examples/hello.0
+zero check .zero/out/hello.program-graph
+zero view .zero/out/hello.program-graph
 ```
 
 ## JSON Output
@@ -133,10 +133,11 @@ Repository graph build/run/test/size/ship/mem commands and standalone
 compact final MIR, written under
 `.zero/cache/native/mir-*.zmir`, memory-mapped, verified against the compiler
 version, graph hash, target, emit kind, and backend request, then passed to
-codegen. For warm standalone `.program-graph` build/run commands, a mapped MIR
-hit is the immediate codegen input: the compiler skips graph-to-MIR lowering
-and checked Program reconstruction. Reporting commands such as `zero size`
-still reconstruct checked Program facts for their summaries. The
+codegen. For warm repository `zero.graph` build/run commands and warm
+standalone `.program-graph` build/run commands, a mapped MIR hit is the
+immediate codegen input: the compiler skips graph-to-MIR lowering and checked
+Program reconstruction. Reporting commands such as `zero size` still
+reconstruct checked Program facts for their summaries. The
 `compilerCaches` array includes a `mappedFinalMir` row with the cache path,
 byte length, whether the cache was reused or written by this command, whether
 codegen borrowed stable storage from the mapped file, and the

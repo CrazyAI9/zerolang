@@ -942,6 +942,7 @@ function budgetViolations(files, allLargeFunctions, stdlib, backendFormats, prog
     });
   }
   if (!programGraph.repositoryGraphMirPrepMappedFinalMir ||
+      !programGraph.repositoryGraphMirPrepImmediateCacheHit ||
       !programGraph.artifactGraphMirPrepMappedFinalMir ||
       !programGraph.artifactGraphMirPrepImmediateCacheHit ||
       !programGraph.repositoryGraphMirCacheFacts ||
@@ -1705,6 +1706,9 @@ const programGraph = {
     /z_lower_program_graph_with_source\s*\(/.test(repositoryGraphMirPrepBody) &&
     /source\s*->\s*lowering\s*=\s*"mapped-final-mir"/.test(repositoryGraphMirPrepRawBody) &&
     /ir_graph_set_mapped_mir_cache_facts\s*\(/.test(repositoryGraphMirPrepRawBody),
+  repositoryGraphMirPrepImmediateCacheHit: /require_checked_program/.test(repositoryGraphMirPrepRawBody) &&
+    /require_checked_program\s*&&\s*!ir_graph_lower_checked_program\s*\(/.test(repositoryGraphMirPrepRawBody) &&
+    /ir_graph_set_mapped_mir_cache_facts\s*\(\s*input,\s*&mir_cache,\s*true,\s*false,\s*!require_checked_program,\s*require_checked_program\s*\)/.test(repositoryGraphMirPrepRawBody),
   artifactGraphMirPrepMappedFinalMir: /z_mir_binary_load_path\s*\(/.test(artifactGraphMirPrepBody) &&
     /z_mir_binary_write_path\s*\(/.test(artifactGraphMirPrepBody) &&
     /z_lower_program_graph_with_source\s*\(/.test(artifactGraphMirPrepBody) &&
