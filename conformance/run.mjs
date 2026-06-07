@@ -4312,7 +4312,8 @@ assertProgramGraphCompilerInput(programGraphSourceFreeBuildJson, `${programGraph
 assert(programGraphSourceFreeMappedMirCacheFiles.some((path) => path.endsWith(".zmir")), "repository graph build should write a mapped MIR cache");
 assert.equal(programGraphSourceFreeRun.stdout, "hello from zero\n");
 assert.equal(programGraphSourceFreeTestJson.ok, true);
-assertSourceGraph(programGraphSourceFreeTestJson, `${programGraphSourceFreePackage}/zero.graph`, "package:program-graph-fixture@0.1.0", "mapped-final-mir", true, "missing");
+assertSourceGraph(programGraphSourceFreeTestJson, `${programGraphSourceFreePackage}/zero.graph`, "package:program-graph-fixture@0.1.0", "direct-program-graph", true, "missing");
+assert.equal(programGraphSourceFreeTestJson.testBackend, "direct-program-graph");
 assert.equal(programGraphSourceFreeTestJson.testDiscovery.mode, "package-graph");
 assert.equal(programGraphSourceFreeShipJson.ok, true);
 assertSourceGraph(programGraphSourceFreeShipJson, `${programGraphSourceFreePackage}/zero.graph`, "package:program-graph-fixture@0.1.0", "mapped-final-mir", true, "missing");

@@ -88,7 +88,6 @@ function testSummary(result) {
   return {
     ok: result.ok,
     target: result.target,
-    testBackend: result.testBackend,
     selectedTests: result.selectedTests,
     discoveredTests: result.discoveredTests,
     passedTests: result.passedTests,
@@ -936,6 +935,8 @@ async function assertTestParity(fixture, name) {
   assert.equal(graph.graph.artifact, artifact, `${fixture}: graph test artifact`);
   assert.equal(graph.graph.canonicalSource, false, `${fixture}: graph test should use artifact input`);
   assert.equal(graph.graph.lowering, "direct-program-graph", `${fixture}: graph test lowering`);
+  assert.equal(source.testBackend, "direct-frontend", `${fixture}: source test backend`);
+  assert.equal(graph.testBackend, "direct-program-graph", `${fixture}: graph test backend`);
   assert.deepEqual(testSummary(graph), testSummary(source), `${fixture}: source and graph test summaries should agree`);
 }
 

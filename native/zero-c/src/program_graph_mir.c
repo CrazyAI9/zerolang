@@ -4288,15 +4288,8 @@ bool z_program_graph_prepare_artifact_mir_input(const char *artifact_path, const
     }
     *ir = graph_ir;
   } else {
-    if (!ir_graph_lower_checked_program(&graph, artifact_path, target, program, input, diag)) {
-      z_free_ir_program(&graph_ir);
-      free(mir_cache_path);
-      z_program_graph_free(&graph);
-      return false;
-    }
     if (diag && diag->code == 0) ir_graph_init_lowering_diag(diag, input, target, NULL, NULL, &graph_ir, artifact_path);
     z_free_ir_program(&graph_ir);
-    if (input && input->source_file) z_map_source_diag(input, diag);
     if (diag && !diag->path) diag->path = input && input->source_file ? input->source_file : artifact_path;
     free(mir_cache_path);
     z_program_graph_free(&graph);
@@ -4377,15 +4370,8 @@ bool z_program_graph_prepare_repository_store_mir_input(const char *store_path, 
       return false;
     }
   } else {
-    if (!ir_graph_lower_checked_program(&store.graph, store_path, target, program, input, diag)) {
-      z_free_ir_program(&graph_ir);
-      free(mir_cache_path);
-      z_program_graph_store_free(&store);
-      return false;
-    }
     if (diag && diag->code == 0) ir_graph_init_lowering_diag(diag, input, target, emit_kind, requested_backend, &graph_ir, store_path);
     z_free_ir_program(&graph_ir);
-    if (input && input->source_file) z_map_source_diag(input, diag);
     if (diag && !diag->path) diag->path = input && input->source_file ? input->source_file : store_path;
     free(mir_cache_path);
     z_program_graph_store_free(&store);

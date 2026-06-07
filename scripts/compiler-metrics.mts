@@ -19,7 +19,7 @@ const fileBudgets = {
   "native/zero-c/include/zero_contracts.h": { maxLines: 20, maxStrcmpCalls: 0 },
   "native/zero-c/include/zero_runtime.h": { maxLines: 226, maxStrcmpCalls: 0 },
   "native/zero-c/src/checker.c": { maxLines: 11753, maxStrcmpCalls: 287 },
-  "native/zero-c/src/main.c": { maxLines: 14530, maxStrcmpCalls: 500 },
+  "native/zero-c/src/main.c": { maxLines: 14541, maxStrcmpCalls: 500 },
   "native/zero-c/src/ir.c": { maxLines: 5501, maxStrcmpCalls: 271 },
   "native/zero-c/src/llvm_backend_metadata.c": { maxLines: 80, maxStrcmpCalls: 0 },
   "native/zero-c/src/llvm_toolchain.c": { maxLines: 335, maxStrcmpCalls: 19 },
@@ -142,6 +142,10 @@ const fileBudgets = {
   "native/zero-c/src/program_graph_store_tables.c": { maxLines: 220, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_store_tables.h": { maxLines: 40, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_store.h": { maxLines: 49, maxStrcmpCalls: 0 },
+  "native/zero-c/src/program_graph_test.c": { maxLines: 700, maxStrcmpCalls: 0 },
+  "native/zero-c/src/program_graph_test_caps.c": { maxLines: 230, maxStrcmpCalls: 0 },
+  "native/zero-c/src/program_graph_test_caps.h": { maxLines: 10, maxStrcmpCalls: 0 },
+  "native/zero-c/src/program_graph_test.h": { maxLines: 20, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_resolve.c": { maxLines: 1404, maxStrcmpCalls: 1 },
   "native/zero-c/src/program_graph_resolve.h": { maxLines: 35, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_semantics.c": { maxLines: 1348, maxStrcmpCalls: 1 },
@@ -962,9 +966,20 @@ function budgetViolations(files, allLargeFunctions, stdlib, backendFormats, prog
       !programGraph.repositoryGraphMirCacheFacts ||
       !programGraph.repositoryGraphMirPrepSourceFreeFirst ||
       !programGraph.repositoryGraphMirPrepNoStdHelperBridge ||
-      !programGraph.repositoryGraphMirPrepReportsUnsupportedFacts) {
+      !programGraph.repositoryGraphMirPrepReportsUnsupportedFacts ||
+      !programGraph.repositoryGraphMirPrepNoInvalidMirProgramFallback ||
+      !programGraph.artifactGraphMirPrepNoInvalidMirProgramFallback) {
     violations.push({
       kind: "program-graph-repository-mir-prep",
+      programGraph,
+    });
+  }
+  if (!programGraph.graphTestNativeRunner ||
+      !programGraph.graphTestNoProgramLowering ||
+      !programGraph.graphTestSemanticContracts ||
+      !programGraph.graphTestRepositoryStoreInput) {
+    violations.push({
+      kind: "program-graph-native-test-runner",
       programGraph,
     });
   }
@@ -1277,6 +1292,8 @@ const programGraphStoreTablesRaw = texts.get("native/zero-c/src/program_graph_st
 const programGraphRepositoryRaw = texts.get("native/zero-c/src/program_graph_repository.c") ?? "";
 const programGraphRepositoryInputRaw = texts.get("native/zero-c/src/program_graph_repository_input.c") ?? "";
 const programGraphProjectionValidateRaw = texts.get("native/zero-c/src/program_graph_projection_validate.c") ?? "";
+const programGraphTestRaw = texts.get("native/zero-c/src/program_graph_test.c") ?? "";
+const programGraphTestSource = cCodeText(programGraphTestRaw);
 const programGraphStoreSource = cCodeText(programGraphStoreRaw);
 const programGraphStoreTablesSource = cCodeText(programGraphStoreTablesRaw);
 const programGraphRepositorySource = cCodeText(programGraphRepositoryRaw);
@@ -1723,6 +1740,16 @@ const programGraph = {
   artifactGraphCheckReportsGraphMirState: /graphNativeCheckerUsed/.test(artifactGraphCheckJsonRawBody) &&
     /graphHirToMirUsed/.test(artifactGraphCheckJsonRawBody) &&
     /z_lower_program_graph_with_source\s*\(/.test(artifactGraphReadinessBody),
+  graphTestNativeRunner: /z_program_graph_run_tests_direct\s*\(/.test(main) &&
+    /testBackend\\": \\"direct-program-graph/.test(programGraphTestRaw),
+  graphTestNoProgramLowering: !/z_program_graph_lower_to_program_with_source\s*\(/.test(programGraphTestSource) &&
+    !/ir_graph_lower_checked_program\s*\(/.test(programGraphTestSource) &&
+    !/z_check_program\s*\(/.test(programGraphTestSource),
+  graphTestSemanticContracts: /z_program_graph_collect_resolution_facts\s*\(/.test(programGraphTestSource) &&
+    /z_program_graph_semantic_contracts_ok\s*\(/.test(programGraphTestSource) &&
+    /pgt_target_capabilities_ok\s*\(/.test(programGraphTestSource),
+  graphTestRepositoryStoreInput: /z_program_graph_store_load_path\s*\(/.test(programGraphTestSource) &&
+    /sourceProjectionState/.test(programGraphTestRaw),
   repositoryGraphCheckDefaultReadiness: /defaultReadiness/.test(main) &&
     /compilerInputReady/.test(repositoryGraphDefaultReadinessRawBody) &&
     /sourceFreeCompile/.test(repositoryGraphDefaultReadinessRawBody) &&
@@ -1770,6 +1797,12 @@ const programGraph = {
     /source\s*->\s*lowering\s*=\s*"mapped-final-mir"/.test(repositoryGraphMirPrepRawBody),
   repositoryGraphMirPrepReportsUnsupportedFacts: /ir_graph_init_lowering_diag\s*\(/.test(repositoryGraphMirPrepBody) &&
     /graph_ir\.mir_valid/.test(repositoryGraphMirPrepBody),
+  repositoryGraphMirPrepNoInvalidMirProgramFallback:
+    (repositoryGraphMirPrepRawBody.match(/ir_graph_lower_checked_program\s*\(&store\.graph/g) ?? []).length === 2 &&
+    /else\s*\{\s*if\s*\(\s*diag\s*&&\s*diag->code\s*==\s*0\s*\)\s*ir_graph_init_lowering_diag/.test(repositoryGraphMirPrepRawBody),
+  artifactGraphMirPrepNoInvalidMirProgramFallback:
+    (artifactGraphMirPrepRawBody.match(/ir_graph_lower_checked_program\s*\(&graph/g) ?? []).length === 2 &&
+    /else\s*\{\s*if\s*\(\s*diag\s*&&\s*diag->code\s*==\s*0\s*\)\s*ir_graph_init_lowering_diag/.test(artifactGraphMirPrepRawBody),
   repositoryCompilerInputSourceFree: /z_repository_graph_verify_compiler_input\s*\(\s*command->input\s*,\s*target\s*,\s*command->json\s*,\s*&store_path\s*\)/.test(directManifestGraphInputBody) &&
     !/load_graph_from_checked_current_source\s*\(/.test(directManifestGraphInputBody) &&
     !/SourceInput\s+source_input/.test(directManifestGraphInputBody),

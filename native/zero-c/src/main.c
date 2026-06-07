@@ -30,6 +30,7 @@
 #include "program_graph_source_map.h"
 #include "program_graph_store.h"
 #include "program_graph_store_tables.h"
+#include "program_graph_test.h"
 #include "program_graph_view.h"
 #include "safety_contract.h"
 #include "std_sig.h"
@@ -54,7 +55,6 @@
 
 #include "embedded_runtime_sources.inc"
 #include "embedded_skills.inc"
-
 typedef enum {
   EMIT_C,
   EMIT_EXE,
@@ -13589,6 +13589,17 @@ static int reject_unknown_flag(const Command *command) {
   fprintf(stderr, "\n");
   return 1;
 }
+
+static int run_direct_graph_test_command(const Command *command, const ZTargetInfo *target, ZDiag *diag) {
+  if (command && command->emit == EMIT_LLVM_IR) {
+    if (z_backend_request_is_llvm(command->backend, emit_kind_name(command->emit))) init_llvm_ir_build_only_diag(diag, command, target, command->input);
+    else init_direct_llvm_ir_unavailable_diag(diag, command, target, command->input);
+    if (command->json) print_command_diag_json(command, diag->path ? diag->path : command->input, diag);
+    else print_diag(diag->path ? diag->path : command->input, diag);
+    return 1;
+  }
+  return z_program_graph_run_tests_direct(&(ZProgramGraphTestCommand){.input = command->input, .repository_source_input = command->repository_graph_source_input, .profile = command->profile, .filter = command->filter, .json = command->json, .repository_graph_input = command->repository_graph_input}, target, diag);
+}
 int main(int argc, char **argv) {
   if (argc >= 2 && (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "help") == 0)) {
     print_help();
@@ -13923,8 +13934,8 @@ int main(int argc, char **argv) {
     }
     return run_graph_check_command(&command, target, &diag);
   }
-  int direct_graph_manifest_rc = resolve_direct_command_manifest_graph_input(&command, target, &direct_graph_manifest_command);
-  if (direct_graph_manifest_rc != 0) return direct_graph_manifest_rc;
+  int direct_graph_manifest_rc = resolve_direct_command_manifest_graph_input(&command, target, &direct_graph_manifest_command); if (direct_graph_manifest_rc != 0) return direct_graph_manifest_rc;
+  if (strcmp(command.command, "test") == 0 && (direct_graph_manifest_command || path_has_program_graph_storage_header(command.input))) return run_direct_graph_test_command(&command, target, &diag);
 
   SourceInput input = {0};
   Program program = {0};
