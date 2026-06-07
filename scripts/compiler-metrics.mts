@@ -113,7 +113,7 @@ const fileBudgets = {
   "native/zero-c/src/program_graph_validate.c": { maxLines: 537, maxStrcmpCalls: 5 },
   "native/zero-c/src/program_graph_patch_builders.c": { maxLines: 375, maxStrcmpCalls: 1 },
   "native/zero-c/src/program_graph_patch_builders.h": { maxLines: 15, maxStrcmpCalls: 0 },
-  "native/zero-c/src/program_graph_patch_body.c": { maxLines: 650, maxStrcmpCalls: 20 },
+  "native/zero-c/src/program_graph_patch_body.c": { maxLines: 660, maxStrcmpCalls: 20 },
   "native/zero-c/src/program_graph_patch_body.h": { maxLines: 10, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_patch_examples.c": { maxLines: 35, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_patch_ops.c": { maxLines: 1740, maxStrcmpCalls: 13 },
@@ -977,7 +977,8 @@ function budgetViolations(files, allLargeFunctions, stdlib, backendFormats, prog
   if (!programGraph.graphTestNativeRunner ||
       !programGraph.graphTestNoProgramLowering ||
       !programGraph.graphTestSemanticContracts ||
-      !programGraph.graphTestRepositoryStoreInput) {
+      !programGraph.graphTestRepositoryStoreInput ||
+      !programGraph.graphTestMutableControlFlow) {
     violations.push({
       kind: "program-graph-native-test-runner",
       programGraph,
@@ -1750,6 +1751,9 @@ const programGraph = {
     /pgt_target_capabilities_ok\s*\(/.test(programGraphTestSource),
   graphTestRepositoryStoreInput: /z_program_graph_store_load_path\s*\(/.test(programGraphTestSource) &&
     /sourceProjectionState/.test(programGraphTestRaw),
+  graphTestMutableControlFlow: /Z_PROGRAM_GRAPH_NODE_ASSIGNMENT/.test(programGraphTestSource) &&
+    /Z_PROGRAM_GRAPH_NODE_WHILE/.test(programGraphTestSource) &&
+    /pgt_env_assign\s*\(/.test(programGraphTestSource),
   repositoryGraphCheckDefaultReadiness: /defaultReadiness/.test(main) &&
     /compilerInputReady/.test(repositoryGraphDefaultReadinessRawBody) &&
     /sourceFreeCompile/.test(repositoryGraphDefaultReadinessRawBody) &&

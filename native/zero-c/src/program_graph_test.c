@@ -193,6 +193,17 @@ static bool pgt_env_set(PgtEnv *env, const char *name, const PgtValue *value) {
   return true;
 }
 
+static bool pgt_env_assign(PgtEnv *env, const char *name, const PgtValue *value) {
+  if (!env || !name) return false;
+  for (size_t i = 0; i < env->len; i++) {
+    if (!pgt_eq(env->items[i].name, name)) continue;
+    pgt_value_free(&env->items[i].value);
+    env->items[i].value = pgt_value_copy(value);
+    return true;
+  }
+  return false;
+}
+
 static bool pgt_env_get(const PgtEnv *env, const char *name, PgtValue *out) {
   for (size_t i = 0; env && name && i < env->len; i++) {
     if (pgt_eq(env->items[i].name, name)) {
@@ -325,6 +336,14 @@ static bool pgt_eval_block(const ZProgramGraph *graph, PgtEnv *env, const ZProgr
       if (!pgt_eval_expr(graph, env, pgt_child(graph, stmt->id, "expr", 0), &value, failure)) return false;
       pgt_env_set(env, stmt->name, &value);
       pgt_value_free(&value);
+    } else if (stmt->kind == Z_PROGRAM_GRAPH_NODE_ASSIGNMENT) {
+      const ZProgramGraphNode *target = pgt_child(graph, stmt->id, "target", 0);
+      if (!target || target->kind != Z_PROGRAM_GRAPH_NODE_IDENTIFIER) { pgt_fail(failure, stmt, "zero graph test runner supports only local assignments"); return false; }
+      PgtValue value = {0};
+      bool ok = pgt_eval_expr(graph, env, pgt_child(graph, stmt->id, "expr", 0), &value, failure) &&
+                pgt_env_assign(env, target->name, &value);
+      pgt_value_free(&value);
+      if (!ok) { pgt_fail(failure, stmt, "zero graph test assignment target was not found"); return false; }
     } else if (stmt->kind == Z_PROGRAM_GRAPH_NODE_RETURN) {
       const ZProgramGraphNode *expr = pgt_child(graph, stmt->id, "expr", 0);
       if (expr && !pgt_eval_expr(graph, env, expr, ret, failure)) return false;
@@ -344,6 +363,17 @@ static bool pgt_eval_block(const ZProgramGraph *graph, PgtEnv *env, const ZProgr
       pgt_value_free(&condition);
       if (!pgt_eval_block(graph, env, pgt_child(graph, stmt->id, branch ? "then" : "else", branch ? 0 : 1), ret, returned, failure)) return false;
       if (*returned) return true;
+    } else if (stmt->kind == Z_PROGRAM_GRAPH_NODE_WHILE) {
+      for (size_t iterations = 0; iterations < 100000; iterations++) {
+        PgtValue condition = {0};
+        if (!pgt_eval_expr(graph, env, pgt_child(graph, stmt->id, "expr", 0), &condition, failure)) return false;
+        bool keep_going = pgt_truthy(&condition);
+        pgt_value_free(&condition);
+        if (!keep_going) break;
+        if (!pgt_eval_block(graph, env, pgt_child(graph, stmt->id, "then", 0), ret, returned, failure)) return false;
+        if (*returned) return true;
+        if (iterations == 99999) { pgt_fail(failure, stmt, "zero graph test while loop exceeded iteration limit"); return false; }
+      }
     } else {
       pgt_fail(failure, stmt, "zero graph test runner does not support this statement yet");
       return false;

@@ -3715,6 +3715,7 @@ const programGraphAuthoringRunPath = `${outDir}/program-graph-authoring-run`;
 const programGraphAuthoringRunAfterHumanEditPath = `${outDir}/program-graph-authoring-run-human-edit`;
 const programGraphBuilderOpsPackage = `${outDir}/program-graph-builder-ops`;
 const programGraphBuilderOpsRunPath = `${outDir}/program-graph-builder-ops-run`;
+const programGraphLoopTestPackage = `${outDir}/program-graph-loop-test`;
 const programGraphBlockBodyPackage = `${outDir}/program-graph-block-body`;
 const programGraphBlockBodyRunPath = `${outDir}/program-graph-block-body-run`;
 const programGraphAuthoringCliPackage = `${outDir}/program-graph-authoring-cli`;
@@ -3905,6 +3906,43 @@ const programGraphBuilderOpsTest = JSON.parse((await execFileAsync(zero, ["test"
 const programGraphBuilderOpsRun = await execFileAsync(zero, ["run", "--out", programGraphBuilderOpsRunPath, programGraphBuilderOpsPackage]);
 const programGraphBuilderOpsSync = JSON.parse((await execFileAsync(zero, ["sync", "--from-graph", "--json", programGraphBuilderOpsPackage])).stdout);
 const programGraphBuilderOpsProjectionText = await readFile(`${programGraphBuilderOpsPackage}/src/main.0`, "utf8");
+const programGraphLoopTestInit = JSON.parse((await execFileAsync(zero, ["init", "--json", programGraphLoopTestPackage])).stdout);
+const programGraphLoopTestPatch = JSON.parse((await execFileAsync(zero, [
+  "patch",
+  "--json",
+  "--op",
+  "addMain",
+  "--op",
+  "addFunction name=\"count_to\" ret=\"u32\"",
+  "--op",
+  "addParam fn=\"count_to\" name=\"n\" type=\"u32\"",
+  "--op",
+  "addParam fn=\"count_to\" name=\"start\" type=\"u32\"",
+  "--op",
+  "addReturnBinary fn=\"count_to\" name=\"+\" left=\"n\" right=\"start\" type=\"u32\"",
+], { cwd: programGraphLoopTestPackage })).stdout);
+const programGraphLoopTestBodyQuery = JSON.parse((await execFileAsync(zero, ["query", "--json", programGraphLoopTestPackage])).stdout);
+const programGraphLoopTestBodyPatchText = [
+  "zero-program-graph-patch v1",
+  `expect graphHash "${programGraphLoopTestBodyQuery.graphHash}"`,
+  "replaceFunctionBody count_to",
+  "  var i u32 = start",
+  "  while i < n",
+  "    i = i + 1",
+  "  return i",
+  "end",
+  "",
+].join("\n");
+const programGraphLoopTestBodyPatch = JSON.parse((await execFileAsync(zero, ["patch", "--json", programGraphLoopTestPackage, "--patch-text", programGraphLoopTestBodyPatchText])).stdout);
+const programGraphLoopTestAddTest = JSON.parse((await execFileAsync(zero, [
+  "patch",
+  "--json",
+  "--op",
+  "addTest name=\"graph while assignment\" call=\"count_to\" arg0=\"4\" arg1=\"0\" expect=\"4\" type=\"u32\"",
+], { cwd: programGraphLoopTestPackage })).stdout);
+const programGraphLoopTestCheck = JSON.parse((await execFileAsync(zero, ["check", "--json", programGraphLoopTestPackage])).stdout);
+const programGraphLoopTestRun = JSON.parse((await execFileAsync(zero, ["test", "--json", programGraphLoopTestPackage])).stdout);
+const programGraphLoopTestView = (await execFileAsync(zero, ["view", programGraphLoopTestPackage])).stdout;
 const programGraphBlockBodyInit = JSON.parse((await execFileAsync(zero, ["init", "--json", programGraphBlockBodyPackage])).stdout);
 const programGraphBlockBodyMainPatch = JSON.parse((await execFileAsync(zero, [
   "patch",
@@ -3935,7 +3973,7 @@ const programGraphBlockBodyPatchText = [
   "zero-program-graph-patch v1",
   `expect graphHash "${programGraphBlockBodyBlocks.graphHash}"`,
   `replaceBlockBody ${programGraphBlockBodyThen.id}`,
-  "  check world.out.write \"name: \"",
+  "  check world.out.write \"name + value: \"",
   "  check world.out.write name.value",
   "  check world.out.write \"\\n\"",
   "end",
@@ -4422,6 +4460,19 @@ assert.equal(programGraphBuilderOpsRun.stdout, "graph value write ok\n");
 assert.equal(programGraphBuilderOpsSync.ok, true);
 assert.deepEqual(programGraphBuilderOpsSync.changedPaths, [`${programGraphBuilderOpsPackage}/src/main.0`]);
 assert.equal(programGraphBuilderOpsProjectionText, programGraphBuilderOpsView);
+assert.equal(programGraphLoopTestInit.ok, true);
+assert.equal(programGraphLoopTestPatch.ok, true);
+assert.equal(programGraphLoopTestBodyPatch.ok, true);
+assert.equal(programGraphLoopTestBodyPatch.operations[0].op, "replaceFunctionBody");
+assert.equal(programGraphLoopTestAddTest.ok, true);
+assert.equal(programGraphLoopTestCheck.ok, true);
+assert.equal(programGraphLoopTestCheck.sourceFile, `${programGraphLoopTestPackage}/zero.graph`);
+assertRepositoryGraphNativeCheck(programGraphLoopTestCheck, "missing");
+assert.equal(programGraphLoopTestRun.ok, true);
+assert.equal(programGraphLoopTestRun.testBackend, "direct-program-graph");
+assert.equal(programGraphLoopTestRun.passedTests, 1);
+assert.match(programGraphLoopTestView, /while i < n \{/);
+assert.match(programGraphLoopTestView, /i = i \+ 1/);
 assert.equal(programGraphBlockBodyInit.ok, true);
 assert.equal(programGraphBlockBodyMainPatch.ok, true);
 assert.equal(programGraphBlockBodyMainPatch.operationCount, 1);
@@ -4437,12 +4488,12 @@ assert.equal(programGraphBlockBodyPatch.ok, true);
 assert.equal(programGraphBlockBodyPatch.operationCount, 1);
 assert.equal(programGraphBlockBodyPatch.operations[0].op, "replaceBlockBody");
 assert.match(programGraphBlockBodyView, /if name\.has \{/);
-assert.match(programGraphBlockBodyView, /check world\.out\.write\("name: "\)/);
+assert.match(programGraphBlockBodyView, /check world\.out\.write\("name \+ value: "\)/);
 assert.match(programGraphBlockBodyView, /check world\.out\.write\("hello anonymous\\n"\)/);
 assert.equal(programGraphBlockBodyCheck.ok, true);
 assert.equal(programGraphBlockBodyCheck.graph.sourceProjectionState, "missing");
 assertRepositoryGraphNativeCheck(programGraphBlockBodyCheck, "missing");
-assert.equal(programGraphBlockBodyRun.stdout, "name: Ada\n");
+assert.equal(programGraphBlockBodyRun.stdout, "name + value: Ada\n");
 assert.equal(programGraphAuthoringCliInit.ok, true);
 assert.equal(programGraphAuthoringCliInit.sourceProjection.materialized, false);
 assert.equal(programGraphAuthoringCliPatch.ok, true);
