@@ -4,6 +4,7 @@ import { ButtonLink } from "@/components/button";
 import { InstallCopy } from "@/components/install-copy";
 import { HomeChatViewport } from "@/components/home-chat-viewport";
 import { ChatToolRuns } from "@/components/home-chat-tools";
+import { LoopDiagram } from "@/components/loop-diagram";
 import { highlight } from "@/lib/highlight";
 import { pageMetadata } from "@/lib/page-metadata";
 
@@ -292,16 +293,13 @@ export default function HomePage() {
           </VisualGlow>
         </Section>
 
-        {/* 02 — Graph */}
+        {/* 02 — Loop */}
         <Section>
           <SectionHeader
-            title="The program database."
-            description="Readable text stays useful for review. The compiler-owned graph is the program database agents edit and the compiler consumes."
+            title="Tighter agent loop."
+            description="A traditional loop writes text, then runs tools to learn what the edit meant. Zerolang puts the compiler in the loop, so an edit is a checked change to the graph."
           />
-          <VisualGlow className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-            <CodeWindow title="zero query · graph" html={highlight(GRAPH_EXAMPLE, "zero-graph")} />
-            <CodeWindow title="src/main.0 · projection" html={CODE_EXAMPLE} />
-          </VisualGlow>
+          <LoopDiagram />
         </Section>
 
         {/* 03 — Patch */}
@@ -328,6 +326,18 @@ export default function HomePage() {
                 ))}
               </dl>
             </Panel>
+          </VisualGlow>
+        </Section>
+
+        {/* 04 — Graph */}
+        <Section>
+          <SectionHeader
+            title="The program database."
+            description="Readable text stays useful for review. The compiler-owned graph is the program database agents edit and the compiler consumes."
+          />
+          <VisualGlow className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+            <CodeWindow title="zero query · graph" html={highlight(GRAPH_EXAMPLE, "zero-graph")} />
+            <CodeWindow title="src/main.0 · projection" html={CODE_EXAMPLE} />
           </VisualGlow>
         </Section>
 
