@@ -38,7 +38,7 @@ zero init app
 zero init --format text app-debug
 zero import --format text <package>
 zero patch --format text <package> --op 'addMain'
-zero validate --format binary --out /tmp/app.graph <input>
+zero validate --format binary --out /tmp/app.graph <graph-input>
 ```
 
 Reads auto-detect text and binary `zero.graph` stores and binary graph

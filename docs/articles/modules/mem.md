@@ -91,7 +91,7 @@ Target support: current compiler targets.
 
 ## Reporting Contract
 
-`zero mem --json <input>` reports the allocator contract in machine-readable form:
+`zero mem --json <graph-input>` reports the allocator contract in machine-readable form:
 
 - `memoryBudgets`: stack, static, heap, arena, fixed-buffer, collection-capacity, allocator-capacity, requested-allocation, and linear-memory floor budgets.
 - `allocatorFacts`: `NullAlloc`, `FixedBufAlloc`, `Arena`, `PageAlloc`, and

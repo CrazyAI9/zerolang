@@ -168,12 +168,12 @@ artifact, validate it, and then apply the accepted change to the package graph
 store or `.graph` sidecar. Export `.0` separately when humans need to review the
 projection. Do not commit derived `.program-graph` files unless the user
 explicitly asks.
-9. Use `zero verify-projection <input>` when projection drift must fail the
+9. Use `zero verify-projection <project|zero.toml|zero.json|file.0>` when projection drift must fail the
 workflow. For package inputs, normal compiler commands validate and compile
 from `zero.graph`; they report projection state but do not rewrite projections.
 When combining repository graph stores, use
 `zero merge --base <base-zero.graph> --left <left-zero.graph> --right
-<right-zero.graph> <input>` and then refresh projections explicitly if the merge
+<right-zero.graph> <project|zero.toml|zero.json|file.0>` and then refresh projections explicitly if the merge
 succeeds.
 `zero.graph` is binary by default. Use `--format text` only when explicitly
 requesting a readable repository graph store; reads auto-detect either format,

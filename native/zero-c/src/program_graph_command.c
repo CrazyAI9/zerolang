@@ -42,7 +42,7 @@ static const ZProgramGraphCommandKind z_graph_command_kinds[] = {
     "zero inspect --out",
     "use zero dump or zero import with --out when you need a derived ProgramGraph artifact"
   ),
-  GRAPH_OUT("validate", Z_PROGRAM_GRAPH_INPUT_ARTIFACT),
+  GRAPH_OUT("validate", Z_PROGRAM_GRAPH_INPUT_SOURCE_OR_ARTIFACT),
   GRAPH_OUT("view", Z_PROGRAM_GRAPH_INPUT_SOURCE_OR_ARTIFACT),
   GRAPH_NO_OUT(
     "source-map",
@@ -72,7 +72,7 @@ static const ZProgramGraphCommandKind z_graph_command_kinds[] = {
     "test",
     Z_PROGRAM_GRAPH_INPUT_ARTIFACT,
     "zero test does not support --out",
-    "zero test [--json] [--filter <name>] [--target <target>] <program-graph-artifact>",
+    "zero test [--json] [--filter <name>] [--target <target>] <graph-input>",
     "zero test --out",
     "test results are reported on stdout; remove --out"
   ),
@@ -114,7 +114,7 @@ ZProgramGraphOutputContract z_program_graph_command_output_contract(const char *
   static const ZProgramGraphOutputContract fallback = {
     false,
     "output requires an output-capable graph command",
-    "zero dump|import|validate|roundtrip [--format text|binary] --out <program-graph-artifact> <input>",
+    "zero dump|validate|roundtrip [--format text|binary] --out <program-graph-artifact> <graph-input>",
     "zero --out",
     "use zero view --out <file.0> for canonical source, or choose a graph subcommand with command-specific output",
   };
@@ -124,20 +124,20 @@ ZProgramGraphOutputContract z_program_graph_command_output_contract(const char *
 }
 
 void z_program_graph_print_command_help(void) {
-  printf("Usage: zero init|query|view|status|verify-projection|import|export|dump|inspect|validate|source-map|reconcile|merge|roundtrip [--json] <input>\n\n");
+  printf("Usage: zero init <project-path>; zero query|view|dump|inspect|validate|source-map|roundtrip [--json] <graph-input>; zero status|verify-projection|import|export|merge [--json] <project|zero.toml|zero.json|file.0>\n\n");
   printf("Graph-first project usage: zero init [--json] <project-path>\n");
-  printf("Output usage: zero dump|import|validate|roundtrip [--json] [--format text|binary] --out <program-graph-artifact> <input>\n");
+  printf("Output usage: zero dump|validate|roundtrip [--json] [--format text|binary] --out <program-graph-artifact> <graph-input>; zero import [--json] [--format text|binary] --out <program-graph-artifact> <project|zero.toml|zero.json|file.0>\n");
   printf("View output usage: zero view [--json] [--out <file.0>] <graph-input>\n");
   printf("Source map usage: zero source-map [--json] <graph-input>\n");
   printf("Query usage: zero query [--json] [--fn <name>] [--find <text>] [--refs <name>] [--calls <name>] [--node <id>] <graph-input>\n");
   printf("Reconcile usage: zero reconcile [--json] <base-graph-input> --source <edited-file.0|project|zero.toml|zero.json>\n");
   printf("Repository projection usage: zero status|verify-projection [--json] <project|zero.toml|zero.json|file.0>; zero import [--json] [--format text|binary] <project|zero.toml|zero.json|file.0>; zero export [--json] <project|zero.toml|zero.json|file.0>; zero merge --base <base-zero.graph> --left <left-zero.graph> --right <right-zero.graph> [--json] <project|zero.toml|zero.json|file.0>\n");
-  printf("Size usage: zero size [--json] [--target <target>] [--out <artifact>] <program-graph-artifact>\n");
-  printf("Patch usage: zero patch [--json] [--check-only|--dry-run] [--format text|binary] [--out <program-graph-artifact>] [<input>] (<patch-file>|--op <operation>)\n");
+  printf("Size usage: zero size [--json] [--target <target>] [--out <artifact>] <graph-input>\n");
+  printf("Patch usage: zero patch [--json] [--check-only|--dry-run] [--format text|binary] [--out <program-graph-artifact>] [<graph-input>] (<patch-file>|--op <operation>)\n");
   printf("  In a graph-first package, zero patch --op <operation> defaults to the current directory.\nPatch operation help: zero patch --op help\n\n");
-  printf("Build usage: zero build [--json] [--emit exe|obj|llvm-ir] [--backend direct|llvm|<direct-emitter>] [--target <target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <program-graph-artifact>\n\n");
-  printf("Run usage: zero run [--target <host-target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <program-graph-artifact> [-- args...]\n\n");
-  printf("Test usage: zero test [--json] [--filter <name>] [--target <target>] <program-graph-artifact>\n\n");
+  printf("Build usage: zero build [--json] [--emit exe|obj|llvm-ir] [--backend direct|llvm|<direct-emitter>] [--target <target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <graph-input>\n\n");
+  printf("Run usage: zero run [--target <host-target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <graph-input> [-- args...]\n\n");
+  printf("Test usage: zero test [--json] [--filter <name>] [--target <target>] <graph-input>\n\n");
   printf("Inspect modules, symbols, capabilities, static metadata, stdlib helpers, or deterministic ProgramGraph inputs.\n\n");
   printf("Graph commands:\n");
   printf("  init      create a graph-first package with zero.graph as compiler input\n");

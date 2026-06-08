@@ -13,14 +13,14 @@ session needs exact spans, repair metadata, or machine-readable diagnostics.
 ## Commands
 
 ```sh
-zero check <input>
+zero check <graph-input>
 zero explain <diagnostic-code>
 ```
 
 Use machine-readable output when a tool needs exact fields:
 
 ```sh
-zero check --json <input>
+zero check --json <graph-input>
 zero explain --json <diagnostic-code>
 zero fix --plan --json <graph-input>
 ```

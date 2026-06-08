@@ -42,9 +42,9 @@ Use the CLI to inspect what a program actually retains:
 
 | Command | Shows |
 | --- | --- |
-| `zero inspect --json <input>` | Required capabilities and imported helpers. |
-| `zero size --json <input>` | Helper metadata and retained helper cost. |
-| `zero mem --json <input>` | `memoryBudgets`, `allocatorFacts`, `allocationInstrumentation`, and `collectionFacts`. |
+| `zero inspect --json <graph-input>` | Required capabilities and imported helpers. |
+| `zero size --json <graph-input>` | Helper metadata and retained helper cost. |
+| `zero mem --json <graph-input>` | `memoryBudgets`, `allocatorFacts`, `allocationInstrumentation`, and `collectionFacts`. |
 
 The `stdlibHelpers` and `usedStdlibHelpers` JSON entries include `module`,
 `effects`, `allocationBehavior`, `targetSupport`, `errorBehavior`,

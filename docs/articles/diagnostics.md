@@ -392,8 +392,8 @@ Related static-value diagnostics:
 
 ## Commands
 
-- `zero check <input>`: human-first plain text by default
-- `zero check --json <input>`: full diagnostic JSON
+- `zero check <graph-input>`: human-first plain text by default
+- `zero check --json <graph-input>`: full diagnostic JSON
 - `zero explain <code>`: human explanation for a diagnostic code
 - `zero explain <code> --json`: machine-readable explanation
 - `zero fix --plan --json <graph-input>`: proposed typed fixes without editing files

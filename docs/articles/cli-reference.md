@@ -205,7 +205,7 @@ rewrite `.0` files; run `zero verify-projection` when checked-in projection
 drift must fail the workflow. Packages without `zero.graph` are missing their
 compiler input.
 `zero merge --base <base-zero.graph> --left <left-zero.graph> --right
-<right-zero.graph> <input>` combines independent repository graph store edits by
+<right-zero.graph> <project|zero.toml|zero.json|file.0>` combines independent repository graph store edits by
 durable node ID and node hash, writes the target `zero.graph` on success, and
 reports conflicts by graph node, source projection, semantic object, and field.
 It does not rewrite `.0` projections; run `zero export` after a
@@ -350,10 +350,10 @@ valid ProgramGraph patch text.
 
 | Emit mode | Command |
 | --- | --- |
-| Native executable | `zero build --emit exe --target linux-musl-x64 <input>` |
-| Native object | `zero build --emit obj --target linux-musl-x64 <input>` |
-| LLVM IR | `zero build --emit llvm-ir --backend llvm --target linux-musl-x64 <input>` |
-| LLVM host executable | `zero build --backend llvm --emit exe --target host <input>` |
+| Native executable | `zero build --emit exe --target linux-musl-x64 <graph-input>` |
+| Native object | `zero build --emit obj --target linux-musl-x64 <graph-input>` |
+| LLVM IR | `zero build --emit llvm-ir --backend llvm --target linux-musl-x64 <graph-input>` |
+| LLVM host executable | `zero build --backend llvm --emit exe --target host <graph-input>` |
 
 Removed backend flags report `BLD003`. Use direct emitters; the removed C
 backend is not a compatibility path.
@@ -428,12 +428,12 @@ zero test [--json] [--filter <name>] [--target <target>] [--cc <path>] [--out <f
 zero fmt [--check] <source-input>
 zero init [--json] [--manifest toml|json] <project-path>
 zero query [--json] [--fn <name>] [--find <text>] [--refs <name>] [--calls <name>] [--node <id>] <graph-input>
-zero dump|import|validate|roundtrip [--json] [--format text|binary] [--out <program-graph-artifact>] <input>
+zero dump|validate|roundtrip [--json] [--format text|binary] [--out <program-graph-artifact>] <graph-input>
 zero view [--json] [--out <file.0>] <graph-input>
 zero source-map [--json] <graph-input>
 zero reconcile [--json] <base-graph-input> --source <edited-file.0|project|zero.toml|zero.json>
 zero status|verify-projection [--json] <project|zero.toml|zero.json|file.0>
-zero import [--json] [--format text|binary] <project|zero.toml|zero.json|file.0>
+zero import [--json] [--format text|binary] [--out <program-graph-artifact>] <project|zero.toml|zero.json|file.0>
 zero export [--json] <project|zero.toml|zero.json|file.0>
 zero merge --base <base-zero.graph> --left <left-zero.graph> --right <right-zero.graph> [--json] <project|zero.toml|zero.json|file.0>
 zero size [--json] [--target <target>] --out <artifact> <graph-input>
