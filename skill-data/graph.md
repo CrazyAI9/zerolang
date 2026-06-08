@@ -15,7 +15,7 @@ packages, `.0` files are the human-readable source projection, and
 - For packages, patch the package or active manifest (`zero.toml`
   takes precedence over `zero.json`); the patch writes
   `zero.graph` after validation. Normal `zero check`, `zero run`, `zero test`,
-  `zero build`, `zero size`, `zero ship`, and `zero mem` commands compile from
+  `zero build`, `zero size`, and `zero mem` commands compile from
   `zero.graph`.
 - Use `zero export [package]` only when the user asks to materialize or refresh
   `.0` projections for human review.
@@ -77,7 +77,7 @@ git config --global diff.zero-graph.textconv 'zero diff'
 ```
 
 `zero.graph` remains the authoring and repository compiler-input store.
-Repository graph build, run, test, size, ship, and mem commands, plus
+Repository graph build, run, test, size, and mem commands, plus
 standalone `.program-graph` build, run, and size commands, may additionally write
 `.zero/cache/native/mir-*.zmir`, a derived final-MIR cache. The compiler
 memory-maps and verifies that cache before codegen; stale caches are rejected
@@ -370,7 +370,7 @@ graph.
 
 For package inputs, normal compiler commands validate and compile from the graph
 store, including target and package metadata, so graph packages can still be
-checked, built, run, tested, sized, shipped, and inspected when `.0`
+checked, built, run, tested, sized, and inspected when `.0`
 projections are missing. Commands report whether the source projection is
 clean, missing, stale, conflicting, or unavailable, but do not rewrite `.0`
 files. Use `zero verify-projection` when projection drift must fail the

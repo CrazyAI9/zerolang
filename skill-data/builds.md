@@ -1,6 +1,6 @@
 ---
 name: builds
-description: Build, run, ship, target, and profile Zero programs.
+description: Build, run, target, and profile Zero programs.
 ---
 
 # Zero Builds
@@ -18,7 +18,7 @@ Most build commands accept one of these graph-backed inputs:
 When both manifests are present in the same package root, Zero uses
 `zero.toml`. Prefer one checked-in manifest unless testing precedence.
 
-For packages, normal check, build, run, test, size, ship, and mem commands
+For packages, normal check, build, run, test, size, and mem commands
 compile from the checked-in `zero.graph` store. Source projections may be
 clean, missing, stale, or in conflict; commands report that state and do not
 rewrite `.0` files. Use `zero verify-projection` when CI or review needs
@@ -43,6 +43,8 @@ Arguments after `--` are passed to the Zero program.
 
 ## Build
 
+Use `zero build` when the user asks for an artifact. It is the normal command
+for executables, object files, LLVM IR, cross-target artifacts, and CI outputs.
 Use direct emitters. The removed generated-C backend is not a fallback path.
 
 ```sh
@@ -53,11 +55,10 @@ zero build --emit obj examples/hello.graph --out .zero/out/hello.o
 ```
 
 Use LLVM only when the request is explicit. LLVM is experimental: it is not the
-default backend, not release eligible, and not accepted by `zero ship`. Textual
-IR is inspectable with `--emit llvm-ir`; host executable builds require a ready
-clang toolchain. LLVM currently lowers scalar code, direct calls, branches,
-loops, primitive fixed arrays, byte views, readonly strings, and primitive
-`std.mem` helpers:
+default backend and not release eligible. Textual IR is inspectable with
+`--emit llvm-ir`; host executable builds require a ready clang toolchain. LLVM
+currently lowers scalar code, direct calls, branches, loops, primitive fixed
+arrays, byte views, readonly strings, and primitive `std.mem` helpers:
 
 ```sh
 zero build --backend llvm --emit llvm-ir examples/hello.graph --out .zero/out/hello.ll
@@ -90,7 +91,7 @@ edits a projection, run `zero import` before the next graph-store compile.
 Normal build and run commands read binary `zero.graph` stores directly by
 default; `zero status` reports the active store format.
 
-Repository graph build/run/test/size/ship/mem commands and standalone
+Repository graph build/run/test/size/mem commands and standalone
 `.program-graph` build, run, and size artifact commands also maintain a final
 MIR cache under
 `.zero/cache/native/mir-*.zmir`. The cache is keyed by graph hash, compiler
@@ -137,17 +138,6 @@ zero size --profile tiny examples/hello.graph
 
 Use `zero size` to explain retained functions, sections, literals, runtime shims, imports, debug metadata, and optimization hints. Add `--json` when a tool needs exact fields.
 Use `zero size --backend llvm` when the question is specifically about the explicit LLVM backend; the report includes LLVM target triple, optimization level, retained runtime/helper facts, toolchain readiness, and direct-vs-LLVM comparison rows.
-
-## Ship
-
-`zero ship` produces a release preview:
-
-```sh
-zero ship --target linux-musl-x64 examples/hello.graph \
-  --out .zero/ship/hello
-```
-
-The preview includes artifact names, sizes, hashes, checksum file metadata, size report data, debug-symbol metadata, and target contract facts.
 
 ## Troubleshooting
 

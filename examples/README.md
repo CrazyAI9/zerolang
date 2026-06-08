@@ -130,7 +130,6 @@ Most examples are designed for `check`. To build and run an executable, use a CL
 ```sh
 bin/zero dev --json --target linux-musl-x64 examples/add.graph
 bin/zero build --emit exe --target linux-musl-x64 examples/add.graph --out .zero/out/add
-bin/zero ship --target linux-musl-x64 examples/add.graph --out .zero/ship/add
 ./.zero/out/add
 ```
 

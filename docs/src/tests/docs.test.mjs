@@ -155,14 +155,11 @@ describe("docs registry", () => {
     assert.match(await readDoc("cli-reference"), /zero dev --json --trace/);
     assert.match(await readDoc("cli-reference"), /interfaceFingerprints/);
     assert.match(await readDoc("cli-reference"), /document symbols/);
-    assert.match(await readDoc("cli-reference"), /zero ship --json/);
-    assert.match(await readDoc("cli-reference"), /release preview/);
     assert.match(await readDoc("cli-reference"), /releaseTargetContract/);
     assert.match(await readDoc("cli-reference"), /compileTime/);
     assert.match(await readDoc("cli-reference"), /integer\/Bool\/enum static values/);
     assert.match(await readDoc("cli-reference"), /repeat-build hash policy/);
-    assert.match(await readDoc("cli-reference"), /checksum file/);
-    assert.match(await readDoc("cli-reference"), /SBOM placeholder/);
+    assert.doesNotMatch(await readDoc("cli-reference"), /zero ship/);
     assert.match(await readDoc("cli-reference"), /zero test --json/);
     assert.match(await readDoc("cli-reference"), /Human projection to graph import/);
     assert.doesNotMatch(await readDoc("cli-reference"), /Source-to-ProgramGraph import/);

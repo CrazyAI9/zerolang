@@ -219,7 +219,6 @@ static bool create_cli_template(const char *root, const char *name, const char *
     "zero run\n"
     "zero dev --json\n"
     "zero build --target linux-musl-x64 --out .zero/out/app\n"
-    "zero ship --target linux-musl-x64 --out .zero/ship/app\n"
     "```\n\n"
     "The entry point receives `World` explicitly, so I/O is visible in the function signature. The generated output is deterministic and the manifest records the default release target.\n",
     diag)) return false;
@@ -290,7 +289,6 @@ static bool create_package_template(const char *root, const char *name, const ch
     "zero run\n"
     "zero dev --json\n"
     "zero build --target linux-musl-x64 --out .zero/out/app\n"
-    "zero ship --target linux-musl-x64 --out .zero/ship/app\n"
     "zero inspect --json\n"
     "```\n",
     diag)) return false;

@@ -110,7 +110,7 @@ function graphSidecarPath(sourcePath) {
   return `${sourcePath.slice(0, -2)}.graph`;
 }
 
-const compilerInputCommands = new Set(["check", "build", "run", "test", "size", "ship", "mem", "doc", "dev", "time", "fix"]);
+const compilerInputCommands = new Set(["check", "build", "run", "test", "size", "mem", "doc", "dev", "time", "fix"]);
 const compilerInputValueFlags = new Set(["--backend", "--emit", "--filter", "--out", "--profile", "--release", "--target"]);
 const abiInputSubcommands = new Set(["check", "dump"]);
 
@@ -3178,7 +3178,6 @@ const programGraphSourceFixtureRunPath = `${outDir}/program-graph-fixture-run`;
 const programGraphSourceFreePackage = `${outDir}/program-graph-source-free`;
 const programGraphSourceFreeBuildPath = `${outDir}/program-graph-source-free-build`;
 const programGraphSourceFreeRunPath = `${outDir}/program-graph-source-free-run`;
-const programGraphSourceFreeShipPath = `${outDir}/program-graph-source-free-ship`;
 const programGraphSourceFreeStdStrPackage = `${outDir}/program-graph-source-free-std-str`;
 const programGraphCrmApiBuildPath = `${outDir}/program-graph-crm-api-build`;
 const programGraphAuthoringPackage = `${outDir}/program-graph-authoring`;
@@ -3220,7 +3219,6 @@ await rm(programGraphSourceFixtureRunPath, { force: true });
 await rm(programGraphSourceFreePackage, { recursive: true, force: true });
 await rm(programGraphSourceFreeBuildPath, { force: true });
 await rm(programGraphSourceFreeRunPath, { force: true });
-await rm(programGraphSourceFreeShipPath, { recursive: true, force: true });
 await rm(programGraphSourceFreeStdStrPackage, { recursive: true, force: true });
 await rm(programGraphCrmApiBuildPath, { force: true });
 await rm(programGraphAuthoringPackage, { recursive: true, force: true });
@@ -3285,7 +3283,6 @@ const programGraphSourceFreeBuildJson = JSON.parse((await execFileAsync(zero, ["
 const programGraphSourceFreeMappedMirCacheFiles = (await readdir(`${programGraphSourceFreePackage}/.zero/cache/native`)).filter((name) => name.startsWith("mir-") && name.endsWith(".zmir"));
 const programGraphSourceFreeRun = await execFileAsync(zero, ["run", "--out", programGraphSourceFreeRunPath, programGraphSourceFreePackage]);
 const programGraphSourceFreeTestJson = JSON.parse((await execFileAsync(zero, ["test", "--json", programGraphSourceFreePackage])).stdout);
-const programGraphSourceFreeShipJson = JSON.parse((await execFileAsync(zero, ["ship", "--json", "--target", "linux-musl-x64", "--out", programGraphSourceFreeShipPath, programGraphSourceFreePackage])).stdout);
 const programGraphSourceFreeMemJson = JSON.parse((await execFileAsync(zero, ["mem", "--json", programGraphSourceFreePackage])).stdout);
 const programGraphSourceFreeVerify = await execFileAsync(zero, ["verify-projection", "--json", programGraphSourceFreePackage]).catch((error) => error);
 const programGraphSourceFreeExport = JSON.parse((await execFileAsync(zero, ["export", "--json", programGraphSourceFreePackage])).stdout);
@@ -3813,9 +3810,6 @@ assert.equal(programGraphSourceFreeTestJson.ok, true);
 assertSourceGraph(programGraphSourceFreeTestJson, `${programGraphSourceFreePackage}/zero.graph`, "package:program-graph-fixture@0.1.0", "direct-program-graph", false, "missing");
 assert.equal(programGraphSourceFreeTestJson.testBackend, "direct-program-graph");
 assert.equal(programGraphSourceFreeTestJson.testDiscovery.mode, "package-graph");
-assert.equal(programGraphSourceFreeShipJson.ok, true);
-assertSourceGraph(programGraphSourceFreeShipJson, `${programGraphSourceFreePackage}/zero.graph`, "package:program-graph-fixture@0.1.0", "mapped-final-mir", false, "missing");
-assertProgramGraphCompilerInput(programGraphSourceFreeShipJson, `${programGraphSourceFreePackage}/zero.graph`);
 assertSourceGraph(programGraphSourceFreeMemJson, `${programGraphSourceFreePackage}/zero.graph`, "package:program-graph-fixture@0.1.0", "mapped-final-mir", false, "missing");
 assertProgramGraphCompilerInput(programGraphSourceFreeMemJson, `${programGraphSourceFreePackage}/zero.graph`);
 assert.notEqual(programGraphSourceFreeVerify.code, 0);

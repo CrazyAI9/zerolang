@@ -61,7 +61,7 @@ Local path dependencies are accepted by the resolver. Exact versioned registry
 references are recorded as metadata without remote fetches.
 
 Packages use a checked-in `zero.graph` store as the compiler input for normal
-check, build, run, test, size, ship, and mem commands. Those commands read and
+check, build, run, test, size, and mem commands. Those commands read and
 validate the graph store directly, report whether source projections are clean,
 missing, stale, conflicting, or unavailable, and do not rewrite `.0` files. A
 graph-first package can be created with:

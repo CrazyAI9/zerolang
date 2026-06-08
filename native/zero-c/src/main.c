@@ -119,23 +119,6 @@ typedef struct {
   EmitKind emit;
 } Command;
 
-typedef struct {
-  char *binary_path;
-  char *stripped_path;
-  char *checksum_path;
-  char *archive_path;
-  char *debug_path;
-  char *size_path;
-  char *sbom_path;
-  uint64_t checksum;
-  long long binary_bytes;
-  long long stripped_bytes;
-  long long archive_bytes;
-  long long debug_bytes;
-  long long size_bytes;
-  long long sbom_bytes;
-} ShipArtifacts;
-
 static void manifest_path_for_input(const SourceInput *input, char *manifest_path, size_t manifest_path_len);
 static bool is_program_graph_root_command(const char *command);
 
@@ -1867,15 +1850,6 @@ static uint64_t fnv1a_text(const char *text) {
   uint64_t hash = 1469598103934665603ull;
   for (const unsigned char *cursor = (const unsigned char *)(text ? text : ""); *cursor; cursor++) {
     hash ^= (uint64_t)*cursor;
-    hash *= 1099511628211ull;
-  }
-  return hash;
-}
-
-static uint64_t fnv1a_bytes(const unsigned char *data, size_t len) {
-  uint64_t hash = 1469598103934665603ull;
-  for (size_t i = 0; i < len; i++) {
-    hash ^= (uint64_t)data[i];
     hash *= 1099511628211ull;
   }
   return hash;
@@ -4195,7 +4169,7 @@ static bool parse_graph_merge_option(int argc, char **argv, int *index, Command 
 
 static bool command_defaults_to_current_directory(const Command *command) {
   if (!command || command->input) return false;
-  static const char *const current_dir_default_commands[] = {"init", "check", "test", "build", "run", "ship", "doc", "size", "mem", "dev", "time", "fix"};
+  static const char *const current_dir_default_commands[] = {"init", "check", "test", "build", "run", "doc", "size", "mem", "dev", "time", "fix"};
   for (size_t i = 0; i < sizeof(current_dir_default_commands) / sizeof(current_dir_default_commands[0]); i++) {
     if (cli_arg_is(command->command, current_dir_default_commands[i])) return true;
   }
@@ -4287,7 +4261,7 @@ static bool parse_command(int argc, char **argv, Command *command) {
       command->input = argv[i];
     }
   }
-  static const char *const known_commands[] = {"--version", "version", "skills", "check", "patch", "test", "fmt", "build", "run", "ship", "tokens", "parse", "doc", "size", "mem", "dev", "time", "abi", "explain", "fix", "doctor", "clean", "targets"};
+  static const char *const known_commands[] = {"--version", "version", "skills", "check", "patch", "test", "fmt", "build", "run", "tokens", "parse", "doc", "size", "mem", "dev", "time", "abi", "explain", "fix", "doctor", "clean", "targets"};
   if (is_graph_command || is_root_graph_command) return true;
   for (size_t i = 0; i < sizeof(known_commands) / sizeof(known_commands[0]); i++) {
     if (cli_arg_is(command->command, known_commands[i])) return true;
@@ -6363,7 +6337,7 @@ static void append_release_target_contract_json(ZBuf *buf, const SourceInput *in
   append_json_string(buf, release_supported ? "supported" : "unsupported");
   zbuf_appendf(buf, ",\"directArtifact\":%s", release.direct_selected ? "true" : "false");
   if (llvm_ir_output || llvm_native_output) zbuf_append(buf, ",\"llvmArtifact\":true");
-  if (llvm_ir_output || llvm_native_output) zbuf_append(buf, ",\"releaseEligible\":false,\"shipEligible\":false");
+  if (llvm_ir_output || llvm_native_output) zbuf_append(buf, ",\"releaseEligible\":false");
   zbuf_appendf(buf, ",\"missingSysroot\":%s,\"unsupportedReason\":", missing_sysroot ? "true" : "false");
   append_json_string(buf, release_supported ? "" : (llvm_native_output ? llvm_plan.reason : z_direct_backend_reason(target)));
 #undef APPEND_FIELD
@@ -6916,20 +6890,6 @@ static char *path_with_suffix(const char *path, const char *suffix) {
   return buf.data;
 }
 
-static char *ship_default_out_path(const char *source_file, const ZTargetInfo *target) {
-  const char *slash = strrchr(source_file ? source_file : "app", '/');
-  const char *base = slash ? slash + 1 : (source_file ? source_file : "app");
-  const char *dot = strrchr(base, '.');
-  size_t len = dot ? (size_t)(dot - base) : strlen(base);
-  ZBuf buf;
-  zbuf_init(&buf);
-  zbuf_append(&buf, ".zero/ship/");
-  for (size_t i = 0; i < len; i++) zbuf_append_char(&buf, base[i]);
-  zbuf_append_char(&buf, '-');
-  zbuf_append(&buf, target && target->name ? target->name : z_host_target());
-  return buf.data;
-}
-
 static char *repository_graph_default_artifact_source_path(const Command *command, const SourceInput *input) {
   const char *fallback = input && input->source_file ? input->source_file : "app";
   if (!command || !command->repository_graph_input) return z_strdup(fallback);
@@ -6958,226 +6918,6 @@ static char *command_default_out_path(const Command *command, const SourceInput 
   char *out_path = z_default_out_path(source_path);
   free(source_path);
   return out_path;
-}
-
-static char *command_ship_default_out_path(const Command *command, const SourceInput *input, const ZTargetInfo *target) {
-  char *source_path = repository_graph_default_artifact_source_path(command, input);
-  char *out_path = ship_default_out_path(source_path, target);
-  free(source_path);
-  return out_path;
-}
-
-static void ship_artifacts_free(ShipArtifacts *artifacts) {
-  if (!artifacts) return;
-  free(artifacts->binary_path);
-  free(artifacts->stripped_path);
-  free(artifacts->checksum_path);
-  free(artifacts->archive_path);
-  free(artifacts->debug_path);
-  free(artifacts->size_path);
-  free(artifacts->sbom_path);
-  memset(artifacts, 0, sizeof(*artifacts));
-}
-
-static bool write_ship_artifacts(const Command *command, const SourceInput *input, const ZTargetInfo *target, const ZBuf *exe, const char *exe_file, ShipArtifacts *artifacts, ZDiag *diag) {
-  memset(artifacts, 0, sizeof(*artifacts));
-  artifacts->binary_path = z_strdup(exe_file);
-  artifacts->stripped_path = path_with_suffix(exe_file, ".stripped");
-  artifacts->checksum_path = path_with_suffix(exe_file, ".checksum");
-  artifacts->archive_path = path_with_suffix(exe_file, ".zeroar");
-  artifacts->debug_path = path_with_suffix(exe_file, ".debug.json");
-  artifacts->size_path = path_with_suffix(exe_file, ".size.json");
-  artifacts->sbom_path = path_with_suffix(exe_file, ".sbom.json");
-  artifacts->checksum = fnv1a_bytes((const unsigned char *)(exe && exe->data ? exe->data : ""), exe ? exe->len : 0);
-  artifacts->binary_bytes = file_size_or_negative(exe_file);
-
-  if (!z_write_binary_file(artifacts->stripped_path, (const unsigned char *)(exe && exe->data ? exe->data : ""), exe ? exe->len : 0, diag)) return false;
-  chmod(artifacts->stripped_path, 0755);
-  artifacts->stripped_bytes = file_size_or_negative(artifacts->stripped_path);
-
-  ZBuf checksum;
-  zbuf_init(&checksum);
-  zbuf_appendf(&checksum, "fnv1a64 %016llx  %s\n", (unsigned long long)artifacts->checksum, artifacts->binary_path);
-  if (!z_write_file(artifacts->checksum_path, checksum.data ? checksum.data : "", diag)) {
-    zbuf_free(&checksum);
-    return false;
-  }
-  zbuf_free(&checksum);
-
-  ZBuf debug;
-  zbuf_init(&debug);
-  zbuf_append(&debug, "{\n  \"schemaVersion\": 1,\n  \"kind\": \"zero-debug-symbol-metadata\",\n  \"sourceFile\": ");
-  append_json_string(&debug, input ? input->source_file : "");
-  zbuf_append(&debug, ",\n  \"target\": ");
-  append_json_string(&debug, target ? target->name : z_host_target());
-  zbuf_append(&debug, ",\n  \"profile\": ");
-  append_json_string(&debug, command ? command->profile : "release");
-  zbuf_append(&debug, ",\n  \"debugInfoAvailable\": false,\n  \"strippedBinary\": ");
-  append_json_string(&debug, artifacts->stripped_path);
-  zbuf_append(&debug, ",\n  \"symbolPolicy\": \"metadata-placeholder-until-debug-info-emission\"\n}\n");
-  if (!z_write_file(artifacts->debug_path, debug.data ? debug.data : "", diag)) {
-    zbuf_free(&debug);
-    return false;
-  }
-  zbuf_free(&debug);
-
-  ZBuf size;
-  zbuf_init(&size);
-  zbuf_append(&size, "{\n  \"schemaVersion\": 1,\n  \"kind\": \"zero-release-size-report\",\n  \"sourceFile\": ");
-  append_json_string(&size, input ? input->source_file : "");
-  zbuf_append(&size, ",\n  \"target\": ");
-  append_json_string(&size, target ? target->name : z_host_target());
-  zbuf_append(&size, ",\n  \"profile\": ");
-  append_json_string(&size, command && command->profile ? command->profile : "release");
-  zbuf_append(&size, ",\n  \"safetyFacts\": ");
-  append_safety_facts_json(&size, command && command->profile ? command->profile : "release");
-  zbuf_appendf(&size, ",\n  \"artifactBytes\": %lld,\n  \"loweredIrBytes\": %zu,\n  \"generatedCBytes\": 0,\n  \"sections\": [{\"name\":\"binary\",\"bytes\":%lld},{\"name\":\"lowered-ir\",\"bytes\":%zu}],\n  \"directFacts\": {\"functionCount\":%zu,\"readonlyDataBytes\":%zu,\"stackBytes\":%zu}\n}\n",
-               artifacts->binary_bytes,
-               input ? input->lowered_ir_bytes : 0,
-               artifacts->binary_bytes,
-               input ? input->lowered_ir_bytes : 0,
-               input ? input->direct_function_count : 0,
-               input ? input->direct_readonly_data_bytes : 0,
-               input ? input->direct_stack_bytes : 0);
-  if (!z_write_file(artifacts->size_path, size.data ? size.data : "", diag)) {
-    zbuf_free(&size);
-    return false;
-  }
-  zbuf_free(&size);
-
-  ZBuf sbom;
-  zbuf_init(&sbom);
-  zbuf_append(&sbom, "{\n  \"schemaVersion\": 1,\n  \"kind\": \"zero-sbom-placeholder\",\n  \"format\": \"spdx-json-placeholder\",\n  \"packages\": [{\"name\":\"root\",\"sourceFile\":");
-  append_json_string(&sbom, input ? input->source_file : "");
-  zbuf_append(&sbom, ",\"license\":\"unknown\"}],\n  \"generatedCBytes\": 0,\n  \"note\": \"full dependency license scan is not implemented yet\"\n}\n");
-  if (!z_write_file(artifacts->sbom_path, sbom.data ? sbom.data : "", diag)) {
-    zbuf_free(&sbom);
-    return false;
-  }
-  zbuf_free(&sbom);
-
-  ZBuf archive;
-  zbuf_init(&archive);
-  zbuf_append(&archive, "zero archive manifest v1\n");
-  zbuf_appendf(&archive, "binary %s %lld %016llx\n", artifacts->binary_path, artifacts->binary_bytes, (unsigned long long)artifacts->checksum);
-  zbuf_appendf(&archive, "stripped %s %lld\n", artifacts->stripped_path, artifacts->stripped_bytes);
-  zbuf_appendf(&archive, "checksum %s\n", artifacts->checksum_path);
-  zbuf_appendf(&archive, "debug %s\n", artifacts->debug_path);
-  zbuf_appendf(&archive, "size %s\n", artifacts->size_path);
-  zbuf_appendf(&archive, "sbom %s\n", artifacts->sbom_path);
-  zbuf_appendf(&archive, "target %s\n", target && target->name ? target->name : z_host_target());
-  zbuf_appendf(&archive, "profile %s\n", command && command->profile ? command->profile : "release");
-  zbuf_append(&archive, "generatedCBytes 0\n");
-  if (!z_write_file(artifacts->archive_path, archive.data ? archive.data : "", diag)) {
-    zbuf_free(&archive);
-    return false;
-  }
-  zbuf_free(&archive);
-
-  artifacts->archive_bytes = file_size_or_negative(artifacts->archive_path);
-  artifacts->debug_bytes = file_size_or_negative(artifacts->debug_path);
-  artifacts->size_bytes = file_size_or_negative(artifacts->size_path);
-  artifacts->sbom_bytes = file_size_or_negative(artifacts->sbom_path);
-  return true;
-}
-
-static void append_ship_artifact_json(ZBuf *buf, const char *kind, const char *path, long long bytes, const char *format) {
-  zbuf_append(buf, "{\"kind\":");
-  append_json_string(buf, kind);
-  zbuf_append(buf, ",\"path\":");
-  append_json_string(buf, path);
-  zbuf_appendf(buf, ",\"bytes\":%lld", bytes);
-  zbuf_append(buf, ",\"format\":");
-  append_json_string(buf, format);
-  zbuf_append(buf, "}");
-}
-
-static void print_ship_json(const Command *command, const SourceInput *input, const Program *program, const ZTargetInfo *target, const ShipArtifacts *artifacts, long long elapsed_ms) {
-  ZBuf buf;
-  zbuf_init(&buf);
-  bool graph_input = command && z_program_graph_artifact_source_present(&command->graph_source);
-  zbuf_append(&buf, "{\n  \"schemaVersion\": 1,\n  \"ok\": true,\n  \"command\": \"ship\",\n  \"sourceFile\": ");
-  append_json_string(&buf, input ? input->source_file : "");
-  if (command) append_program_graph_artifact_source_json(&buf, &command->graph_source);
-  zbuf_append(&buf, ",\n  \"target\": ");
-  append_json_string(&buf, target ? target->name : z_host_target());
-  zbuf_append(&buf, ",\n  \"hostTarget\": ");
-  append_json_string(&buf, z_host_target());
-  zbuf_append(&buf, ",\n  \"profile\": ");
-  append_json_string(&buf, command ? command->profile : "release");
-  zbuf_append(&buf, ",\n  \"safetyFacts\": ");
-  append_safety_facts_json(&buf, command && command->profile ? command->profile : "release");
-  zbuf_append(&buf, ",\n  \"emit\": \"exe\",\n  \"generatedCBytes\": 0,\n  \"cBridgeFallback\": false,\n  \"artifactPath\": ");
-  append_json_string(&buf, artifacts ? artifacts->binary_path : "");
-  zbuf_appendf(&buf, ",\n  \"artifactBytes\": %lld,\n  \"checksum\": {\"algorithm\":\"fnv1a64\",\"value\":\"%016llx\",\"path\":",
-               artifacts ? artifacts->binary_bytes : 0,
-               (unsigned long long)(artifacts ? artifacts->checksum : 0));
-  append_json_string(&buf, artifacts ? artifacts->checksum_path : "");
-  zbuf_append(&buf, "},\n  \"releasePreview\": {\"deterministic\": true, \"archive\": ");
-  append_json_string(&buf, artifacts ? artifacts->archive_path : "");
-  zbuf_append(&buf, ", \"strippedBinary\": ");
-  append_json_string(&buf, artifacts ? artifacts->stripped_path : "");
-  zbuf_append(&buf, ", \"sizeReport\": ");
-  append_json_string(&buf, artifacts ? artifacts->size_path : "");
-  zbuf_append(&buf, ", \"debugSymbols\": ");
-  append_json_string(&buf, artifacts ? artifacts->debug_path : "");
-  zbuf_append(&buf, ", \"sbom\": ");
-  append_json_string(&buf, artifacts ? artifacts->sbom_path : "");
-  zbuf_append(&buf, ", \"targetContract\": ");
-  append_release_target_contract_json(&buf, input, target, command, "exe");
-  zbuf_append(&buf, "},\n  \"artifacts\": [");
-  append_ship_artifact_json(&buf, "binary", artifacts ? artifacts->binary_path : "", artifacts ? artifacts->binary_bytes : 0, "native-executable");
-  zbuf_append(&buf, ", ");
-  append_ship_artifact_json(&buf, "stripped-binary", artifacts ? artifacts->stripped_path : "", artifacts ? artifacts->stripped_bytes : 0, "native-executable");
-  zbuf_append(&buf, ", ");
-  append_ship_artifact_json(&buf, "checksum", artifacts ? artifacts->checksum_path : "", file_size_or_negative(artifacts ? artifacts->checksum_path : ""), "fnv1a64");
-  zbuf_append(&buf, ", ");
-  append_ship_artifact_json(&buf, "archive", artifacts ? artifacts->archive_path : "", artifacts ? artifacts->archive_bytes : 0, "zero-archive-manifest-v1");
-  zbuf_append(&buf, ", ");
-  append_ship_artifact_json(&buf, "debug-symbol-metadata", artifacts ? artifacts->debug_path : "", artifacts ? artifacts->debug_bytes : 0, "json");
-  zbuf_append(&buf, ", ");
-  append_ship_artifact_json(&buf, "size-report", artifacts ? artifacts->size_path : "", artifacts ? artifacts->size_bytes : 0, "json");
-  zbuf_append(&buf, ", ");
-  append_ship_artifact_json(&buf, "sbom-placeholder", artifacts ? artifacts->sbom_path : "", artifacts ? artifacts->sbom_bytes : 0, "spdx-json-placeholder");
-  zbuf_appendf(&buf, "],\n  \"elapsedMs\": %lld,\n  \"targetFacts\": {\"directStatus\":", elapsed_ms);
-  append_json_string(&buf, z_direct_backend_status(target));
-  zbuf_append(&buf, ",\"directExeEmitter\":");
-  append_json_string(&buf, z_direct_exe_emitter(target));
-  zbuf_append(&buf, ",\"fallbackPolicy\":\"explicit-direct-never-c-bridge\"},\n  \"compilerPhases\": ");
-  append_compiler_phases_json(&buf, input);
-  zbuf_append(&buf, ",\n  \"releaseTargetContract\": ");
-  append_release_target_contract_json(&buf, input, target, command, "exe");
-  zbuf_append(&buf, ",\n  \"compilerCaches\": ");
-  if (graph_input) append_compiler_caches_json_ex(&buf, input, target, command ? command->profile : "release", "program-graph", command->graph_source.graph_hash);
-  else append_compiler_caches_json(&buf, input, target, command ? command->profile : "release");
-  zbuf_append(&buf, ",\n  \"package\": ");
-  append_package_metadata_json(&buf, input, target);
-  zbuf_append(&buf, ",\n  \"packageCache\": ");
-  append_package_cache_audit_json(&buf, input, target, command ? command->profile : "release");
-  zbuf_append(&buf, ",\n  \"incrementalInvalidation\": ");
-  if (graph_input) append_incremental_invalidations_json_ex(&buf, input, target, command ? command->profile : "release", command->graph_source.artifact, command->graph_source.graph_hash, command->graph_source.lowering);
-  else append_incremental_invalidations_json(&buf, input, target, command ? command->profile : "release");
-  zbuf_append(&buf, ",\n  \"objectBackend\": ");
-  append_object_backend_json(&buf, input, target, command, "exe");
-  CapabilitySummary caps = program_capabilities(program);
-  zbuf_append(&buf, ",\n  \"selfHostRouting\": ");
-  append_self_host_routing_json(&buf, "ship", "exe", program, &caps, target);
-  zbuf_append(&buf, "\n}\n");
-  fputs(buf.data, stdout);
-  zbuf_free(&buf);
-}
-
-static void print_ship_text(const ShipArtifacts *artifacts, long long elapsed_ms) {
-  char duration[32];
-  format_duration(elapsed_ms, duration, sizeof(duration));
-  printf("release preview (%s)\n", duration);
-  printf("binary: %s (%lld bytes)\n", artifacts->binary_path, artifacts->binary_bytes);
-  printf("stripped: %s (%lld bytes)\n", artifacts->stripped_path, artifacts->stripped_bytes);
-  printf("checksum: %s (%016llx)\n", artifacts->checksum_path, (unsigned long long)artifacts->checksum);
-  printf("archive: %s\n", artifacts->archive_path);
-  printf("debug symbols: %s\n", artifacts->debug_path);
-  printf("size report: %s\n", artifacts->size_path);
-  printf("sbom: %s\n", artifacts->sbom_path);
 }
 
 static int print_version_command(bool json) {
@@ -8114,7 +7854,7 @@ static bool validate_http_listen_handler_graph(const ZProgramGraph *graph, const
 static int run_http_listen_or_diag(const Command *command, const ZTargetInfo *target, const HttpListenSpec *listen, const char *zero_exe, ZDiag *diag) {
   (void)target;
   if (!command || !listen) return 1;
-  if (strcmp(command->command, "build") == 0 || strcmp(command->command, "ship") == 0) {
+  if (strcmp(command->command, "build") == 0) {
     diag->code = 2002;
     diag->line = listen->line > 0 ? listen->line : 1;
     diag->column = listen->column > 0 ? listen->column : 1;
@@ -13525,16 +13265,16 @@ static int run_llvm_native_artifact_command(const Command *command, SourceInput 
   }
   if (!build_command && !run_command) {
     z_backend_init_llvm_unavailable_diag(&diag, target, emit_kind, input->source_file);
-    snprintf(diag.message, sizeof(diag.message), "LLVM native executable output is experimental and is not supported by zero ship");
+    snprintf(diag.message, sizeof(diag.message), "LLVM native executable output is experimental and is supported only by zero build or zero run");
     snprintf(diag.expected, sizeof(diag.expected), "zero build/run --backend llvm --emit exe");
     snprintf(diag.actual, sizeof(diag.actual), "%s --backend llvm --emit exe", command->command ? command->command : "command");
-    snprintf(diag.help, sizeof(diag.help), "use zero build or zero run for explicit LLVM experiments, or use the direct backend for zero ship");
+    snprintf(diag.help, sizeof(diag.help), "use zero build or zero run for explicit LLVM experiments");
     z_backend_blocker_set(&diag.backend_blocker,
                           target && target->name ? target->name : "unknown",
                           target && target->object_format ? target->object_format : "unknown",
                           "llvm",
                           "buildability",
-                          "llvm ship");
+                          "llvm executable command");
     int rc = return_buildability_error(command, input, &diag, ir, program); z_free_source(input); return rc;
   }
   if (!ir->mir_valid) {
@@ -14023,7 +13763,6 @@ int main(int argc, char **argv) {
   bool graph_build_command = strcmp(command.command, "build") == 0 && root_graph_artifact_input;
   bool graph_run_artifact_command = strcmp(command.command, "run") == 0 && root_graph_artifact_input;
   bool graph_size_artifact_command = strcmp(command.command, "size") == 0 && root_graph_artifact_input;
-  bool graph_ship_artifact_command = strcmp(command.command, "ship") == 0 && root_graph_artifact_input;
   bool graph_mem_artifact_command = strcmp(command.command, "mem") == 0 && root_graph_artifact_input;
   bool graph_doc_artifact_command = strcmp(command.command, "doc") == 0 && root_graph_artifact_input;
   bool graph_dev_artifact_command = strcmp(command.command, "dev") == 0 && root_graph_artifact_input;
@@ -14033,7 +13772,6 @@ int main(int argc, char **argv) {
   bool graph_artifact_mir_command = graph_build_command ||
                                     graph_run_artifact_command ||
                                     graph_size_artifact_command ||
-                                    graph_ship_artifact_command ||
                                     graph_mem_artifact_command ||
                                     graph_doc_artifact_command ||
                                     graph_dev_artifact_command ||
@@ -14043,7 +13781,7 @@ int main(int argc, char **argv) {
                                  (strcmp(command.command, "doc") == 0 || strcmp(command.command, "dev") == 0 || strcmp(command.command, "abi") == 0)) ||
                                 graph_abi_artifact_command;
   if ((command.repository_graph_input || root_graph_artifact_input) &&
-      (strcmp(command.command, "run") == 0 || strcmp(command.command, "build") == 0 || strcmp(command.command, "ship") == 0)) {
+      (strcmp(command.command, "run") == 0 || strcmp(command.command, "build") == 0)) {
     ZProgramGraphStore listen_store;
     ZProgramGraph artifact_listen_graph;
     z_program_graph_store_init(&listen_store);
@@ -14127,7 +13865,7 @@ int main(int argc, char **argv) {
       return 1;
     }
     bool prepared_graph = command.repository_graph_input
-      ? z_program_graph_prepare_repository_store_mir_input(command.input, target, emit_kind_name(command.emit), command.backend, !(strcmp(command.command, "build") == 0 || strcmp(command.command, "run") == 0 || strcmp(command.command, "size") == 0 || strcmp(command.command, "ship") == 0 || strcmp(command.command, "mem") == 0), &program, &input, &graph_prepared_ir, &graph_source, &diag)
+      ? z_program_graph_prepare_repository_store_mir_input(command.input, target, emit_kind_name(command.emit), command.backend, !(strcmp(command.command, "build") == 0 || strcmp(command.command, "run") == 0 || strcmp(command.command, "size") == 0 || strcmp(command.command, "mem") == 0), &program, &input, &graph_prepared_ir, &graph_source, &diag)
       : z_program_graph_prepare_artifact_mir_input(command.input, target, emit_kind_name(command.emit), command.backend, &program, &input, &graph_prepared_ir, &graph_source, &diag);
     if (prepared_graph) {
       input.lower_ms = now_ms() - graph_lower_started;
@@ -14193,7 +13931,7 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  if ((strcmp(command.command, "build") == 0 || strcmp(command.command, "run") == 0 || strcmp(command.command, "ship") == 0) &&
+  if ((strcmp(command.command, "build") == 0 || strcmp(command.command, "run") == 0) &&
       !validate_c_libraries_for_target(&input, target, &command, &diag)) {
     if (command.json) print_command_diag_json(&command, diag.path ? diag.path : command.input, &diag);
     else print_diag(diag.path ? diag.path : command.input, &diag);
@@ -14209,7 +13947,7 @@ int main(int argc, char **argv) {
     free_loaded_command_state(&input, &program, &graph_prepared_ir);
     return 1;
   }
-  if (has_http_listen && (strcmp(command.command, "build") == 0 || strcmp(command.command, "ship") == 0)) {
+  if (has_http_listen && strcmp(command.command, "build") == 0) {
     diag.code = 2002;
     diag.line = http_listen.line > 0 ? http_listen.line : 1;
     diag.column = http_listen.column > 0 ? http_listen.column : 1;
@@ -14341,9 +14079,8 @@ int main(int argc, char **argv) {
   }
   bool build_command = strcmp(command.command, "build") == 0;
   bool run_command = strcmp(command.command, "run") == 0;
-  bool ship_command = strcmp(command.command, "ship") == 0;
   bool size_command = strcmp(command.command, "size") == 0;
-  bool artifact_command = build_command || run_command || ship_command;
+  bool artifact_command = build_command || run_command;
   if (size_command && !metadata_backend_request_buildable(&command, &input, target, &diag)) {
     int rc = return_buildability_error(&command, &input, &diag, &ir, &program);
     z_free_source(&input);
@@ -14492,7 +14229,6 @@ int main(int argc, char **argv) {
       z_free_source(&input);
       return rc;
     }
-    if (ship_command) { int rc = return_direct_backend_error(&command, &input, target, "exe", "external object link plan is not wired into ship yet; use zero build or zero run", &ir, &program); z_free_source(&input); return rc; }
     if (needs_zero_runtime && !runtime_object.supported) { int rc = return_direct_backend_error(&command, &input, target, "exe", runtime_object.blocker, &ir, &program); z_free_source(&input); return rc; }
     if (!direct_obj.available) { int rc = return_direct_backend_error(&command, &input, target, "exe", direct_obj.unsupported_reason, &ir, &program); z_free_source(&input); return rc; }
     if (!direct_buildability_preflight(&command, &input, target, "obj", &ir, &diag)) { int rc = return_buildability_error(&command, &input, &diag, &ir, &program); z_free_source(&input); return rc; }
@@ -14624,7 +14360,7 @@ int main(int argc, char **argv) {
       return 1;
     }
 
-    char *base_exe_file = command.out ? z_strdup(command.out) : (ship_command ? command_ship_default_out_path(&command, &input, target) : command_default_out_path(&command, &input));
+    char *base_exe_file = command.out ? z_strdup(command.out) : command_default_out_path(&command, &input);
     char *exe_file = apply_target_suffix(base_exe_file, target);
     free(base_exe_file);
     phase_started = now_ms();
@@ -14654,23 +14390,7 @@ int main(int argc, char **argv) {
     }
 
     long long elapsed_ms = now_ms() - command_started_ms;
-    if (ship_command) {
-      ShipArtifacts ship = {0};
-      if (!write_ship_artifacts(&command, &input, target, &exe, exe_file, &ship, &diag)) {
-        if (command.json) print_diag_json(diag.path ? diag.path : exe_file, &diag);
-        else print_diag(diag.path ? diag.path : exe_file, &diag);
-        ship_artifacts_free(&ship);
-        free(exe_file);
-        zbuf_free(&exe);
-        z_free_ir_program(&ir);
-        z_free_program(&program);
-        z_free_source(&input);
-        return 1;
-      }
-      if (command.json) print_ship_json(&command, &input, &program, target, &ship, elapsed_ms);
-      else print_ship_text(&ship, elapsed_ms);
-      ship_artifacts_free(&ship);
-    } else if (command.json) {
+    if (command.json) {
       print_build_json(&command, &input, &program, &ir, target, "exe", exe_file, file_size_or_negative(exe_file), 0, elapsed_ms);
     } else {
       print_artifact(exe_file, elapsed_ms);

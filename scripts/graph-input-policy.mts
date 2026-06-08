@@ -8,7 +8,7 @@ const files = [
   "scripts/reliability-smoke.mts",
 ];
 
-const compilerInputCommands = new Set(["check", "build", "run", "test", "size", "ship", "mem", "doc", "dev", "time", "fix"]);
+const compilerInputCommands = new Set(["check", "build", "run", "test", "size", "mem", "doc", "dev", "time", "fix"]);
 const compilerInputValueFlags = new Set(["--backend", "--emit", "--filter", "--out", "--profile", "--release", "--target"]);
 const abiInputSubcommands = new Set(["check", "dump"]);
 

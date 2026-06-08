@@ -808,7 +808,6 @@ function assertTemplateManifest(kind, manifest, readme) {
     assert.equal(manifest.targets.cli.main, "src/main.0");
     assert.match(readme, /zero run/);
     assert.match(readme, /zero build --target linux-musl-x64/);
-    assert.match(readme, /zero ship --target linux-musl-x64/);
   }
 }
 
@@ -844,49 +843,8 @@ function assertDevReport(report, kind) {
   assert(report.actions.some((action) => action.kind === "restart" && action.enabled === (kind !== "lib")));
 }
 
-function assertShipReport(report, outPath) {
-  assert.equal(report.schemaVersion, 1);
-  assert.equal(report.ok, true);
-  assert.equal(report.command, "ship");
-  assert.equal(report.emit, "exe");
-  assert.equal(report.target, "linux-musl-x64");
-  assert.equal(report.generatedCBytes, 0);
-  assert.equal(report.cBridgeFallback, false);
-  assert.equal(report.safetyFacts.schemaVersion, 1);
-  assert.equal(report.safetyFacts.profileKey, "small");
-  assert.equal(report.safetyFacts.bounds.policy, "checked");
-  assert.equal(report.safetyFacts.overflow.runtimeArithmetic, "unchecked-machine-wrap");
-  assert.equal(report.safetyFacts.initialization.maybePayloadReads, "guard-checked");
-  assert.equal(report.releasePreview.deterministic, true);
-  assertReleaseTargetContract(report, {
-    target: "linux-musl-x64",
-    emit: "exe",
-    objectFormat: "elf",
-    artifactKind: "native-executable",
-    linkerFlavor: "elf64",
-    targetLibcMode: "bundled-libc",
-  });
-  assert.deepEqual(report.releasePreview.targetContract, report.releaseTargetContract);
-  assert.equal(report.artifactPath, outPath);
-  assert.equal(statSync(report.artifactPath).size, report.artifactBytes);
-  const artifactKinds = new Set(report.artifacts.map((artifact) => artifact.kind));
-  for (const kind of ["binary", "stripped-binary", "checksum", "archive", "debug-symbol-metadata", "size-report", "sbom-placeholder"]) {
-    assert(artifactKinds.has(kind), `ship report should include ${kind}`);
-  }
-  for (const artifact of report.artifacts) {
-    assert(existsSync(artifact.path), `${artifact.kind} should exist at ${artifact.path}`);
-  }
-  const sizeReport = JSON.parse(readFileSync(report.releasePreview.sizeReport, "utf8"));
-  assert.equal(sizeReport.generatedCBytes, 0);
-  assert.equal(sizeReport.safetyFacts.profileKey, "small");
-  assert.equal(sizeReport.safetyFacts.bounds.optimizerElision, false);
-  assert.equal(JSON.parse(readFileSync(report.releasePreview.debugSymbols, "utf8")).kind, "zero-debug-symbol-metadata");
-  assert.equal(JSON.parse(readFileSync(report.releasePreview.sbom, "utf8")).kind, "zero-sbom-placeholder");
-  assert.match(readFileSync(report.releasePreview.archive, "utf8"), /zero archive manifest v1/);
-}
-
 function assertReleaseTargetContract(report, expected) {
-  const contract = report.releaseTargetContract ?? report.releasePreview?.targetContract;
+  const contract = report.releaseTargetContract;
   assert(contract, "release target contract should be present");
   assert.equal(contract.schemaVersion, 1);
   assert.equal(contract.target, expected.target);
@@ -941,7 +899,6 @@ assert.equal(typeof doctor.llvmToolchain.compiler, "string");
 assert.equal(doctor.llvmToolchain.backendLifecycle.stability, "experimental");
 assert.equal(doctor.llvmToolchain.backendLifecycle.defaultEligible, false);
 assert.equal(doctor.llvmToolchain.backendLifecycle.releaseEligible, false);
-assert.equal(doctor.llvmToolchain.backendLifecycle.shipEligible, false);
 assert(doctor.checks.some((check) => check.name === "cross-executable-builds" && /non-host executable builds|target-capable C compiler available/.test(check.message)));
 assert(doctor.checks.some((check) => check.name === "path" && /PATH/.test(check.message)));
 assert(doctor.checks.some((check) => check.name === "host-target" && /host target/.test(check.message)));
@@ -957,7 +914,6 @@ for (const [command, expected] of [
   [["fmt", "--help"], /Usage: zero fmt/],
   [["init", "--help"], /--template cli\|lib\|package/],
   [["skills", "--help"], /Usage: zero skills/],
-  [["ship", "--help"], /Usage: zero ship/],
   [["targets", "--help"], /Usage: zero targets/],
   [["tokens", "--help"], /Usage: zero tokens/],
   [["parse", "--help"], /Usage: zero parse/],
@@ -2354,10 +2310,8 @@ const graphValidateSourceTextOutPath = join(outDir, "hello.validate-source-outpu
 const checkedInGraphSourcePath = "conformance/program-graph/hello.0";
 const checkedInGraphPackageDir = "conformance/program-graph";
 const checkedInGraphDefaultBuildPath = ".zero/out/hello";
-const checkedInGraphDefaultShipPath = ".zero/ship/hello-linux-musl-x64";
 const checkedInGraphBuildPath = join(outDir, "checked-in-graph-build");
 const checkedInGraphRunPath = join(outDir, "checked-in-graph-run");
-const checkedInGraphShipPath = join(outDir, "checked-in-graph-ship");
 const graphRecordRoot = join(outDir, "repository-graph-record");
 const graphRecordBuildPath = join(outDir, "repository-graph-record-build");
 const graphRecordObjPath = join(outDir, "repository-graph-record.o");
@@ -2382,7 +2336,6 @@ const graphManifestBuildPath = join(outDir, "graph-manifest-package-build");
 const graphManifestRunPath = join(outDir, "graph-manifest-package-run");
 const directGraphManifestBuildPath = join(outDir, "direct-graph-manifest-package-build");
 const directGraphManifestRunPath = join(outDir, "direct-graph-manifest-package-run");
-const directGraphManifestShipPath = join(outDir, "direct-graph-manifest-package-ship");
 const directGraphTargetGateRoot = join(outDir, "direct-graph-target-gate");
 const directGraphTargetGatePackageDir = join(directGraphTargetGateRoot, "app");
 const directGraphTargetGateDepDir = join(directGraphTargetGateRoot, "target-webbits");
@@ -2464,12 +2417,8 @@ rmSync(graphCanonicalPath, { force: true });
 rmSync(graphSourceTextOutPath, { force: true });
 rmSync(graphValidateSourceTextOutPath, { force: true });
 rmSync(checkedInGraphDefaultBuildPath, { force: true });
-for (const suffix of ["", ".stripped", ".checksum", ".zeroar", ".debug.json", ".size.json", ".sbom.json"]) {
-  rmSync(`${checkedInGraphDefaultShipPath}${suffix}`, { force: true });
-}
 rmSync(checkedInGraphBuildPath, { force: true });
 rmSync(checkedInGraphRunPath, { force: true });
-rmSync(checkedInGraphShipPath, { force: true });
 rmSync(graphRecordRoot, { force: true, recursive: true });
 rmSync(graphRecordBuildPath, { force: true });
 rmSync(graphRecordObjPath, { force: true });
@@ -2491,7 +2440,6 @@ rmSync(graphManifestBuildPath, { force: true });
 rmSync(graphManifestRunPath, { force: true });
 rmSync(directGraphManifestBuildPath, { force: true });
 rmSync(directGraphManifestRunPath, { force: true });
-rmSync(directGraphManifestShipPath, { force: true });
 rmSync(directGraphTargetGateRoot, { force: true, recursive: true });
 rmSync(directGraphHostLeakPackageDir, { force: true, recursive: true });
 rmSync(directGraphHostLeakBuildPath, { force: true });
@@ -2782,7 +2730,6 @@ const sourceFreeCopiedGraphRoot = join(outDir, "source-free-program-graph");
 const sourceFreeCopiedGraphStorePath = join(sourceFreeCopiedGraphRoot, "zero.graph");
 const sourceFreeCopiedGraphBuildPath = join(outDir, "source-free-program-graph-build");
 const sourceFreeCopiedGraphRunPath = join(outDir, "source-free-program-graph-run");
-const sourceFreeCopiedGraphShipPath = join(outDir, "source-free-program-graph-ship");
 const sourceFreeCImportRoot = join(outDir, "source-free-c-import");
 const sourceFreeCImportStorePath = join(sourceFreeCImportRoot, "zero.graph");
 const sourceFreeCImportRunPath = join(outDir, "source-free-c-import-run");
@@ -2821,10 +2768,6 @@ assert.equal(sourceFreeCopiedGraphTestJson.ok, true);
 assertSourceGraph(sourceFreeCopiedGraphTestJson, sourceFreeCopiedGraphStorePath, "package:program-graph-fixture@0.1.0", "direct-program-graph", false, "missing");
 assert.equal(sourceFreeCopiedGraphTestJson.testBackend, "direct-program-graph");
 assert.equal(sourceFreeCopiedGraphTestJson.testDiscovery.mode, "package-graph");
-const sourceFreeCopiedGraphShipJson = json(["ship", "--json", "--target", "linux-musl-x64", "--out", sourceFreeCopiedGraphShipPath, sourceFreeCopiedGraphRoot]).body;
-assert.equal(sourceFreeCopiedGraphShipJson.ok, true);
-assertSourceGraph(sourceFreeCopiedGraphShipJson, sourceFreeCopiedGraphStorePath, "package:program-graph-fixture@0.1.0", "mapped-final-mir", false, "missing");
-assertProgramGraphCompilerInput(sourceFreeCopiedGraphShipJson, sourceFreeCopiedGraphStorePath);
 const sourceFreeCopiedGraphMemJson = json(["mem", "--json", sourceFreeCopiedGraphRoot]).body;
 assertSourceGraph(sourceFreeCopiedGraphMemJson, sourceFreeCopiedGraphStorePath, "package:program-graph-fixture@0.1.0", "mapped-final-mir", false, "missing");
 assertProgramGraphCompilerInput(sourceFreeCopiedGraphMemJson, sourceFreeCopiedGraphStorePath);
@@ -3001,11 +2944,6 @@ assert.equal(sourceFreeGraphPackageTestJson.ok, true);
 assertSourceGraph(sourceFreeGraphPackageTestJson, sourceFreeGraphPackageStorePath, "package:source-free-graph-package@0.1.0", "direct-program-graph", false, "missing");
 assert.equal(sourceFreeGraphPackageTestJson.testBackend, "direct-program-graph");
 assert.equal(sourceFreeGraphPackageTestJson.selectedTests, 3);
-const sourceFreeGraphPackageShipPath = join(outDir, "source-free-graph-package-ship");
-const sourceFreeGraphPackageShipJson = json(["ship", "--json", "--target", "linux-musl-x64", "--out", sourceFreeGraphPackageShipPath, sourceFreeGraphPackageRoot]).body;
-assert.equal(sourceFreeGraphPackageShipJson.ok, true);
-assertSourceGraph(sourceFreeGraphPackageShipJson, sourceFreeGraphPackageStorePath, "package:source-free-graph-package@0.1.0", "mapped-final-mir", false, "missing");
-assertProgramGraphCompilerInput(sourceFreeGraphPackageShipJson, sourceFreeGraphPackageStorePath);
 const sourceFreeGraphPackageMemJson = json(["mem", "--json", sourceFreeGraphPackageRoot]).body;
 assertSourceGraph(sourceFreeGraphPackageMemJson, sourceFreeGraphPackageStorePath, "package:source-free-graph-package@0.1.0", "mapped-final-mir", false, "missing");
 assertProgramGraphCompilerInput(sourceFreeGraphPackageMemJson, sourceFreeGraphPackageStorePath);
@@ -3170,14 +3108,6 @@ assertSourceGraph(checkedInGraphPackageTestJson, checkedInRepositoryGraphStorePa
 assert.equal(checkedInGraphPackageTestJson.testBackend, "direct-program-graph");
 assert.equal(checkedInGraphPackageTestJson.testDiscovery.mode, "package-graph");
 assert.equal(checkedInGraphPackageTestJson.selectedTests, 0);
-const checkedInGraphPackageShipJson = json(["ship", "--json", "--target", "linux-musl-x64", "--out", checkedInGraphShipPath, checkedInGraphPackageDir]).body;
-assert.equal(checkedInGraphPackageShipJson.ok, true);
-assert.equal(checkedInGraphPackageShipJson.sourceFile, checkedInRepositoryGraphStorePath);
-assertSourceGraph(checkedInGraphPackageShipJson, checkedInRepositoryGraphStorePath, "package:program-graph-fixture@0.1.0", "mapped-final-mir", false);
-assertProgramGraphCompilerInput(checkedInGraphPackageShipJson, checkedInRepositoryGraphStorePath);
-assert.equal(checkedInGraphPackageShipJson.artifactPath, checkedInGraphShipPath);
-const checkedInGraphPackageDefaultShipJson = json(["ship", "--json", "--target", "linux-musl-x64", checkedInGraphPackageDir]).body;
-assert.equal(checkedInGraphPackageDefaultShipJson.artifactPath, checkedInGraphDefaultShipPath);
 const checkedInRepositoryGraphStoreBytes = readFileSync(checkedInRepositoryGraphStorePath);
 assert.equal(checkedInRepositoryGraphStoreBytes.subarray(0, 8).toString("binary"), "ZRGBIN1\0");
 const sourceLocationOnlyGraphRoot = join(outDir, "repository-graph-source-location-only");
@@ -3474,13 +3404,6 @@ const directGraphManifestTestJson = json(["test", "--json", graphManifestPackage
 assert.equal(directGraphManifestTestJson.ok, true);
 assertSourceGraph(directGraphManifestTestJson, graphManifestStorePath, "package:graph-manifest-package@0.1.0", "direct-program-graph", false, "clean");
 assert.equal(directGraphManifestTestJson.testDiscovery.mode, "package-graph");
-const directGraphManifestShipJson = json(["ship", "--json", "--target", "linux-musl-x64", "--out", directGraphManifestShipPath, graphManifestPackageDir]).body;
-assert.equal(directGraphManifestShipJson.ok, true);
-assert.equal(directGraphManifestShipJson.sourceFile, graphManifestStorePath);
-assertSourceGraph(directGraphManifestShipJson, graphManifestStorePath, "package:graph-manifest-package@0.1.0", "mapped-final-mir", false, "clean");
-assert.equal(directGraphManifestShipJson.artifactPath, directGraphManifestShipPath);
-assert.equal(existsSync(directGraphManifestShipPath), true);
-assertProgramGraphCompilerInput(directGraphManifestShipJson, graphManifestStorePath);
 const sourcePackageCheckJson = json(["check", "--json", "conformance/packages/test-app"]).body;
 assert.equal(sourcePackageCheckJson.ok, true);
 assertSourceGraph(sourcePackageCheckJson, "conformance/packages/test-app/zero.graph", "package:test-app@0.1.0", "graph-native-check", false);
@@ -4768,13 +4691,6 @@ for (const kind of ["cli", "lib", "package"]) {
     const templateBuild = json(["build", "--json", "--emit", "exe", "--target", "linux-musl-x64", project, "--out", buildOut]).body;
     assert.equal(templateBuild.generatedCBytes, 0);
     assert.equal(templateBuild.objectBackend.objectEmission.path, "direct-elf64-exe");
-    const shipOut = join(project, "ship-app");
-    const firstShip = json(["ship", "--json", "--target", "linux-musl-x64", project, "--out", shipOut]).body;
-    assertShipReport(firstShip, shipOut);
-    const secondShip = json(["ship", "--json", "--target", "linux-musl-x64", project, "--out", shipOut]).body;
-    assertShipReport(secondShip, shipOut);
-    assert.equal(secondShip.checksum.value, firstShip.checksum.value);
-    assert.equal(secondShip.artifactBytes, firstShip.artifactBytes);
   }
 }
 
@@ -6111,7 +6027,6 @@ assert.equal(llvmReadiness.targetReadiness.emit, "exe");
 assert.equal(llvmReadiness.targetReadiness.backendLifecycle.stability, "experimental");
 assert.equal(llvmReadiness.targetReadiness.backendLifecycle.defaultEligible, false);
 assert.equal(llvmReadiness.targetReadiness.backendLifecycle.releaseEligible, false);
-assert.equal(llvmReadiness.targetReadiness.backendLifecycle.shipEligible, false);
 if (llvmHostReady) {
   assert.equal(llvmReadiness.targetReadiness.stage, "ready");
   assert.equal(llvmReadiness.targetReadiness.diagnostics.length, 0);
@@ -6195,13 +6110,11 @@ if (llvmHostReady) {
   assert.equal(llvmBuild.body.toolchain.backendLifecycle.releaseEligible, false);
   assert.equal(llvmBuild.body.releaseTargetContract.backendFamily, "llvm");
   assert.equal(llvmBuild.body.releaseTargetContract.backendLifecycle.releaseEligible, false);
-  assert.equal(llvmBuild.body.releaseTargetContract.backendLifecycle.shipEligible, false);
   assert.equal(llvmBuild.body.releaseTargetContract.artifactKind, "native-executable");
   assert.equal(llvmBuild.body.releaseTargetContract.selectedEmitter, "llvm-clang-exe");
   assert.equal(llvmBuild.body.releaseTargetContract.fallbackPolicy, "none");
   assert.equal(llvmBuild.body.releaseTargetContract.readiness.llvmArtifact, true);
   assert.equal(llvmBuild.body.releaseTargetContract.readiness.releaseEligible, false);
-  assert.equal(llvmBuild.body.releaseTargetContract.readiness.shipEligible, false);
   assert.equal(llvmBuild.body.releaseTargetContract.determinism.reproducible, false);
   assert.equal(llvmBuild.body.releaseTargetContract.determinism.repeatBuildHash, "external-toolchain-not-claimed");
   assert.equal(llvmBuild.body.objectBackend.backendFamily, "llvm");
@@ -6326,13 +6239,6 @@ assert.equal(directLlvmIrReadiness.targetReadiness.diagnostics[0].backendBlocker
 const directLlvmIrBuild = json(["build", "--json", "--emit", "llvm-ir", "--backend", "direct", "examples/add.graph", "--out", join(outDir, "add-direct.ll")], { allowFailure: true });
 assert.notEqual(directLlvmIrBuild.code, 0);
 assert.equal(directLlvmIrBuild.body.diagnostics[0].actual, "backend=direct emit=llvm-ir");
-const llvmShip = json(["ship", "--json", "--backend", "llvm", "examples/add.graph", "--out", join(outDir, "add-llvm-ship")], { allowFailure: true });
-assert.notEqual(llvmShip.code, 0);
-assert.equal(llvmShip.body.diagnostics[0].code, "BLD004");
-assert.match(llvmShip.body.diagnostics[0].message, /experimental/);
-assert.equal(llvmShip.body.diagnostics[0].backendBlocker.backend, "llvm");
-assert.equal(llvmShip.body.diagnostics[0].backendBlocker.stage, "buildability");
-assert.equal(llvmShip.body.diagnostics[0].backendBlocker.unsupportedFeature, "llvm ship");
 const llvmGraphCheck = json(["check", "--json", "--backend", "llvm", "examples/add.graph"]).body;
 assert.equal(llvmGraphCheck.ok, true);
 assert.equal(llvmGraphCheck.targetReadiness.ok, llvmHostReady);
@@ -6857,7 +6763,6 @@ for (const target of targets.targets) {
   assert.equal(target.backendFamilies.llvm.backendLifecycle.stability, "experimental");
   assert.equal(target.backendFamilies.llvm.backendLifecycle.defaultEligible, false);
   assert.equal(target.backendFamilies.llvm.backendLifecycle.releaseEligible, false);
-  assert.equal(target.backendFamilies.llvm.backendLifecycle.shipEligible, false);
 }
 assert.equal(hostTarget.backendFamilies.llvm.status, doctor.llvmToolchain.status);
 assert.equal(hostTarget.backendFamilies.llvm.buildable, doctor.llvmToolchain.nativeExecutable);

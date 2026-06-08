@@ -1,6 +1,8 @@
 ## CLI Reference
 
-`zero` checks, formats, runs, tests, builds, inspects, and repairs Zero programs.
+`zero` is a graph-first compiler CLI. The normal loop is to inspect the graph,
+patch the graph, check or test it, then run or build it. `.0` files remain
+human-readable projections; they are not the normal compiler input.
 
 Most commands accept the same input forms:
 
@@ -21,8 +23,7 @@ Most commands accept the same input forms:
 | `zero run [graph-input]` | Build and run a host executable with the selected backend. |
 | `zero test [graph-input]` | Run inline `test` blocks from graph-backed input. |
 | `zero fmt <source-input>` | Print formatted source projections. Add `--check` in CI. |
-| `zero build [graph-input]` | Emit an executable or object file. |
-| `zero ship [graph-input]` | Produce a release preview with checksums and metadata. |
+| `zero build [graph-input]` | Emit an executable, object file, or LLVM IR artifact. |
 | `zero inspect [graph-input]` | Inspect modules, symbols, capabilities, helper use, and ProgramGraph facts. |
 | `zero size [graph-input]` | Explain artifact size, retained helpers, and profile budgets. |
 | `zero doc [graph-input]` | Emit public API documentation facts. |
@@ -56,8 +57,18 @@ zero patch examples/hello.graph --expect-graph-hash graph:a7f7e6899a73f3b4 --op 
 zero patch --op help
 zero roundtrip examples/hello.graph
 zero size examples/point.graph
-zero ship --target linux-musl-x64 examples/hello.graph --out .zero/ship/hello
 zero doctor
+```
+
+## Build Artifacts
+
+Use `zero build` when you want an artifact. It is the ordinary command for
+native executables, object files, LLVM IR, host runs, cross-target checks, and
+CI artifact production:
+
+```sh
+zero build --emit exe --target linux-musl-x64 examples/hello.graph --out .zero/out/hello
+zero build --emit obj --target darwin-arm64 examples/direct-call-add.graph --out .zero/out/direct-call-add.o
 ```
 
 ## Run
@@ -126,20 +137,18 @@ another tool needs stable fields.
 | `zero verify-projection --json` | A no-write projection drift check that compares a valid repository graph store with checked-in `.0` projection bytes and reports import/export repair choices on drift. |
 | `zero merge --json` | Three-way repository graph store merge with base/left/right stores, durable-node conflict diagnostics, changed-path reporting, storage facts, and scale counts. |
 | `zero size --json` | Size, helper, runtime, profile, safety, and backend facts for a ProgramGraph artifact lowered through typed graph MIR, with graph identity. |
-| `zero build --json` | Build a ProgramGraph artifact through typed graph MIR when supported, including graph identity, selected `emit` kind, target, artifact path and size, safety facts, compiler cache facts, and graph-aware incremental invalidation. |
+| `zero build --json` | Artifact path, size, selected emit kind, selected toolchain, target triple, linker flavor, sysroot status, `graph` identity, `safetyFacts`, release target contract, compiler cache facts, graph-aware incremental invalidation, and runtime provider facts when a helper such as hosted HTTP is linked. |
 | `zero patch --json` | Checked graph edits with graph-hash preconditions, per-operation node/field results, the changed graph hash, and the saved source or artifact path. |
 | `zero roundtrip --json` | Graph artifact stability through direct graph lowering with `semanticStable`, lowering mode, original and roundtripped graph hashes, raw counts, normalized semantic counts, and optional ProgramGraph output. |
 | `zero dev --json` | A watch plan for changed source, manifest, package-lock, and generated-binding inputs. |
 | `zero dev --json --trace` | Adds phase timing, cache hit/miss facts, diagnostics passthrough, and `interfaceFingerprints`. |
 | `zero time --json` | Compiler phase timing plus `interfaceFingerprints` and incremental invalidation facts. |
-| `zero build --json` | Artifact path, size, selected `toolchain`, target triple, linker flavor, sysroot status, `graph` identity, `safetyFacts`, and runtime provider facts when a helper such as hosted HTTP is linked. |
 | `zero size --json` | `graph` identity, `profileSemantics`, `profileCatalog`, `profileBudget`, `safetyFacts`, `backendProfile`, `backendComparison`, `sizeBreakdown`, `retentionReasons`, and `optimizationHints`. |
-| `zero ship --json` | A release preview with artifact names, hashes, graph identity, safety facts, a checksum file, debug-symbol metadata, size report, and SBOM placeholder. |
 | `zero test --json` | Graph identity, test discovery mode, selected fixtures, result counts, output, and per-test locations/failures. |
 | `zero doctor --json` | Host checks plus `targetToolchains`, the per-target readiness matrix. |
 
 Graph-backed compiler commands for `zero check`, `zero build`, `zero size`,
-`zero ship`, `zero mem`, and `zero test` report a top-level `graph` object
+`zero mem`, and `zero test` report a top-level `graph` object
 with `artifact`, `canonicalSource`, `moduleIdentity`, `graphHash`, and
 `lowering`. Their compiler cache and incremental invalidation facts use
 `sourceKind: "program-graph"` and include the graph input that keyed the
@@ -148,7 +157,7 @@ compile. Planning and introspection commands such as `zero dev`, `zero time`,
 Derived ProgramGraph artifact commands report the same identity fields for the
 artifact being inspected or built.
 
-Repository graph build/run/test/size/ship/mem commands and standalone
+Repository graph build/run/test/size/mem commands and standalone
 `.program-graph` build/run/size commands can also report
 `lowering: "mapped-final-mir"`. That means the graph input was lowered to
 compact final MIR, written under
@@ -175,14 +184,12 @@ separate from target buildability. Top-level `ok` and `diagnostics` describe
 parse/typecheck results; `targetReadiness.ok`, `buildable`, and nested
 diagnostics describe predictable backend blockers without writing artifacts.
 
-Build and ship JSON include `releaseTargetContract`. It records artifact kind,
-object format, direct linker flavor, target libc mode, sysroot requirements,
-emitter readiness, target capability facts, and the repeat-build hash policy.
-Host builds that retain runtime-backed helpers can also include `objectBackend`
+Build JSON includes `releaseTargetContract`. It records artifact kind, object
+format, direct linker flavor, target libc mode, sysroot requirements, emitter
+readiness, target capability facts, and the repeat-build hash policy. Host
+builds that retain runtime-backed helpers can also include `objectBackend`
 linking facts such as retained runtime objects, provider libraries, and
 `httpRuntime` TLS/provider metadata.
-`zero ship --json` nests the same contract under
-`releasePreview.targetContract`.
 
 `.0` files are human-readable projection text. For graph-first packages,
 `zero.graph` is the agent write surface and normal compiler input; `.0` files
@@ -220,7 +227,7 @@ stdlib compile source.
 `zero verify-projection` checks the store against checked-in source projection
 bytes without writing files. Normal compiler commands validate and compile from
 the graph store, including target and package metadata, so graph packages can
-still be checked, built, run, tested, sized, shipped, and inspected when `.0`
+still be checked, built, run, tested, sized, and inspected when `.0`
 projections are missing. Commands report source projection state and do not
 rewrite `.0` files; run `zero verify-projection` when checked-in projection
 drift must fail the workflow. Packages without `zero.graph` are missing their
@@ -368,6 +375,9 @@ valid ProgramGraph patch text.
 
 ## Build Outputs
 
+`zero build` is the artifact path. Use it for daily development, CI, and
+deployment artifacts.
+
 | Emit mode | Command |
 | --- | --- |
 | Native executable | `zero build --emit exe --target linux-musl-x64 [graph-input]` |
@@ -379,17 +389,17 @@ Removed backend flags report `BLD003`. Use direct emitters; the removed C
 backend is not a compatibility path.
 
 `direct` is the default backend family. `llvm` is an explicit experimental
-backend family. It is not default eligible, release eligible, or accepted by
-`zero ship`; direct emitters remain the supported release path. Use
-`--backend llvm --emit llvm-ir` to write a `.ll` artifact. On a supported host
-with `clang`, `zero build --backend llvm --emit exe` and
+backend family. It is not default eligible or release eligible; direct emitters
+remain the supported release path. Use `--backend llvm --emit llvm-ir` to write
+a `.ll` artifact. On a supported host with `clang`,
+`zero build --backend llvm --emit exe` and
 `zero run --backend llvm` compile that IR into a native executable through an
 external LLVM toolchain plan. LLVM lowering currently supports scalar code,
 direct calls, branches, loops, primitive fixed arrays, byte views, readonly
 strings, and primitive `std.mem` helpers. Native LLVM object output,
-unsupported targets, unsupported MIR constructs, and `zero ship --backend llvm`
-report `BLD004` with `backendBlocker.backend: "llvm"` and do not fall back to
-direct emitters. If the LLVM artifact references Zero runtime helpers, the JSON
+unsupported targets, and unsupported MIR constructs report `BLD004` with
+`backendBlocker.backend: "llvm"` and do not fall back to direct emitters. If
+the LLVM artifact references Zero runtime helpers, the JSON
 build report lists the required runtime object in `objectBackend`.
 `zero size --json --backend llvm` reports LLVM size/profile metadata, including
 target triple, optimization level, retained runtime/helper facts, toolchain
@@ -446,7 +456,6 @@ zero check [--json] [--target <target>] [--emit exe|obj|llvm-ir] [--backend dire
 zero dev [--json] [--trace] [--target <target>] [graph-input]
 zero run [--backend direct|llvm|<direct-emitter>] [--target <target>] [--profile dev|release] [--out <file>] [graph-input] [-- args...]
 zero build [--emit exe|obj|llvm-ir] [--backend direct|llvm|<direct-emitter>] [--target <target>] [--profile dev|release] [--out <file>] [graph-input]
-zero ship [--json] [--target <target>] [--profile release-small|tiny|audit] [--out <file>] [graph-input]
 zero test [--json] [--filter <name>] [--target <target>] [--cc <path>] [--out <file>] [graph-input]
 zero fmt [--check] <source-input>
 zero init [--json] [--manifest toml|json] [--format text|binary] [--template cli|lib|package] [project-path]
