@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
-const outDir = ".zero/reliability-smoke";
+const outDir = join("/tmp", `zero-reliability-smoke-${process.pid}`);
 const zero = "bin/zero";
 const rows = [];
 
