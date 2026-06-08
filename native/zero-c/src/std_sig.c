@@ -1,5 +1,4 @@
 #include "std_sig.h"
-
 #include <stdio.h>
 #include <string.h>
 
@@ -348,6 +347,7 @@ const ZStdHelperInfo z_std_helpers[] = {
   {"std.http.writeJsonRequest", "Maybe<Span<u8>>", 3, {"MutSpan<u8>", "Span<u8>", "Span<u8>"}, {NULL}, "memory", "target-neutral", "writes caller request buffer", true, Z_STD_HELPER_KIND_TABLE},
   {"std.http.writeResponse", "Maybe<Span<u8>>", 3, {"MutSpan<u8>", "u16", "Span<u8>"}, {NULL}, "memory", "target-neutral", "writes caller response buffer", true, Z_STD_HELPER_KIND_TABLE},
   {"std.http.writeJsonResponse", "Maybe<Span<u8>>", 3, {"MutSpan<u8>", "u16", "Span<u8>"}, {NULL}, "memory", "target-neutral", "writes caller response buffer", true, Z_STD_HELPER_KIND_TABLE},
+  {"std.http.writeJsonOk", "Maybe<Span<u8>>", 2, {"MutSpan<u8>", "Span<u8>"}, {NULL}, "memory", "target-neutral", "writes caller response buffer with 200 JSON status", true, Z_STD_HELPER_KIND_TABLE}, {"std.http.writeJsonCreated", "Maybe<Span<u8>>", 2, {"MutSpan<u8>", "Span<u8>"}, {NULL}, "memory", "target-neutral", "writes caller response buffer with 201 JSON status", true, Z_STD_HELPER_KIND_TABLE}, {"std.http.writeJsonBadRequest", "Maybe<Span<u8>>", 2, {"MutSpan<u8>", "Span<u8>"}, {NULL}, "memory", "target-neutral", "writes caller response buffer with 400 JSON status", true, Z_STD_HELPER_KIND_TABLE}, {"std.http.writeJsonNotFound", "Maybe<Span<u8>>", 2, {"MutSpan<u8>", "Span<u8>"}, {NULL}, "memory", "target-neutral", "writes caller response buffer with 404 JSON status", true, Z_STD_HELPER_KIND_TABLE}, {"std.http.writeJsonMethodNotAllowed", "Maybe<Span<u8>>", 2, {"MutSpan<u8>", "Span<u8>"}, {NULL}, "memory", "target-neutral", "writes caller response buffer with 405 JSON status", true, Z_STD_HELPER_KIND_TABLE},
   {"std.http.requestMethodName", "Maybe<Span<u8>>", 1, {"Span<u8>"}, {NULL}, "parse", "target-neutral", "borrows request envelope", true, Z_STD_HELPER_KIND_TABLE},
   {"std.http.requestTarget", "Maybe<Span<u8>>", 1, {"Span<u8>"}, {NULL}, "parse", "target-neutral", "borrows request envelope", true, Z_STD_HELPER_KIND_TABLE},
   {"std.http.requestPath", "Maybe<Span<u8>>", 1, {"Span<u8>"}, {NULL}, "parse", "target-neutral", "borrows request envelope", true, Z_STD_HELPER_KIND_TABLE},
@@ -356,9 +356,9 @@ const ZStdHelperInfo z_std_helpers[] = {
   {"std.http.requestHeader", "Maybe<Span<u8>>", 2, {"Span<u8>", "Span<u8>"}, {NULL}, "parse", "target-neutral", "borrows request envelope", true, Z_STD_HELPER_KIND_TABLE},
   {"std.http.requestBody", "Maybe<Span<u8>>", 1, {"Span<u8>"}, {NULL}, "parse", "target-neutral", "borrows request envelope", true, Z_STD_HELPER_KIND_TABLE},
   {"std.http.requestBodyWithin", "Maybe<Span<u8>>", 2, {"Span<u8>", "usize"}, {NULL}, "parse", "target-neutral", "borrows request envelope", true, Z_STD_HELPER_KIND_TABLE},
+  {"std.http.requestHasJsonContentType", "Bool", 1, {"Span<u8>"}, {NULL}, "parse", "target-neutral", "checks for application/json content type", true, Z_STD_HELPER_KIND_TABLE}, {"std.http.requestJsonBodyWithin", "Maybe<Span<u8>>", 2, {"Span<u8>", "usize"}, {NULL}, "parse", "target-neutral", "borrows validated JSON request body within size limit", true, Z_STD_HELPER_KIND_TABLE},
   {"std.http.requestMatches", "Bool", 3, {"Span<u8>", "Span<u8>", "Span<u8>"}, {NULL}, "parse", "target-neutral", "borrows request envelope", true, Z_STD_HELPER_KIND_TABLE},
-  {"std.http.headerBytes", "Maybe<Span<u8>>", 2, {"Span<u8>", "HttpHeaderValue"}, {NULL}, "memory", "host-runtime", "borrows response header value bytes", true, Z_STD_HELPER_KIND_TABLE},
-  {"std.http.responseBody", "Maybe<Span<u8>>", 2, {"Span<u8>", "HttpResult"}, {NULL}, "memory", "host-runtime", "borrows response body bytes", true, Z_STD_HELPER_KIND_TABLE},
+  {"std.http.headerBytes", "Maybe<Span<u8>>", 2, {"Span<u8>", "HttpHeaderValue"}, {NULL}, "memory", "host-runtime", "borrows response header value bytes", true, Z_STD_HELPER_KIND_TABLE}, {"std.http.responseBody", "Maybe<Span<u8>>", 2, {"Span<u8>", "HttpResult"}, {NULL}, "memory", "host-runtime", "borrows response body bytes", true, Z_STD_HELPER_KIND_TABLE}, {"std.http.responseBodyBytes", "Maybe<Span<u8>>", 1, {"Span<u8>"}, {NULL}, "memory", "target-neutral", "borrows body bytes from a local response envelope", true, Z_STD_HELPER_KIND_TABLE},
   {"std.fs.host", "Fs", 0, {NULL}, {NULL}, "fs", "host", "no allocation", true, Z_STD_HELPER_KIND_TABLE},
   {"std.fs.open", "Maybe<owned<File>>", 2, {"Fs", "String"}, {NULL}, "fs", "host", "owned file handle", true, Z_STD_HELPER_KIND_TABLE},
   {"std.fs.openOrRaise", "owned<File>", 2, {"Fs", "String"}, {"NotFound", "TooLarge", "Io"}, "fs", "host", "owned file handle", true, Z_STD_HELPER_KIND_TABLE},

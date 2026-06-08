@@ -4545,7 +4545,7 @@ bool z_program_graph_prepare_repository_store_mir_input(const char *store_path, 
   if (!ir) return false;
   ZProgramGraphStore store;
   if (!z_program_graph_store_load_path(store_path, &store, diag)) return false;
-
+  if (!z_program_graph_merge_embedded_std_graph_modules(&store.graph, input, diag)) { z_program_graph_store_free(&store); return false; }
   z_program_graph_seed_source_metadata(input, &store.graph);
   if (input && !input->package_root && store.root) input->package_root = z_strdup(store.root);
   if (!require_checked_program) z_program_graph_seed_artifact_source_paths(input, &store.graph, store_path);

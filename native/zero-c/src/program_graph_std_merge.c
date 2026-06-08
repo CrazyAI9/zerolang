@@ -1,4 +1,5 @@
 #include "program_graph_build.h"
+#include "program_graph_std_deps.h"
 #include "std_source.h"
 
 #include <stdlib.h>
@@ -6,11 +7,6 @@
 
 static bool std_merge_text_eq(const char *left, const char *right) {
   return strcmp(left ? left : "", right ? right : "") == 0;
-}
-
-static bool std_merge_starts_with(const char *text, const char *prefix) {
-  size_t len = prefix ? strlen(prefix) : 0;
-  return text && prefix && strncmp(text, prefix, len) == 0;
 }
 
 static char *std_merge_strdup(const char *text) { return text ? z_strdup(text) : NULL; }
@@ -160,6 +156,12 @@ static void std_merge_free_edge_fields(ZProgramGraphEdge *edge) {
   *edge = (ZProgramGraphEdge){0};
 }
 
+static void std_merge_replace_text(char **field, const char *value) {
+  if (!field || std_merge_text_eq(*field, value)) return;
+  free(*field);
+  *field = std_merge_strdup(value);
+}
+
 static bool std_merge_id_in_list(char **ids, size_t len, const char *id) {
   for (size_t i = 0; id && i < len; i++) {
     if (std_merge_text_eq(ids[i], id)) return true;
@@ -218,6 +220,17 @@ static void std_merge_remove_module_path_nodes(ZProgramGraph *graph, const ZStdS
   for (size_t i = 0; i < removed_len; i++) free(removed_ids[i]);
   free(removed_ids);
   free(remove);
+}
+
+static void std_merge_canonicalize_module_root(ZProgramGraph *graph, const ZStdSourceModule *module) {
+  for (size_t i = 0; graph && module && i < graph->node_len; i++) {
+    ZProgramGraphNode *node = &graph->nodes[i];
+    if (node->kind != Z_PROGRAM_GRAPH_NODE_MODULE) continue;
+    if (!std_merge_path_matches_module(node->path, module)) continue;
+    std_merge_replace_text(&node->name, module->module);
+    std_merge_replace_text(&node->path, module->path);
+    return;
+  }
 }
 
 static void std_merge_append_node_copy(ZProgramGraph *graph, const ZProgramGraphNode *node) {
@@ -324,27 +337,33 @@ static bool std_merge_module_name_seen(char **items, size_t len, const char *mod
 
 bool z_program_graph_merge_embedded_std_graph_modules(ZProgramGraph *graph, const SourceInput *input, ZDiag *diag) {
   bool merged = false;
-  char **merged_modules = z_checked_calloc(input && input->module_count ? input->module_count : 1, sizeof(char *));
+  char **merged_modules = z_checked_calloc(z_std_source_module_count() ? z_std_source_module_count() : 1, sizeof(char *));
   size_t merged_module_len = 0;
-  for (size_t i = 0; input && i < input->module_count; i++) {
-    const char *module_name = input->module_names[i];
-    if (!std_merge_starts_with(module_name, "std.")) continue;
-    const ZStdSourceModule *module = z_std_source_module_for_name(module_name);
-    if (!module || !std_merge_source_imports_module(input, module->module)) continue;
-    if (std_merge_module_name_seen(merged_modules, merged_module_len, module->module)) continue;
-    merged_modules[merged_module_len++] = std_merge_strdup(module->module);
-    std_merge_remove_module_path_nodes(graph, module);
-    ZProgramGraph module_graph = {0};
-    bool ok = z_std_source_module_load_graph(module, &module_graph, diag);
-    if (!ok) {
-      if (diag && !diag->path) diag->path = module->path;
-      for (size_t j = 0; j < merged_module_len; j++) free(merged_modules[j]);
-      free(merged_modules);
-      return false;
+  bool pass_merged = true;
+  while (pass_merged) {
+    pass_merged = false;
+    for (size_t i = 0; i < z_std_source_module_count(); i++) {
+      const ZStdSourceModule *module = z_std_source_module_at(i);
+      if (!module) continue;
+      if (!std_merge_source_imports_module(input, module->module) &&
+          !z_program_graph_references_std_module(graph, module->module)) continue;
+      if (std_merge_module_name_seen(merged_modules, merged_module_len, module->module)) continue;
+      merged_modules[merged_module_len++] = std_merge_strdup(module->module);
+      std_merge_remove_module_path_nodes(graph, module);
+      ZProgramGraph module_graph = {0};
+      bool ok = z_std_source_module_load_graph(module, &module_graph, diag);
+      if (!ok) {
+        if (diag && !diag->path) diag->path = module->path;
+        for (size_t j = 0; j < merged_module_len; j++) free(merged_modules[j]);
+        free(merged_modules);
+        return false;
+      }
+      std_merge_canonicalize_module_root(&module_graph, module);
+      std_merge_graph(graph, &module_graph);
+      z_program_graph_free(&module_graph);
+      merged = true;
+      pass_merged = true;
     }
-    std_merge_graph(graph, &module_graph);
-    z_program_graph_free(&module_graph);
-    merged = true;
   }
   for (size_t i = 0; i < merged_module_len; i++) free(merged_modules[i]);
   free(merged_modules);

@@ -422,6 +422,11 @@ writeRequest(arg0: MutSpan<u8>, arg1: Span<u8>, arg2: Span<u8>) -> Maybe<Span<u8
 writeJsonRequest(arg0: MutSpan<u8>, arg1: Span<u8>, arg2: Span<u8>) -> Maybe<Span<u8>>
 writeResponse(arg0: MutSpan<u8>, arg1: u16, arg2: Span<u8>) -> Maybe<Span<u8>>
 writeJsonResponse(arg0: MutSpan<u8>, arg1: u16, arg2: Span<u8>) -> Maybe<Span<u8>>
+writeJsonOk(arg0: MutSpan<u8>, arg1: Span<u8>) -> Maybe<Span<u8>>
+writeJsonCreated(arg0: MutSpan<u8>, arg1: Span<u8>) -> Maybe<Span<u8>>
+writeJsonBadRequest(arg0: MutSpan<u8>, arg1: Span<u8>) -> Maybe<Span<u8>>
+writeJsonNotFound(arg0: MutSpan<u8>, arg1: Span<u8>) -> Maybe<Span<u8>>
+writeJsonMethodNotAllowed(arg0: MutSpan<u8>, arg1: Span<u8>) -> Maybe<Span<u8>>
 requestMethodName(arg0: Span<u8>) -> Maybe<Span<u8>>
 requestTarget(arg0: Span<u8>) -> Maybe<Span<u8>>
 requestPath(arg0: Span<u8>) -> Maybe<Span<u8>>
@@ -430,9 +435,12 @@ requestQueryValue(arg0: Span<u8>, arg1: Span<u8>) -> Maybe<Span<u8>>
 requestHeader(arg0: Span<u8>, arg1: Span<u8>) -> Maybe<Span<u8>>
 requestBody(arg0: Span<u8>) -> Maybe<Span<u8>>
 requestBodyWithin(arg0: Span<u8>, arg1: usize) -> Maybe<Span<u8>>
+requestHasJsonContentType(arg0: Span<u8>) -> Bool
+requestJsonBodyWithin(arg0: Span<u8>, arg1: usize) -> Maybe<Span<u8>>
 requestMatches(arg0: Span<u8>, arg1: Span<u8>, arg2: Span<u8>) -> Bool
 headerBytes(arg0: Span<u8>, arg1: HttpHeaderValue) -> Maybe<Span<u8>>
 responseBody(arg0: Span<u8>, arg1: HttpResult) -> Maybe<Span<u8>>
+responseBodyBytes(arg0: Span<u8>) -> Maybe<Span<u8>>
 ```
 
 ### std.io
@@ -802,18 +810,23 @@ pub fn main() -> Void {
 ```
 
 For API-style handlers, parse the request envelope with `std.http.requestMatches`,
-`std.http.requestQueryValue`, `std.http.requestHeader`, and
-`std.http.requestBodyWithin`, then write responses with
-`std.http.writeJsonResponse`:
+`std.http.requestQueryValue`, `std.http.requestHeader`,
+`std.http.requestHasJsonContentType`, and `std.http.requestJsonBodyWithin`.
+Prefer the status-specific JSON writers for common responses:
+`std.http.writeJsonOk`, `std.http.writeJsonCreated`,
+`std.http.writeJsonBadRequest`, `std.http.writeJsonNotFound`, and
+`std.http.writeJsonMethodNotAllowed`. Use `std.http.responseBodyBytes` to read
+the body from a response envelope produced locally by `writeResponse` or a JSON
+writer.
 
 ```zero
 pub fn main() -> Void {
     let request: Span<u8> = "POST /users?tenant=demo\ncontent-type: application/json\n\n{\"id\":7}"
     var response_buf: [192]u8 = [0_u8; 192]
-    let body: Maybe<Span<u8>> = std.http.requestBodyWithin(request, 64)
+    let body: Maybe<Span<u8>> = std.http.requestJsonBodyWithin(request, 64)
     let tenant: Maybe<Span<u8>> = std.http.requestQueryValue(request, "tenant")
     if std.http.requestMatches(request, "POST", "/users") && tenant.has && body.has {
-        let response: Maybe<Span<u8>> = std.http.writeJsonResponse(response_buf, 201_u16, "{\"created\":true}")
+        let response: Maybe<Span<u8>> = std.http.writeJsonCreated(response_buf, "{\"created\":true}")
         expect response.has
     }
 }

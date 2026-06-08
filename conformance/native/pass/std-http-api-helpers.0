@@ -50,6 +50,23 @@ export c fn main() -> i32 {
     if !std.http.requestMatches(request.value, "POST", "/api") || std.http.requestMatches(request.value, "GET", "/api") {
         return 30
     }
+    if !std.http.requestHasJsonContentType(request.value) {
+        return 35
+    }
+    let json_body: Maybe<Span<u8>> = std.http.requestJsonBodyWithin(request.value, 16)
+    let too_large_json_body: Maybe<Span<u8>> = std.http.requestJsonBodyWithin(request.value, 4)
+    if !json_body.has || !std.mem.eql(json_body.value, "{\"ping\":1}") || too_large_json_body.has {
+        return 36
+    }
+    let upper_json_request: Span<u8> = "POST /api\ncontent-type: Application/JSON; charset=utf-8\n\n{\"ok\":true}"
+    if !std.http.requestHasJsonContentType(upper_json_request) {
+        return 37
+    }
+    let invalid_json_request: Span<u8> = "POST /api\ncontent-type: application/json\n\nnot-json"
+    let invalid_json_body: Maybe<Span<u8>> = std.http.requestJsonBodyWithin(invalid_json_request, 64)
+    if invalid_json_body.has {
+        return 38
+    }
     var get_buf: [64]u8 = [0_u8; 64]
     let get_request: Maybe<Span<u8>> = std.http.writeRequest(get_buf, "GET /health", "")
     if !get_request.has || !std.mem.eql(get_request.value, "GET /health\n\n") {
@@ -70,7 +87,7 @@ export c fn main() -> i32 {
         return 34
     }
     var response_buf: [256]u8 = [0_u8; 256]
-    let response: Maybe<Span<u8>> = std.http.writeJsonResponse(response_buf, 201_u16, "{\"ok\":true}")
+    let response: Maybe<Span<u8>> = std.http.writeJsonCreated(response_buf, "{\"ok\":true}")
     if !response.has {
         return 24
     }
@@ -81,6 +98,30 @@ export c fn main() -> i32 {
     }
     if std.http.responseBodyOffset(response.value) >= std.mem.len(response.value) {
         return 26
+    }
+    let response_body: Maybe<Span<u8>> = std.http.responseBodyBytes(response.value)
+    if !response_body.has || !std.mem.eql(response_body.value, "{\"ok\":true}") {
+        return 39
+    }
+    var ok_buf: [128]u8 = [0_u8; 128]
+    let ok_response: Maybe<Span<u8>> = std.http.writeJsonOk(ok_buf, "{\"ok\":true}")
+    if !ok_response.has || !std.str.contains(ok_response.value, "200 OK") {
+        return 40
+    }
+    var bad_buf: [128]u8 = [0_u8; 128]
+    let bad_response: Maybe<Span<u8>> = std.http.writeJsonBadRequest(bad_buf, "{\"error\":\"bad\"}")
+    if !bad_response.has || !std.str.contains(bad_response.value, "400 Bad Request") {
+        return 41
+    }
+    var not_found_buf: [128]u8 = [0_u8; 128]
+    let not_found_response: Maybe<Span<u8>> = std.http.writeJsonNotFound(not_found_buf, "{\"error\":\"not_found\"}")
+    if !not_found_response.has || !std.str.contains(not_found_response.value, "404 Not Found") {
+        return 42
+    }
+    var method_buf: [128]u8 = [0_u8; 128]
+    let method_response: Maybe<Span<u8>> = std.http.writeJsonMethodNotAllowed(method_buf, "{\"error\":\"method_not_allowed\"}")
+    if !method_response.has || !std.str.contains(method_response.value, "405 Method Not Allowed") {
+        return 43
     }
     var plain_response_buf: [128]u8 = [0_u8; 128]
     let plain_response: Maybe<Span<u8>> = std.http.writeResponse(plain_response_buf, 204_u16, "")

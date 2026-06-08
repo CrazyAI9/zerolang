@@ -36,6 +36,7 @@ try {
     "native/zero-c/src/program_graph_store_binary.c",
     "native/zero-c/src/program_graph_store_prune.c",
     "native/zero-c/src/program_graph_store_tables.c",
+    "native/zero-c/src/program_graph_std_deps.c",
     "native/zero-c/src/program_graph_std_merge.c",
     "native/zero-c/src/program_graph_validate.c",
     "native/zero-c/src/program_graph_view.c",

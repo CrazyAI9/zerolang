@@ -3302,8 +3302,8 @@ const programGraphCrmApiCheckJson = JSON.parse((await execFileAsync(zero, ["chec
 const programGraphCrmApiStatusJson = JSON.parse((await execFileAsync(zero, ["status", "--json", "examples/crm-api"])).stdout);
 const programGraphCrmApiBuildJson = JSON.parse((await execFileAsync(zero, ["build", "--json", "--out", programGraphCrmApiBuildPath, "examples/crm-api"])).stdout);
 const programGraphCrmApiHealth = await execFileAsync(programGraphCrmApiBuildPath, ["GET /health\n\n"]);
-const programGraphCrmApiAccounts = await execFileAsync(programGraphCrmApiBuildPath, ["GET /crm/accounts\n\n"]);
-const programGraphCrmApiDealUpdate = await execFileAsync(programGraphCrmApiBuildPath, ["POST /crm/deals/42/update\n\n{\"stage\":\"won\"}"]);
+const programGraphCrmApiAccounts = await execFileAsync(programGraphCrmApiBuildPath, ["GET /crm/accounts?tenant=demo\n\n"]);
+const programGraphCrmApiDealUpdate = await execFileAsync(programGraphCrmApiBuildPath, ["POST /crm/deals/42/update\ncontent-type: application/json\n\n{\"stage\":\"won\"}"]);
 const programGraphCrmApiMissing = await execFileAsync(programGraphCrmApiBuildPath, ["GET /missing\n\n"]);
 const programGraphAuthoringInit = JSON.parse((await execFileAsync(zero, ["init", "--json", programGraphAuthoringPackage])).stdout);
 const programGraphAuthoringProjectionExistsAfterInit = await fileExists(`${programGraphAuthoringPackage}/src/main.0`);

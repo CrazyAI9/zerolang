@@ -1511,6 +1511,7 @@ static const char *zero_http_status_reason(uint32_t status) {
     case 401: return "Unauthorized";
     case 403: return "Forbidden";
     case 404: return "Not Found";
+    case 405: return "Method Not Allowed";
     case 409: return "Conflict";
     case 422: return "Unprocessable Content";
     case 429: return "Too Many Requests";
