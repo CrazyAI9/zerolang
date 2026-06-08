@@ -37,7 +37,7 @@ const fileBudgets = {
   "native/zero-c/src/buildability_internal.h": { maxLines: 40, maxStrcmpCalls: 0 },
   "native/zero-c/src/buildability_context.c": { maxLines: 215, maxStrcmpCalls: 1 },
   "native/zero-c/src/buildability_targets.c": { maxLines: 190, maxStrcmpCalls: 0 },
-  "native/zero-c/src/buildability_value_targets.c": { maxLines: 540, maxStrcmpCalls: 0 },
+  "native/zero-c/src/buildability_value_targets.c": { maxLines: 560, maxStrcmpCalls: 0 },
   "native/zero-c/src/c_import.c": { maxLines: 750, maxStrcmpCalls: 51 },
   "native/zero-c/src/c_import.h": { maxLines: 40, maxStrcmpCalls: 0 },
   "native/zero-c/src/call_resolve.c": { maxLines: 200, maxStrcmpCalls: 2 },
@@ -206,7 +206,6 @@ const knownLargeFunctionLimits = new Map([
   ["native/zero-c/src/program_graph_mir.c|static bool ir_graph_lower_stmt(const ZProgramGraph *graph, IrProgram *ir, IrFunction *fun, const ZProgramGraphNode *stmt, IrInstr **out_items, size_t *out_len, size_t *out_cap, bool *saw_return) {", 220],
   ["native/zero-c/src/emit_elf64.c|static bool elf_emit_str_runtime_value(ZBuf *code, const IrFunction *fun, const IrValue *value, ElfEmitContext *ctx, ZDiag *diag) {", 159],
   ["native/zero-c/src/emit_macho_x64.c|static bool machx64_emit_str_runtime_value(ZBuf *text, const IrFunction *fun, const IrValue *value, MachOEmitContext *ctx, ZDiag *diag) {", 159],
-  ["native/zero-c/src/buildability_value_targets.c|bool z_build_check_target_value(const ZBuildability *ctx, const IrFunction *fun, const IrValue *value, unsigned scratch_slot, bool *skip_left, unsigned *right_slot, ZDiag *diag) {", 152],
   ["native/zero-c/src/mir_verify.c|static bool mir_verify_math_runtime_contract(IrProgram *ir, const IrValue *value, MirHelperRequirements *requirements) {", 142],
   ["native/zero-c/src/mir_verify.c|static bool mir_verify_direct_value_kind_contract(IrProgram *ir, const IrFunction *fun, const MirVerifierState *state, const IrValue *value, MirHelperRequirements *requirements) {", 146],
   ["native/zero-c/src/emit_llvm_ir.c|static bool llvm_emit_value(LlvmEmit *emit, const IrValue *value, LlvmValue *out, ZDiag *diag) {", 129],
@@ -1096,7 +1095,10 @@ function budgetViolations(files, allLargeFunctions, stdlib, backendFormats, prog
       !backendFormats.buildability.sharedHostedRuntimePredicate ||
       !backendFormats.buildability.sharedJsonPredicates ||
       !backendFormats.buildability.sharedByteRuntimePredicate ||
-      backendFormats.buildability.dispatcherLines > 8) {
+      backendFormats.buildability.dispatcherLines > 8 ||
+      !backendFormats.buildability.targetValueBackendSplit ||
+      !backendFormats.buildability.targetValueSharedPairCheck ||
+      backendFormats.buildability.targetValueDispatcherLines > 26) {
     violations.push({
       kind: "buildability-value-support-regression",
       buildability: backendFormats.buildability,
@@ -1290,6 +1292,9 @@ const buildabilitySource = cCodeText(buildabilityRaw);
 const buildabilityValueSupportRaw = texts.get("native/zero-c/src/buildability_value_support.c") ?? "";
 const buildabilityValueSupportSource = cCodeText(buildabilityValueSupportRaw);
 const buildValueSupportedBody = cBlock(buildabilityValueSupportRaw, "bool z_build_value_supported(const ZBuildability *ctx");
+const buildabilityValueTargetsRaw = texts.get("native/zero-c/src/buildability_value_targets.c") ?? "";
+const buildabilityValueTargetsSource = cCodeText(buildabilityValueTargetsRaw);
+const buildTargetValueBody = cBlock(buildabilityValueTargetsRaw, "bool z_build_check_target_value(const ZBuildability *ctx");
 
 const stdHelpers = parseStdHelpers(stdSig);
 const checkerReturnTypeInfo = parseCheckerReturnTypes(checker);
@@ -1505,6 +1510,11 @@ const backendFormats = {
       /\bbuild_backend_supports_json_validate\s*\(/.test(buildabilityValueSupportSource),
     sharedByteRuntimePredicate: /\bbuild_backend_has_byte_runtime\s*\(/.test(buildabilityValueSupportSource),
     dispatcherLines: lineCount(buildValueSupportedBody),
+    targetValueBackendSplit: /\bbuild_check_linear_byte_view_target\s*\(/.test(buildabilityValueTargetsSource) &&
+      /\bbuild_check_macho64_target_value\s*\(/.test(buildabilityValueTargetsSource) &&
+      /\bbuild_aarch64_byte_operation\s*\(/.test(buildabilityValueTargetsSource),
+    targetValueSharedPairCheck: /\bbuild_check_two_byte_views\s*\(/.test(buildabilityValueTargetsSource),
+    targetValueDispatcherLines: lineCount(buildTargetValueBody),
   },
   directTarget: {
     ruleMatrix: /\bdirect_backend_rules\[\]/.test(targetBackendSource),
