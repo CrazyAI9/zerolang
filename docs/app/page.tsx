@@ -1,7 +1,8 @@
 import { ArrowRightIcon, LogoIcon } from "@/components/icons";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { ButtonLink } from "@/components/button";
 import { InstallCopy } from "@/components/install-copy";
+import { HomeChatViewport } from "@/components/home-chat-viewport";
 import { ChatToolRuns } from "@/components/home-chat-tools";
 import { highlight } from "@/lib/highlight";
 import { pageMetadata } from "@/lib/page-metadata";
@@ -47,7 +48,7 @@ const ARCHITECTURE_STEPS = [
   },
   {
     label: "Agent",
-    title: "Reads graph facts",
+    title: "Uses Graph",
     body: "Symbols, calls, types, effects, node IDs, and graph hashes",
   },
   {
@@ -193,35 +194,50 @@ function ArchitectureDiagram() {
 
 /* ─── Chat mockup ─────────────────────────────────── */
 
+function chatRevealStyle(delay: string): CSSProperties {
+  return { "--chat-delay": delay } as CSSProperties;
+}
+
 function ChatMockup() {
   return (
-    <Panel className="bg-bg shadow-card">
-      <WindowBar title="your agent" />
+    <HomeChatViewport>
+      <Panel className="home-chat-shell bg-bg shadow-card">
+        <WindowBar title="your agent" />
 
-      <div className="flex flex-col gap-5 p-5 sm:p-6">
-        <div className="flex justify-end">
-          <div className="max-w-[82%] rounded-2xl rounded-br-md bg-fg px-4 py-2.5 text-[0.875rem] leading-relaxed text-bg">
+        <div className="flex flex-col gap-5 p-5 sm:p-6">
+          <div className="home-chat-reveal flex justify-end" style={chatRevealStyle("80ms")}>
+            <div className="max-w-[82%] rounded-2xl rounded-br-md bg-fg px-4 py-2.5 text-[0.875rem] leading-relaxed text-bg">
 build hello world in zerolang
+            </div>
+          </div>
+
+          <div
+            className="home-chat-reveal max-w-[92%] text-[0.875rem] leading-[1.65] text-fg"
+            style={chatRevealStyle("360ms")}
+          >
+            I&apos;ll set up the package, patch the graph, and run it.
+          </div>
+
+          <ChatToolRuns startDelayMs={640} />
+
+          <div
+            className="home-chat-reveal max-w-[92%] text-[0.875rem] leading-[1.65] text-fg"
+            style={chatRevealStyle("1320ms")}
+          >
+            Done. <code className="home-chat-code">zero.graph</code> validated at{" "}
+            <code className="home-chat-code">graph:a7f7e689</code> with symbol{" "}
+            <code className="home-chat-code">main</code>. It prints:
+          </div>
+
+          <div
+            className="home-chat-reveal home-chat-output rounded-lg border border-border bg-code-bg px-4 py-3 font-mono text-[0.8125rem] text-code-fg"
+            style={chatRevealStyle("1520ms")}
+          >
+            hello from zero
           </div>
         </div>
-
-        <div className="max-w-[92%] text-[0.875rem] leading-[1.65] text-fg">
-          I&apos;ll set up the package, patch the graph, and run it.
-        </div>
-
-        <ChatToolRuns />
-
-        <div className="max-w-[92%] text-[0.875rem] leading-[1.65] text-fg">
-          Done. <code className="rounded bg-surface-muted px-1.5 py-0.5 font-mono text-[0.78125rem] text-fg">zero.graph</code> validated at{" "}
-          <code className="rounded bg-surface-muted px-1.5 py-0.5 font-mono text-[0.78125rem] text-fg">graph:a7f7e689</code> with symbol{" "}
-          <code className="rounded bg-surface-muted px-1.5 py-0.5 font-mono text-[0.78125rem] text-fg">main</code>. It prints:
-        </div>
-
-        <div className="rounded-lg border border-border bg-code-bg px-4 py-3 font-mono text-[0.8125rem] text-code-fg">
-          hello from zero
-        </div>
-      </div>
-    </Panel>
+      </Panel>
+    </HomeChatViewport>
   );
 }
 
@@ -318,7 +334,7 @@ export default function HomePage() {
         {/* 04 — Constraints */}
         <Section>
           <SectionHeader
-            title="Still built for runtime constraints."
+            title="Built for runtime constraints."
             description="The graph model should reduce guessing without relaxing the runtime goals. Zerolang still aims to stay small, fast, explicit, and dependency-free."
           />
           <VisualGlow>

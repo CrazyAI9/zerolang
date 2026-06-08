@@ -1,6 +1,8 @@
 "use client";
 
+import type { CSSProperties } from "react";
 import { useState } from "react";
+import { highlight } from "@/lib/highlight";
 
 const STEPS = [
   {
@@ -17,27 +19,27 @@ const STEPS = [
   },
 ];
 
-function ChevronIcon({ open }: { open: boolean }) {
+function TerminalIcon() {
   return (
     <svg
-      width="12"
-      height="12"
-      viewBox="0 0 16 16"
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
       fill="none"
-      className={`shrink-0 text-muted transition-transform duration-200 ${open ? "rotate-90" : ""}`}
+      className="shrink-0 text-muted"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
     >
-      <path
-        d="M6 4l4 4-4 4"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
+      <polyline points="4 17 10 11 4 5" />
+      <line x1="12" y1="19" x2="20" y2="19" />
     </svg>
   );
 }
 
-export function ChatToolRuns() {
+export function ChatToolRuns({ startDelayMs = 0 }: { startDelayMs?: number }) {
   const [open, setOpen] = useState<number[]>([]);
 
   const toggle = (i: number) =>
@@ -50,7 +52,8 @@ export function ChatToolRuns() {
         return (
           <div
             key={step.command}
-            className="overflow-hidden rounded-lg border border-border bg-surface"
+            className="home-tool-row overflow-hidden rounded-lg border border-border bg-surface"
+            style={{ "--chat-delay": `${startDelayMs + i * 180}ms` } as CSSProperties}
           >
             <button
               type="button"
@@ -58,14 +61,13 @@ export function ChatToolRuns() {
               aria-expanded={isOpen}
               className="flex w-full cursor-pointer items-center gap-2 px-3 py-2 font-mono text-[0.78125rem] leading-relaxed text-muted transition-colors hover:bg-surface-muted"
             >
-              <ChevronIcon open={isOpen} />
+              <TerminalIcon />
               <span
                 className={`min-w-0 flex-1 text-left text-fg/80 ${
                   isOpen ? "whitespace-pre-wrap break-all" : "truncate"
                 }`}
-              >
-                {step.command}
-              </span>
+                dangerouslySetInnerHTML={{ __html: highlight(step.command, "sh") }}
+              />
             </button>
             {isOpen && (
               <pre className="m-0 overflow-x-auto border-t border-border/50 bg-bg px-3 py-2.5 text-[0.78125rem] leading-relaxed text-fg/70">

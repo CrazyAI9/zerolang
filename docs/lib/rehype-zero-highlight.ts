@@ -41,7 +41,7 @@ function highlightToHast(code: string, language: string): HastNode[] {
   for (let li = 0; li < parts.length; li++) {
     const lineHtml = parts[li];
     const tokens = [];
-    const tokenRegex = /<span class="hl-(\w+)">([\s\S]*?)<\/span>|([^<]+)/g;
+    const tokenRegex = /<span class="hl-([A-Za-z0-9_-]+)(?:\s+[^"]*)?">([\s\S]*?)<\/span>|([^<]+)/g;
     let match: RegExpExecArray | null;
     while ((match = tokenRegex.exec(lineHtml)) !== null) {
       if (match[1]) {
@@ -104,7 +104,7 @@ export function rehypeZeroHighlight(): (tree: HastNode) => void {
       (codeNode) => {
         const text = getNodeText(codeNode).replace(/\n$/, "");
         const language = highlightLanguage(getCodeLanguage(codeNode), text);
-        if (!language) return;
+        if (!language || language === "bash") return;
         codeNode.children = highlightToHast(text, language);
         codeNode.properties = {
           ...codeNode.properties,

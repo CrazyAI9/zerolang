@@ -15,20 +15,26 @@ export PATH="$HOME/.zero/bin:$PATH"
 zero --version
 ```
 
+Then install the agent bootstrap skill:
+
+```sh
+npx skills add vercel-labs/zerolang
+```
+
 Use the installed `zero` command in public examples. If you are developing Zero
 itself, follow the repository contributor notes for checkout-local compiler
 work.
 
-## Expected First Conversation
+## Hello World
 
-Start by asking for the behavior in normal language:
+Start by asking:
 
 ```json-render
 {
   "messages": [
     {
       "role": "user",
-      "text": "make hello world here"
+      "text": "build hello world for zerolang"
     },
     {
       "role": "assistant",

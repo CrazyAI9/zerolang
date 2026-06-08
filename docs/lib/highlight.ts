@@ -30,7 +30,8 @@ const GRAMMARS: Record<string, Grammar> = {
     ["comment", /#.*/],
     ["variable", /\$\{?[A-Za-z_][A-Za-z0-9_]*\}?/],
     ["key", /--?[A-Za-z0-9][A-Za-z0-9-]*(?:=[^\s\\]+)?/],
-    ["keyword", /\b(?:if|then|else|elif|fi|for|while|do|done|case|esac|function|export|local|readonly|return|exit|set|unset|cd|zero|pnpm|npm|git|curl|make)\b/],
+    ["keyword", /\b(?:if|then|else|elif|fi|for|while|do|done|case|esac|function|export|local|readonly|return|exit|set|unset)\b/],
+    ["function", /(?<![A-Za-z0-9_./-])(?:zero|pnpm|npm|git|curl|make|node|npx|bash|sh|zsh|cd|mkdir|rm|cp|mv|cat|sed|rg)(?=\s|$)/],
     ["number", /\b\d+\b/],
     ["operator", /&&|\|\||\\|[|<>;&=]/],
     ["punctuation", /[{}()[\]]/],
@@ -123,7 +124,7 @@ export function highlight(code: string, language: string): string {
     if (groupIndex === -1) continue;
     const tokenType = names[groupIndex];
     const tokenText = match[0];
-    result += `<span class="hl-${tokenType}">${escapeHtml(tokenText)}</span>`;
+    result += `<span class="hl-${tokenType} hl-${normalized}-${tokenType}">${escapeHtml(tokenText)}</span>`;
     lastIndex = matchIndex + tokenText.length;
   }
 
