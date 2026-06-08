@@ -67,7 +67,7 @@ missing, stale, conflicting, or unavailable, and do not rewrite `.0` files. A
 graph-first package can be created with:
 
 ```sh
-zero init --manifest toml
+zero init
 zero patch --op 'addMain'
 ```
 

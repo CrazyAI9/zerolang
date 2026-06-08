@@ -10,6 +10,7 @@
 #include "canonical_text.h"
 #include "cli_help.h"
 #include "http_listen_runner.h"
+#include "init_template.h"
 #include "program_graph_build.h"
 #include "program_graph_command.h"
 #include "program_graph_compare.h"
@@ -81,6 +82,7 @@ typedef struct {
   const char *merge_right;
   const char *store_format;
   const char *manifest_format;
+  const char *init_template;
   const char *query_find;
   const char *query_function;
   const char *query_node;
@@ -980,17 +982,6 @@ static int zero_lstat(const char *path, struct stat *st) {
 #else
   return lstat(path, st);
 #endif
-}
-
-static bool ensure_dir(const char *path, ZDiag *diag) {
-  if (zero_mkdir(path) == 0 || errno == EEXIST) return true;
-  diag->code = 2002;
-  diag->path = path;
-  diag->line = 1;
-  diag->column = 1;
-  snprintf(diag->message, sizeof(diag->message), "failed to create directory '%s': %s", path, strerror(errno));
-  snprintf(diag->help, sizeof(diag->help), "choose a writable project path");
-  return false;
 }
 
 static char *join_cli_path(const char *left, const char *right) {
@@ -4097,6 +4088,7 @@ static bool parse_common_value_option(int argc, char **argv, int *index, Command
   else if (strcmp(arg, "--backend") == 0) slot = &command->backend;
   else if (strcmp(arg, "--format") == 0) slot = &command->store_format;
   else if (strcmp(arg, "--manifest") == 0) slot = &command->manifest_format;
+  else if (strcmp(arg, "--template") == 0 && command && cli_arg_is(command->command, "init")) slot = &command->init_template;
   else if (strcmp(arg, "--filter") == 0) slot = &command->filter;
   if (!slot) return false;
   if (*index + 1 >= argc) command->unknown_flag = arg;
@@ -4224,18 +4216,6 @@ static bool parse_command(int argc, char **argv, Command *command) {
   command->emit = EMIT_EXE;
   command->target = "host";
   command->profile = "release";
-  if (strcmp(command->command, "new") == 0) {
-    if (argc >= 3) {
-      if (strcmp(argv[2], "--help") == 0 || strcmp(argv[2], "-h") == 0) command->kind = "help";
-      else command->kind = argv[2];
-    }
-    for (int i = 3; i < argc; i++) {
-      if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) return true;
-      else if (!command->input) command->input = argv[i];
-      else return false;
-    }
-    return true;
-  }
   if (strcmp(command->command, "skills") == 0) {
     for (int i = 2; i < argc; i++) {
       if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) command->kind = "help";
@@ -7235,241 +7215,7 @@ static int print_version_command(bool json) {
   return 0;
 }
 
-static bool write_project_file(const char *root, const char *relative, const char *text, ZDiag *diag) {
-  char *path = join_cli_path(root, relative);
-  bool ok = z_write_file(path, text, diag);
-  free(path);
-  return ok;
-}
-
-static bool write_project_buf(const char *root, const char *relative, ZBuf *buf, ZDiag *diag) {
-  bool ok = write_project_file(root, relative, buf->data ? buf->data : "", diag);
-  zbuf_free(buf);
-  return ok;
-}
-
-static bool append_manifest(ZBuf *buf, const char *name, const char *main_path) {
-  zbuf_append(buf, "{\n");
-  zbuf_append(buf, "  \"package\": {\n");
-  zbuf_append(buf, "    \"name\": ");
-  append_json_string(buf, name);
-  zbuf_append(buf, ",\n    \"version\": \"0.1.0\",\n    \"license\": \"MIT\"\n");
-  zbuf_append(buf, "  },\n");
-  zbuf_append(buf, "  \"targets\": {\n");
-  zbuf_append(buf, "    \"cli\": {\n");
-  zbuf_append(buf, "      \"kind\": \"exe\",\n");
-  zbuf_append(buf, "      \"main\": ");
-  append_json_string(buf, main_path);
-  zbuf_append(buf, ",\n      \"defaultTarget\": \"linux-musl-x64\",\n      \"devTarget\": \"host\",\n      \"releaseProfile\": \"release-small\"\n    }\n");
-  zbuf_append(buf, "  },\n");
-  zbuf_append(buf, "  \"deps\": {},\n");
-  zbuf_append(buf, "  \"profiles\": {\n");
-  zbuf_append(buf, "    \"dev\": { \"inherits\": \"dev\" },\n");
-  zbuf_append(buf, "    \"release-small\": { \"inherits\": \"release-small\" }\n");
-  zbuf_append(buf, "  },\n");
-  zbuf_append(buf, "  \"docs\": {\n");
-  zbuf_append(buf, "    \"readme\": \"README.md\",\n");
-  zbuf_append(buf, "    \"examples\": [");
-  append_json_string(buf, main_path);
-  zbuf_append(buf, "]\n");
-  zbuf_append(buf, "  }\n");
-  zbuf_append(buf, "}\n");
-  return true;
-}
-
-static void append_graph_first_manifest(ZBuf *buf, const char *name, const char *main_path) {
-  zbuf_append(buf, "{\n");
-  zbuf_append(buf, "  \"package\": {\n");
-  zbuf_append(buf, "    \"name\": ");
-  append_json_string(buf, name);
-  zbuf_append(buf, ",\n    \"version\": \"0.1.0\",\n    \"license\": \"MIT\"\n");
-  zbuf_append(buf, "  },\n");
-  zbuf_append(buf, "  \"targets\": {\n");
-  zbuf_append(buf, "    \"cli\": {\n");
-  zbuf_append(buf, "      \"kind\": \"exe\",\n");
-  zbuf_append(buf, "      \"main\": ");
-  append_json_string(buf, main_path);
-  zbuf_append(buf, ",\n      \"defaultTarget\": \"linux-musl-x64\",\n      \"devTarget\": \"host\",\n      \"releaseProfile\": \"release-small\"\n    }\n");
-  zbuf_append(buf, "  },\n");
-  zbuf_append(buf, "  \"deps\": {},\n");
-  zbuf_append(buf, "  \"profiles\": {\n");
-  zbuf_append(buf, "    \"dev\": { \"inherits\": \"dev\" },\n");
-  zbuf_append(buf, "    \"release-small\": { \"inherits\": \"release-small\" }\n");
-  zbuf_append(buf, "  }\n");
-  zbuf_append(buf, "}\n");
-}
-
-static void append_graph_first_manifest_toml(ZBuf *buf, const char *name, const char *main_path) {
-  zbuf_append(buf, "[package]\n");
-  zbuf_append(buf, "name = ");
-  append_json_string(buf, name);
-  zbuf_append(buf, "\nversion = \"0.1.0\"\nlicense = \"MIT\"\n\n");
-  zbuf_append(buf, "[targets.cli]\n");
-  zbuf_append(buf, "kind = \"exe\"\nmain = ");
-  append_json_string(buf, main_path);
-  zbuf_append(buf, "\ndefaultTarget = \"linux-musl-x64\"\ndevTarget = \"host\"\nreleaseProfile = \"release-small\"\n\n");
-  zbuf_append(buf, "[deps]\n\n");
-  zbuf_append(buf, "[profiles.dev]\n");
-  zbuf_append(buf, "inherits = \"dev\"\n\n");
-  zbuf_append(buf, "[profiles.release-small]\n");
-  zbuf_append(buf, "inherits = \"release-small\"\n");
-}
-
-static bool import_new_template_graph_store(const char *root, ZDiag *diag);
-
-static bool create_cli_template(const char *root, const char *name, ZDiag *diag) {
-  ZBuf manifest;
-  zbuf_init(&manifest);
-  append_manifest(&manifest, name, "src/main.0");
-  if (!write_project_buf(root, "zero.json", &manifest, diag)) return false;
-  if (!write_project_file(root, "src/lib.0",
-    "pub fn greeting_code() -> i32 {\n"
-    "    return 42\n"
-    "}\n",
-    diag)) return false;
-  if (!write_project_file(root, "src/main.0",
-    "use lib\n\n"
-    "pub fn main(world: World) -> Void raises {\n"
-    "    if greeting_code() == 42 {\n"
-    "        check world.out.write(\"hello from zero\\n\")\n"
-    "    }\n"
-    "}\n\n"
-    "test \"greeting is stable\" {\n"
-    "    expect greeting_code() == 42\n"
-    "}\n",
-    diag)) return false;
-  if (!write_project_file(root, "README.md",
-    "# Zero CLI\n\n"
-    "This project was created with `zero new cli`.\n\n"
-    "Try:\n\n"
-    "```sh\n"
-    "zero check\n"
-    "zero test\n"
-    "zero run\n"
-    "zero dev --json\n"
-    "zero build --target linux-musl-x64 --out .zero/out/app\n"
-    "zero ship --target linux-musl-x64 --out .zero/ship/app\n"
-    "```\n\n"
-    "The entry point receives `World` explicitly, so I/O is visible in the function signature. The generated output is deterministic and the manifest records the default release target.\n",
-    diag)) return false;
-  return write_project_file(root, ".gitignore", ".zero/\n", diag);
-}
-
-static bool create_lib_template(const char *root, const char *name, ZDiag *diag) {
-  ZBuf manifest;
-  zbuf_init(&manifest);
-  append_manifest(&manifest, name, "src/lib.0");
-  if (!write_project_buf(root, "zero.json", &manifest, diag)) return false;
-  if (!write_project_file(root, "src/lib.0",
-    "pub fn add_one(value: i32) -> i32 {\n"
-    "    return value + 1\n"
-    "}\n\n"
-    "test \"public api works\" {\n"
-    "    expect add_one(41) == 42\n"
-    "}\n",
-    diag)) return false;
-  if (!write_project_file(root, "README.md",
-    "# Zero Library\n\n"
-    "This small package exposes one public function, docs metadata in `zero.json`, and an inline test.\n\n"
-    "Try:\n\n"
-    "```sh\n"
-    "zero check\n"
-    "zero test\n"
-    "zero dev --json\n"
-    "zero inspect --json\n"
-    "zero doc --json\n"
-    "```\n",
-    diag)) return false;
-  return write_project_file(root, ".gitignore", ".zero/\n", diag);
-}
-
-static bool create_package_template(const char *root, const char *name, ZDiag *diag) {
-  ZBuf manifest;
-  zbuf_init(&manifest);
-  append_manifest(&manifest, name, "src/main.0");
-  if (!write_project_buf(root, "zero.json", &manifest, diag)) return false;
-  if (!write_project_file(root, "src/model.0",
-    "pub type Point {\n"
-    "    value: i32,\n"
-    "}\n",
-    diag)) return false;
-  if (!write_project_file(root, "src/math.0",
-    "fn base(value: i32) -> i32 {\n"
-    "    return value\n"
-    "}\n\n"
-    "pub fn add_one(value: i32) -> i32 {\n"
-    "    return base(value) + 1\n"
-    "}\n",
-    diag)) return false;
-  if (!write_project_file(root, "src/main.0",
-    "use math\n"
-    "\n"
-    "use model\n\n"
-    "pub fn main(world: World) -> Void raises {\n"
-    "    let point: Point = Point { value: add_one(41) }\n"
-    "    if point.value == 42 {\n"
-    "        check world.out.write(\"package ok\\n\")\n"
-    "    }\n"
-    "}\n\n"
-    "test \"package import works\" {\n"
-    "    expect add_one(41) == 42\n"
-    "}\n",
-    diag)) return false;
-  if (!write_project_file(root, "README.md",
-    "# Zero Package\n\n"
-    "This template shows package-local imports, one public symbol, and one private helper.\n\n"
-    "Try:\n\n"
-    "```sh\n"
-    "zero check\n"
-    "zero test\n"
-    "zero run\n"
-    "zero dev --json\n"
-    "zero build --target linux-musl-x64 --out .zero/out/app\n"
-    "zero ship --target linux-musl-x64 --out .zero/ship/app\n"
-    "zero inspect --json\n"
-    "```\n",
-    diag)) return false;
-  return write_project_file(root, ".gitignore", ".zero/\n", diag);
-}
-
-static int new_command(const Command *command) {
-  ZDiag diag = {0};
-  if (!command->kind || !command->input) {
-    fprintf(stderr, "usage: zero new cli|lib|package <name>\n");
-    return 1;
-  }
-  if (path_exists(command->input)) {
-    fprintf(stderr, "zero new: '%s' already exists\n", command->input);
-    return 1;
-  }
-  if (!ensure_dir(command->input, &diag)) {
-    print_diag(command->input, &diag);
-    return 1;
-  }
-
-  bool ok = false;
-  if (strcmp(command->kind, "cli") == 0) ok = create_cli_template(command->input, command->input, &diag);
-  else if (strcmp(command->kind, "lib") == 0) ok = create_lib_template(command->input, command->input, &diag);
-  else if (strcmp(command->kind, "package") == 0) ok = create_package_template(command->input, command->input, &diag);
-  else {
-    fprintf(stderr, "zero new: unknown template '%s'\n", command->kind);
-    fprintf(stderr, "help: choose cli, lib, or package\n");
-    return 1;
-  }
-  if (!ok) {
-    print_diag(diag.path ? diag.path : command->input, &diag);
-    return 1;
-  }
-  if (!import_new_template_graph_store(command->input, &diag)) {
-    print_diag(diag.path ? diag.path : command->input, &diag);
-    return 1;
-  }
-
-  printf("created %s project %s\n", command->kind, command->input);
-  if (strcmp(command->kind, "lib") == 0) printf("next: cd %s && zero check && zero test\n", command->input);
-  else printf("next: cd %s && zero check && zero test && zero run\n", command->input);
-  return 0;
-}
+static bool import_init_template_graph_store(const char *root, ZProgramGraphStoreFormat store_format, ZDiag *diag);
 
 static char *graph_init_package_name(const char *path) {
   char cwd[4096];
@@ -7560,23 +7306,82 @@ static bool command_repository_store_format(const Command *command, ZProgramGrap
   return false;
 }
 
-static const char *command_manifest_file_name(const Command *command, ZDiag *diag) {
-  const char *format = command && command->manifest_format ? command->manifest_format : "json";
-  if (strcmp(format, "json") == 0) return "zero.json";
-  if (strcmp(format, "toml") == 0) return "zero.toml";
-  if (diag) {
-    *diag = (ZDiag){0};
+static int run_graph_init_template_command(const Command *command, ZDiag *diag) {
+  const char *kind = command->init_template;
+  if (!z_init_template_kind_is_known(kind)) {
     diag->code = 2002;
-    diag->path = command && command->input ? command->input : ".";
+    diag->path = command->input ? command->input : ".";
     diag->line = 1;
     diag->column = 1;
     diag->length = 1;
-    snprintf(diag->message, sizeof(diag->message), "manifest format is not supported");
-    snprintf(diag->expected, sizeof(diag->expected), "--manifest toml|json");
-    snprintf(diag->actual, sizeof(diag->actual), "%s", format ? format : "");
-    snprintf(diag->help, sizeof(diag->help), "use --manifest toml to write zero.toml, or omit it for zero.json");
+    snprintf(diag->message, sizeof(diag->message), "init template is not supported");
+    snprintf(diag->expected, sizeof(diag->expected), "--template cli|lib|package");
+    snprintf(diag->actual, sizeof(diag->actual), "--template %s", kind ? kind : "");
+    snprintf(diag->help, sizeof(diag->help), "omit --template for an empty graph-first package, or choose cli, lib, or package");
+    print_command_diag(command, diag->path, diag);
+    return 1;
   }
-  return NULL;
+  if (!graph_init_reject_existing(command->input, diag) || !z_init_template_reject_existing_outputs(command->input, kind, diag)) {
+    print_command_diag(command, diag->path ? diag->path : command->input, diag);
+    return 1;
+  }
+  ZProgramGraphStoreFormat store_format = Z_PROGRAM_GRAPH_STORE_FORMAT_BINARY;
+  if (!command_repository_store_format(command, Z_PROGRAM_GRAPH_STORE_FORMAT_BINARY, &store_format, diag)) {
+    print_command_diag(command, diag->path ? diag->path : command->input, diag);
+    return 1;
+  }
+  char *package_name = graph_init_package_name(command->input);
+  const char *manifest_file_name = NULL;
+  bool ok = z_init_template_write_files(command->input, kind, package_name, command->manifest_format, &manifest_file_name, diag);
+  if (ok) ok = import_init_template_graph_store(command->input, store_format, diag);
+  if (ok && command->json) {
+    ZBuf json;
+    zbuf_init(&json);
+    char *manifest_path = join_cli_path(command->input, manifest_file_name ? manifest_file_name : "zero.toml");
+    char *store_path = join_cli_path(command->input, "zero.graph");
+    zbuf_append(&json, "{\n  \"schemaVersion\": 1,\n  \"ok\": true,\n  \"project\": ");
+    append_json_string(&json, command->input);
+    zbuf_append(&json, ",\n  \"template\": ");
+    append_json_string(&json, kind);
+    zbuf_append(&json, ",\n  \"compilerInput\": \"repository-graph\",\n  \"writes\": [");
+    append_json_string(&json, manifest_path);
+    zbuf_append(&json, ", ");
+    append_json_string(&json, store_path);
+    zbuf_append(&json, "],\n  \"sourceProjection\": {\"path\": ");
+    append_json_string(&json, z_init_template_projection_path(kind));
+    zbuf_append(&json, ", \"materialized\": true},\n  \"next\": [");
+    ZBuf next;
+    zbuf_init(&next);
+    if (strcmp(command->input, ".") != 0) {
+      zbuf_append(&next, "cd ");
+      zbuf_append(&next, command->input);
+      zbuf_append(&next, " && ");
+    }
+    if (strcmp(kind, "lib") == 0) zbuf_append(&next, "zero check && zero test");
+    else zbuf_append(&next, "zero check && zero test && zero run");
+    append_json_string(&json, next.data ? next.data : "");
+    zbuf_append(&json, "]\n}\n");
+    fputs(json.data, stdout);
+    zbuf_free(&next);
+    zbuf_free(&json);
+    free(manifest_path);
+    free(store_path);
+  } else if (ok) {
+    printf("graph template init ok\n");
+    printf("template: %s\n", kind);
+    printf("wrote: %s/%s\n", command->input, manifest_file_name ? manifest_file_name : "zero.toml");
+    printf("wrote: %s/zero.graph\n", command->input);
+    if (strcmp(command->input, ".") == 0) {
+      if (strcmp(kind, "lib") == 0) printf("next: zero check && zero test\n");
+      else printf("next: zero check && zero test && zero run\n");
+    } else {
+      if (strcmp(kind, "lib") == 0) printf("next: cd %s && zero check && zero test\n", command->input);
+      else printf("next: cd %s && zero check && zero test && zero run\n", command->input);
+    }
+  }
+  if (!ok) print_command_diag(command, diag->path ? diag->path : command->input, diag);
+  free(package_name);
+  return ok ? 0 : 1;
 }
 
 static int run_graph_init_command(const Command *command, ZDiag *diag) {
@@ -7587,19 +7392,20 @@ static int run_graph_init_command(const Command *command, ZDiag *diag) {
     diag->column = 1;
     diag->length = 1;
     snprintf(diag->message, sizeof(diag->message), "graph init writes repository files and does not support --out");
-    snprintf(diag->expected, sizeof(diag->expected), "zero init [--manifest toml|json] [--format text|binary] [project-path]");
+    snprintf(diag->expected, sizeof(diag->expected), "zero init [--manifest toml|json] [--format text|binary] [--template cli|lib|package] [project-path]");
     snprintf(diag->actual, sizeof(diag->actual), "zero init --out");
     snprintf(diag->help, sizeof(diag->help), "remove --out; init writes zero.toml or zero.json plus zero.graph in the selected project");
     print_command_diag(command, command->out, diag);
     return 1;
   }
+  if (command->init_template) return run_graph_init_template_command(command, diag);
   if (!command->input || !command->input[0]) {
     diag->code = 2002;
     diag->line = 1;
     diag->column = 1;
     diag->length = 1;
     snprintf(diag->message, sizeof(diag->message), "graph init requires an input directory");
-    snprintf(diag->expected, sizeof(diag->expected), "zero init [--manifest toml|json] [--format text|binary] [project-path]");
+    snprintf(diag->expected, sizeof(diag->expected), "zero init [--manifest toml|json] [--format text|binary] [--template cli|lib|package] [project-path]");
     snprintf(diag->actual, sizeof(diag->actual), "missing input directory");
     print_command_diag(command, "<graph-init>", diag);
     return 1;
@@ -7626,17 +7432,14 @@ static int run_graph_init_command(const Command *command, ZDiag *diag) {
     print_command_diag(command, diag->path ? diag->path : command->input, diag);
     return 1;
   }
-  const char *manifest_file_name = command_manifest_file_name(command, diag);
-  if (!manifest_file_name) {
+  char *package_name = graph_init_package_name(command->input);
+  const char *manifest_file_name = NULL;
+  if (!z_init_write_manifest(command->input, package_name, "src/main.0", command->manifest_format, false, &manifest_file_name, diag)) {
     print_command_diag(command, diag->path ? diag->path : command->input, diag);
+    free(package_name);
     return 1;
   }
-  char *package_name = graph_init_package_name(command->input);
-  ZBuf manifest;
-  zbuf_init(&manifest);
-  if (strcmp(manifest_file_name, "zero.toml") == 0) append_graph_first_manifest_toml(&manifest, package_name, "src/main.0");
-  else append_graph_first_manifest(&manifest, package_name, "src/main.0");
-  bool ok = write_project_buf(command->input, manifest_file_name, &manifest, diag);
+  bool ok = true;
   if (ok) {
     ZProgramGraph graph = {0};
     graph_init_append_module_graph(&graph, package_name);
@@ -12163,7 +11966,7 @@ static bool load_graph_from_current_source(const Command *command, const ZTarget
   return true;
 }
 
-static bool import_new_template_graph_store(const char *root, ZDiag *diag) {
+static bool import_init_template_graph_store(const char *root, ZProgramGraphStoreFormat store_format, ZDiag *diag) {
   Command graph_command = {0};
   graph_command.input = root;
   SourceInput input = {0};
@@ -12171,7 +11974,7 @@ static bool import_new_template_graph_store(const char *root, ZDiag *diag) {
   ZProgramGraph graph = {0};
   ZProgramGraphStore saved = {0};
   bool ok = load_graph_from_current_source(&graph_command, z_find_target(z_host_target()), &input, &program, &graph, NULL, diag);
-  if (ok) ok = z_program_graph_store_save_for_input_format(root, &graph, Z_PROGRAM_GRAPH_STORE_FORMAT_BINARY, &saved, diag);
+  if (ok) ok = z_program_graph_store_save_for_input_format(root, &graph, store_format, &saved, diag);
   z_program_graph_store_free(&saved);
   z_program_graph_free(&graph);
   z_free_program(&program);
@@ -13920,9 +13723,6 @@ int main(int argc, char **argv) {
     fputs(targets.data, stdout);
     zbuf_free(&targets);
     return 0;
-  }
-  if (strcmp(command.command, "new") == 0) {
-    return new_command(&command);
   }
   if (strcmp(command.command, "doctor") == 0) {
     return doctor_command(command.json);

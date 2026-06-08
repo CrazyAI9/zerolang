@@ -761,13 +761,43 @@ function writeZeroTomlSync(root: string, manifest: Record<string, any>) {
   writeFileSync(join(root, "zero.toml"), manifestToml(manifest));
 }
 
+function parseSimpleTomlManifest(text: string) {
+  const manifest: Record<string, any> = {};
+  let section: string[] = [];
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    const sectionMatch = line.match(/^\[([A-Za-z0-9_.-]+)\]$/);
+    if (sectionMatch) {
+      section = sectionMatch[1].split(".");
+      let cursor = manifest;
+      for (const part of section) cursor = cursor[part] ??= {};
+      continue;
+    }
+    const valueMatch = line.match(/^([A-Za-z0-9_.-]+)\s*=\s*"([^"]*)"$/);
+    if (!valueMatch) continue;
+    let cursor = manifest;
+    for (const part of section) cursor = cursor[part] ??= {};
+    cursor[valueMatch[1]] = valueMatch[2];
+  }
+  return manifest;
+}
+
+function readGeneratedManifest(root: string) {
+  const tomlPath = join(root, "zero.toml");
+  if (existsSync(tomlPath)) return parseSimpleTomlManifest(readFileSync(tomlPath, "utf8"));
+  return JSON.parse(readFileSync(join(root, "zero.json"), "utf8"));
+}
+
 function assertTemplateManifest(kind, manifest, readme) {
   assert.equal(manifest.package.version, "0.1.0");
   assert.equal(manifest.targets.cli.defaultTarget, "linux-musl-x64");
   assert.equal(manifest.targets.cli.devTarget, "host");
   assert.equal(manifest.targets.cli.releaseProfile, "release-small");
-  assert.equal(manifest.docs.readme, "README.md");
-  assert.deepEqual(manifest.docs.examples, [manifest.targets.cli.main]);
+  if (manifest.docs) {
+    assert.equal(manifest.docs.readme, "README.md");
+    assert.deepEqual(manifest.docs.examples, [manifest.targets.cli.main]);
+  }
   assert.match(readme, /zero check/);
   assert.match(readme, /zero test/);
   assert.match(readme, /zero dev --json/);
@@ -789,7 +819,7 @@ function assertDevReport(report, kind) {
   assert.equal(report.generatedCBytes, 0);
   assert.equal(report.cBridgeFallback, false);
   assert.equal(report.watch.planOnly, true);
-  assert.equal(report.watch.manifest, "zero.json");
+  assert.equal(report.watch.manifest, "zero.toml");
   assert.deepEqual(report.watch.rerun, ["check", "test", "examples"]);
   assert(Array.isArray(report.watch.packageLocks));
   assert(Array.isArray(report.watch.generatedBindingInputs));
@@ -919,19 +949,19 @@ assert(doctor.checks.some((check) => check.name === "target-sdk-sysroot" && /sys
 assert(doctor.checks.some((check) => check.name === "docs-examples"));
 
 for (const [command, expected] of [
-  [["--help"], /zero new cli hello/],
+  [["--help"], /zero init --template cli hello/],
   [["check", "--help"], /Usage: zero check/],
   [["build", "--help"], /Usage: zero build/],
   [["run", "--help"], /Usage: zero run/],
   [["test", "--help"], /Usage: zero test/],
   [["fmt", "--help"], /Usage: zero fmt/],
-  [["new", "--help"], /Usage: zero new/],
+  [["init", "--help"], /--template cli\|lib\|package/],
   [["skills", "--help"], /Usage: zero skills/],
   [["ship", "--help"], /Usage: zero ship/],
   [["targets", "--help"], /Usage: zero targets/],
   [["tokens", "--help"], /Usage: zero tokens/],
   [["parse", "--help"], /Usage: zero parse/],
-  [["query", "--help"], /Usage: zero init \[project-path\]; zero query\|view\|diff\|dump\|inspect\|validate\|source-map\|roundtrip \[--json\] \[graph-input\]/],
+  [["query", "--help"], /Usage: zero init \[--template cli\|lib\|package\] \[project-path\]; zero query\|view\|diff\|dump\|inspect\|validate\|source-map\|roundtrip \[--json\] \[graph-input\]/],
   [["diff", "--help"], /Diff textconv usage: zero diff \[graph-input\]/],
   [["size", "--help"], /Usage: zero size/],
   [["explain", "--help"], /Usage: zero explain/],
@@ -939,6 +969,9 @@ for (const [command, expected] of [
 ] as Array<[string[], RegExp]>) {
   assert.match(zero(command).stdout, expected);
 }
+const removedNewCommand = zero(["new", "--help"], { allowFailure: true });
+assert.notEqual(removedNewCommand.code, 0);
+assert.match(removedNewCommand.stdout, /zero init --template cli hello/);
 
 const tomlInitRoot = join(outDir, "init-toml-manifest");
 rmSync(tomlInitRoot, { recursive: true, force: true });
@@ -949,6 +982,12 @@ assert(tomlInit.writes.includes(join(tomlInitRoot, "zero.graph")));
 assert(existsSync(join(tomlInitRoot, "zero.toml")));
 assert(!existsSync(join(tomlInitRoot, "zero.json")));
 assert.match(readFileSync(join(tomlInitRoot, "zero.toml"), "utf8"), /\[package\]/);
+const defaultInitRoot = join(outDir, "init-default-manifest");
+rmSync(defaultInitRoot, { recursive: true, force: true });
+const defaultInit = json(["init", "--json", defaultInitRoot]).body;
+assert.equal(defaultInit.ok, true);
+assert(defaultInit.writes.includes(join(defaultInitRoot, "zero.toml")));
+assert(!existsSync(join(defaultInitRoot, "zero.json")));
 
 for (const [code, goodExample, stalePattern] of [
   ["STD003", "var bytes: [4]u8 = [0, 0, 0, 0]", /\bmut bytes\b|std\.mem\.fill bytes/],
@@ -4696,11 +4735,14 @@ assert.match(clean, /removed:/);
 assert(!existsSync(cleanProbe));
 
 for (const kind of ["cli", "lib", "package"]) {
-  const project = join(outDir, `new-${kind}`);
+  const project = join(outDir, `init-template-${kind}`);
   rmSync(project, { recursive: true, force: true });
-  const created = zero(["new", kind, project]).stdout;
-  assert.match(created, new RegExp(`created ${kind} project`));
-  const manifest = JSON.parse(readFileSync(join(project, "zero.json"), "utf8"));
+  const created = zero(["init", "--template", kind, project]).stdout;
+  assert.match(created, /graph template init ok/);
+  assert.match(created, new RegExp(`template: ${kind}`));
+  assert(existsSync(join(project, "zero.toml")));
+  assert(!existsSync(join(project, "zero.json")));
+  const manifest = readGeneratedManifest(project);
   const readme = readFileSync(join(project, "README.md"), "utf8");
   readFileSync(join(project, ".gitignore"), "utf8");
   assertTemplateManifest(kind, manifest, readme);

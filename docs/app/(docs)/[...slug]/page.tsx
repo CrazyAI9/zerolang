@@ -14,6 +14,8 @@ import { DocsToc } from "@/components/docs-toc";
 import { CopyCodeButton } from "@/components/copy-button";
 import { HeadingAnchor } from "@/components/heading-anchor";
 import { rehypeZeroHighlight } from "@/lib/rehype-zero-highlight";
+import { rehypeJsonRender } from "@/lib/rehype-json-render";
+import { AgentChat } from "@/components/agent-chat";
 
 type DocsPageParams = { slug?: string[] };
 type DocsPageProps = { params: Promise<DocsPageParams> };
@@ -60,6 +62,15 @@ const mdxComponents = {
   h2: makeHeading("h2"),
   h3: makeHeading("h3"),
   h4: makeHeading("h4"),
+  agentchat: ({ value }: { value?: string }) => {
+    if (!value) return null;
+    try {
+      const spec = JSON.parse(Buffer.from(value, "base64").toString("utf8"));
+      return <AgentChat spec={spec} />;
+    } catch {
+      return null;
+    }
+  },
 };
 
 export default async function DocsPage({ params }: DocsPageProps) {
@@ -97,6 +108,7 @@ export default async function DocsPage({ params }: DocsPageProps) {
                 format: "md",
                 remarkPlugins: [remarkGfm],
                 rehypePlugins: [
+                  rehypeJsonRender,
                   rehypeSlug,
                   [rehypePrettyCode, rehypePrettyCodeOptions],
                   rehypeZeroHighlight,

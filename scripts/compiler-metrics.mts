@@ -25,6 +25,8 @@ const fileBudgets = {
   "native/zero-c/src/cli_help.h": { maxLines: 8, maxStrcmpCalls: 0 },
   "native/zero-c/src/http_listen_runner.c": { maxLines: 399, maxStrcmpCalls: 0 },
   "native/zero-c/src/http_listen_runner.h": { maxLines: 22, maxStrcmpCalls: 0 },
+  "native/zero-c/src/init_template.c": { maxLines: 310, maxStrcmpCalls: 13 },
+  "native/zero-c/src/init_template.h": { maxLines: 15, maxStrcmpCalls: 0 },
   "native/zero-c/src/main.c": { maxLines: 14896, maxStrcmpCalls: 440 },
   "native/zero-c/src/ir.c": { maxLines: 5508, maxStrcmpCalls: 272 },
   "native/zero-c/src/llvm_backend_metadata.c": { maxLines: 80, maxStrcmpCalls: 0 },

@@ -21,7 +21,7 @@ static const ZProgramGraphCommandKind z_graph_command_kinds[] = {
     Z_PROGRAM_GRAPH_INPUT_PATH,
     false,
     "init writes repository files and does not support --out",
-    "zero init [--json] [--format text|binary] [project-path]",
+    "zero init [--json] [--format text|binary] [--template cli|lib|package] [project-path]",
     "zero init --out",
     "init writes zero.toml or zero.json plus zero.graph at the selected project path; remove --out"
   ),
@@ -118,8 +118,8 @@ ZProgramGraphOutputContract z_program_graph_command_output_contract(const char *
 }
 
 void z_program_graph_print_command_help(void) {
-  printf("Usage: zero init [project-path]; zero query|view|diff|dump|inspect|validate|source-map|roundtrip [--json] [graph-input]; zero status|verify-projection|import|export|merge [--json] [project|zero.toml|zero.json|file.0]\n\n");
-  printf("Graph-first project usage: zero init [--json] [--manifest toml|json] [--format text|binary] [project-path]\n");
+  printf("Usage: zero init [--template cli|lib|package] [project-path]; zero query|view|diff|dump|inspect|validate|source-map|roundtrip [--json] [graph-input]; zero status|verify-projection|import|export|merge [--json] [project|zero.toml|zero.json|file.0]\n\n");
+  printf("Graph-first project usage: zero init [--json] [--manifest toml|json] [--format text|binary] [--template cli|lib|package] [project-path]\n");
   printf("Output usage: zero dump|validate|roundtrip [--json] [--format text|binary] --out <program-graph-artifact> [graph-input]; zero import [--json] [--format text|binary] --out <program-graph-artifact> [project|zero.toml|zero.json|file.0]\n");
   printf("View output usage: zero view [--json] [--out <file.0>] [graph-input]\n");
   printf("Diff textconv usage: zero diff [graph-input]\n");

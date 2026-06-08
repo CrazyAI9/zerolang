@@ -100,9 +100,9 @@ describe("docs registry", () => {
     assert.match(await readDoc("getting-started"), /curl -fsSL https:\/\/zerolang\.ai\/install\.sh \| bash/);
     const gettingStarted = await readDoc("getting-started");
     assert.match(gettingStarted, /Ask An Agent For Hello World/);
-    assert.match(gettingStarted, /zero init\n/);
+    assert.match(gettingStarted, /"command": "zero init"/);
     assert.match(gettingStarted, /zero patch --op 'addMain'/);
-    assert.match(gettingStarted, /do not export them unless I ask/);
+    assert.match(gettingStarted, /Agents should not normally hand-write `\.0` files/);
     assert.match(gettingStarted, /`src\/main\.0` is the human-readable projection/);
     assert.match(await readDoc("getting-started"), /zero build --target linux-musl-x64/);
     assert.match(await readDoc("examples"), /zero check examples\/hello\.graph/);
@@ -111,7 +111,7 @@ describe("docs registry", () => {
       assert.match(learnZero, new RegExp(topic));
     }
     assert.match(learnZero, /Learn From The Graph First/);
-    assert.match(learnZero, /zero query examples\/hello\.graph/);
+    assert.match(learnZero, /zero query examples\/add\.graph/);
     assert.match(learnZero, /replaceFunctionBody main/);
     assert.match(learnZero, /Agents should prefer `zero query`, `zero patch`, `zero check`, `zero test`, and\s+`zero run`/);
     for (const slug of ["language-reference", "primitives", "examples", "testing", "diagnostics", "package-manifest"]) {
@@ -193,8 +193,9 @@ describe("docs registry", () => {
     assert.match(packageManifest, /The `main` path names the human-readable projection/);
     assert.match(packageManifest, /normal\s+package commands compile from the checked-in `zero\.graph` store/);
     const cliReference = await readDoc("cli-reference");
-    assert.match(cliReference, /For new agent-authored packages, prefer `zero init`/);
-    assert.match(cliReference, /Use\s+`zero new` only when you explicitly want a projection-oriented starter template/);
+    assert.match(cliReference, /Use `zero init` for all project creation/);
+    assert.match(cliReference, /zero init \[--json\] \[--manifest toml\|json\] \[--format text\|binary\] \[--template cli\|lib\|package\]/);
+    assert.doesNotMatch(cliReference, /zero new/);
     assert.match(languageReference, /The target `main` path points at the readable projection/);
     assert.match(learnZero, /It does not make `src\/main\.0` the normal package compile input/);
     const crossCompilation = await readDoc("cross-compilation");
@@ -270,8 +271,8 @@ describe("docs registry", () => {
     }
     const homePage = await readFile(join(docsSiteRoot, "app/page.tsx"), "utf8");
     assert.match(homePage, /The future of\s+<br \/>\s+programming is a graph\./);
-    assert.match(homePage, /Zero is the programming language for agents/);
-    assert.match(homePage, /Humans use chat\. Nobody hand-writes Zero/);
+    assert.match(homePage, /Zerolang is the programming language for agents/);
+    assert.match(homePage, /Humans use chat\. Nobody hand-writes Zerolang/);
     assert.match(homePage, /The graph is the program/);
     assert.match(homePage, /Every edit is checked/);
     for (const constraint of ["Token efficiency", "Low memory", "Fast startup", "Fast builds", "Low latency", "Zero dependencies"]) {

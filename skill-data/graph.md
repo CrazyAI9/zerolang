@@ -103,8 +103,9 @@ zero patch --op 'addMain'
 ```
 
 `zero init` defaults to the current directory. Use `zero init app` only when the
-user asks for a new subdirectory. `zero new` is for projection-oriented starter
-templates, not the normal agent-authored graph-first path.
+user asks for a new subdirectory. If the user explicitly asks for starter
+files, keep the creation surface under init with
+`zero init --template cli|lib|package [app]`.
 
 Build useful program shape through graph operations:
 

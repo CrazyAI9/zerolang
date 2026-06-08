@@ -6,31 +6,44 @@ readable projection. The code snippets on this page show projection syntax so
 you can understand reviews and examples, not because source text is the normal
 agent write surface.
 
-Start a learning session by asking the agent to load the compiler-matched
-skills and stay graph-first:
+Install the skill (see [Install The Skill](/getting-started)), then start a
+learning session by talking to your agent. It stays graph-first: inspect, patch,
+validate, run:
 
-```text
-Use Zero's bundled agent, graph, language, and stdlib skills.
-Teach me with graph inputs and zero patch. Do not hand-edit `.0` files.
-Only export a source projection when I ask to review it.
-```
-
-Useful graph-first commands:
-
-```sh
-zero init
-zero query
-zero patch --op 'addMain' --op 'addCheckWrite fn="main" text="hello from zero\n"'
-zero check
-zero run
-```
-
-For checked-in examples, use their `.graph` inputs:
-
-```sh
-zero query examples/hello.graph
-zero check examples/hello.graph
-zero run examples/hello.graph
+```json-render
+{
+  "messages": [
+    {
+      "role": "user",
+      "text": "Teach me Zero. Use graph inputs and zero patch, and don't hand-edit .0 files. Only export a projection when I ask to review it."
+    },
+    {
+      "role": "skill",
+      "name": "zerolang"
+    },
+    {
+      "role": "assistant",
+      "text": "We'll learn it the way agents work: inspect the graph, patch the graph, validate, and run. Let me start a package and look at the graph."
+    },
+    {
+      "role": "tools",
+      "calls": [
+        {
+          "command": "zero init",
+          "output": "Created zero.toml\nCreated zero.graph  graph:e3b0c442\nInitialized package \"learn\""
+        },
+        {
+          "command": "zero query",
+          "output": "module \"learn\"\n  (no declarations yet)"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Empty so far. Ask for a program and I'll patch the graph, then we can check and run it. For the checked-in examples I can read their .graph inputs directly with zero query, zero check, and zero run."
+    }
+  ]
+}
 ```
 
 When a page shows `.0` syntax, read it as the human projection of the graph.
@@ -65,11 +78,35 @@ open or rewrite it unless the task asks for a projection.
 
 ## Patch Programs Through The Graph
 
-Small edits can use structured operations:
+Small edits can use structured operations. Ask for the change and the agent
+targets a node and field, guarded by the current value and graph hash:
 
-```sh
-zero patch examples/hello.graph \
-  --op 'set node="#expr_653eeb6e" field="value" expect="hello from zero\n" value="hello graph\n"'
+```json-render
+{
+  "messages": [
+    {
+      "role": "user",
+      "text": "Change the greeting to \"hello graph\"."
+    },
+    {
+      "role": "assistant",
+      "text": "I'll set the literal node's value on the graph, with expect= and the graph hash as preconditions so a stale edit fails instead of clobbering."
+    },
+    {
+      "role": "tools",
+      "calls": [
+        {
+          "command": "zero patch examples/hello.graph --op 'set node=\"#expr_653eeb6e\" field=\"value\" expect=\"hello from zero\\n\" value=\"hello graph\\n\"'",
+          "output": "Patched zero.graph\n  graph hash  graph:b3c1d04f\n  node        #expr_653eeb6e\n  field       value"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Done. The patch validated and reported the new graph hash, so no separate zero check was needed."
+    }
+  ]
+}
 ```
 
 Larger edits can use a patch document. `replaceFunctionBody` and
@@ -384,12 +421,46 @@ The `main` path names the projection used for source spans and human
 import/export. It does not make `src/main.0` the normal package compile input;
 `zero check examples/systems-package` reads the package graph store.
 
-The usual package loop is:
+The usual package loop is inspect, dry-run, apply, verify:
 
-```sh
-zero query examples/systems-package
-zero patch --check-only examples/systems-package --op 'addFunction name="helper" ret="i32"'
-zero check examples/systems-package
+```json-render
+{
+  "messages": [
+    {
+      "role": "user",
+      "text": "Add a helper function to the systems-package."
+    },
+    {
+      "role": "assistant",
+      "text": "I'll read the package graph, dry-run the patch with --check-only, then apply it and check."
+    },
+    {
+      "role": "tools",
+      "calls": [
+        {
+          "command": "zero query examples/systems-package",
+          "output": "module \"systems-package\"\n  fn main(world: World) -> Void raises"
+        },
+        {
+          "command": "zero patch --check-only examples/systems-package --op 'addFunction name=\"helper\" ret=\"i32\"'",
+          "output": "Dry run OK\n  would add  fn helper() -> i32"
+        },
+        {
+          "command": "zero patch examples/systems-package --op 'addFunction name=\"helper\" ret=\"i32\"'",
+          "output": "Patched zero.graph\n  graph hash  graph:9af2c188\n  symbols     helper, main"
+        },
+        {
+          "command": "zero check examples/systems-package",
+          "output": "Checked systems-package\n  0 errors"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "helper is in the graph and the package checks clean."
+    }
+  ]
+}
 ```
 
 If a human reviews or edits a projection, run `zero import` from the package
@@ -435,39 +506,115 @@ test "addition is stable" {
 }
 ```
 
-Run tests with:
+Run tests by asking. The agent runs the graph input and can filter or emit JSON
+for tooling:
 
-```sh
-zero test conformance/native/pass/test-blocks.graph
-zero test --json --filter addition conformance/native/pass/test-blocks.graph
+```json-render
+{
+  "messages": [
+    {
+      "role": "user",
+      "text": "Run the tests."
+    },
+    {
+      "role": "tools",
+      "calls": [
+        {
+          "command": "zero test conformance/native/pass/test-blocks.graph",
+          "output": "running 1 test\n  test \"addition is stable\" ... ok\n\n1 passed; 0 failed"
+        },
+        {
+          "command": "zero test --json --filter addition conformance/native/pass/test-blocks.graph",
+          "output": "{\n  \"passed\": 1,\n  \"failed\": 0,\n  \"tests\": [{ \"name\": \"addition is stable\", \"status\": \"ok\" }]\n}"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "All tests pass. Failing tests include the failing test name and exit nonzero."
+    }
+  ]
+}
 ```
-
-Failing tests include the failing test name and exit nonzero.
 
 ## Check Cross Targets
 
-Target names are explicit. Use `zero targets` to inspect support, then pass `--target` to `check`, `build`, `graph`, or `size`:
+Target names are explicit. The agent inspects support with `zero targets`, then
+passes `--target` to `check`, `build`, `graph`, or `size`:
 
-```sh
-zero targets
-zero check --target linux-musl-x64 examples/memory-package
-zero build --target linux-musl-x64 examples/memory-package --out .zero/out/memory-package
+```json-render
+{
+  "messages": [
+    {
+      "role": "user",
+      "text": "Check and build memory-package for linux-musl-x64."
+    },
+    {
+      "role": "assistant",
+      "text": "Let me confirm the target is supported, then check and build against it."
+    },
+    {
+      "role": "tools",
+      "calls": [
+        {
+          "command": "zero targets",
+          "output": "host             macos-arm64\nlinux-musl-x64   supported\nwasm32-wasi      supported"
+        },
+        {
+          "command": "zero check --target linux-musl-x64 examples/memory-package",
+          "output": "Checked memory-package (linux-musl-x64)\n  0 errors"
+        },
+        {
+          "command": "zero build --target linux-musl-x64 examples/memory-package --out .zero/out/memory-package",
+          "output": "Built .zero/out/memory-package\n  target  linux-musl-x64\n  size    48.2 KB"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Checked and built for linux-musl-x64. The checker rejects unavailable capabilities, such as hosted std.fs on target-neutral builds."
+    }
+  ]
+}
 ```
-
-The checker rejects unavailable capabilities, such as hosted `std.fs` on target-neutral builds.
 
 ## Use Diagnostics
 
-Diagnostics are stable enough for humans and agents. Start with readable output
-and use `--json` only when automation needs exact spans or stable fields:
+Diagnostics are stable enough for humans and agents. The agent starts with
+readable output and uses `--json` only when it needs exact spans or stable
+fields:
 
-```sh
-zero explain --json NAM003
-zero explain NAM003
-zero query examples/hello.graph
+```json-render
+{
+  "messages": [
+    {
+      "role": "user",
+      "text": "I'm getting NAM003. What is it?"
+    },
+    {
+      "role": "assistant",
+      "text": "Let me read the diagnostic. I'll start with the human explanation and pull JSON when I need exact fields."
+    },
+    {
+      "role": "tools",
+      "calls": [
+        {
+          "command": "zero explain NAM003",
+          "output": "NAM003: unresolved name\n  A referenced name has no binding in scope.\n  help: import the module, or define the name before use."
+        },
+        {
+          "command": "zero explain --json NAM003",
+          "output": "{\n  \"code\": \"NAM003\",\n  \"title\": \"unresolved name\",\n  \"fix\": { \"safety\": \"safe\" }\n}"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Each JSON diagnostic includes a code, span, expected/actual fields, help, fix safety, and repair metadata."
+    }
+  ]
+}
 ```
-
-Each JSON diagnostic includes a code, span, expected/actual fields, help, fix safety, and repair metadata.
 
 ## Understand Cleanup With `defer`
 

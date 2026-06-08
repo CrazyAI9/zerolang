@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ChevronDownIcon, HamburgerIcon } from "@/components/icons";
 import { Sheet, SheetTrigger, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import type { DocsGroup } from "@/lib/types";
+
+const COLLAPSE_STORAGE_KEY = "docs-sidebar-collapsed";
 
 type SidebarNavProps = {
   groups: DocsGroup[];
@@ -19,12 +21,28 @@ function SidebarNav({ groups, activeSlug, onNavigate }: SidebarNavProps) {
       .map((g) => g.section),
   );
   const [collapsed, setCollapsed] = useState<Set<string>>(initialCollapsed);
+  const restored = useRef(false);
+
+  // Restore the user's expand/collapse choices so navigating between pages
+  // does not reset sections the user opened. (The active section is always
+  // shown expanded via the `hasActive` check below, regardless of this set.)
+  useEffect(() => {
+    if (restored.current) return;
+    restored.current = true;
+    try {
+      const stored = sessionStorage.getItem(COLLAPSE_STORAGE_KEY);
+      if (stored) setCollapsed(new Set(JSON.parse(stored) as string[]));
+    } catch {}
+  }, []);
 
   function toggle(section: string) {
     setCollapsed((prev) => {
       const next = new Set(prev);
       if (next.has(section)) next.delete(section);
       else next.add(section);
+      try {
+        sessionStorage.setItem(COLLAPSE_STORAGE_KEY, JSON.stringify([...next]));
+      } catch {}
       return next;
     });
   }
@@ -105,7 +123,7 @@ export function DocsSidebarShell({ groups, activeSlug, currentTitle }: DocsSideb
 
       <aside
         aria-label="Documentation"
-        className="hidden md:sticky md:top-0 md:block md:h-screen md:w-60 md:overflow-y-auto"
+        className="hidden md:sticky md:top-14 md:block md:h-[calc(100vh-3.5rem)] md:w-60 md:overflow-y-auto"
       >
         <SidebarNav groups={groups} activeSlug={activeSlug} />
       </aside>

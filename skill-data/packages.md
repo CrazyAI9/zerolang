@@ -20,9 +20,10 @@ zero patch --op 'addMain'
 human-readable projection; export them only when a human asks to review or edit
 the projection. `zero init` defaults to the current directory and uses that
 directory's folder name as the package name. Use `zero init app` when the
-user asks for a new subdirectory. Use `zero new` only when the user explicitly
-asks for a projection-oriented starter template. Use
-`zero init --manifest toml [package]` when the user wants TOML metadata.
+user asks for a new subdirectory. It writes TOML metadata by default; use
+`zero init --manifest json [package]` only for explicit compatibility cases.
+Use `zero init --template cli|lib|package [package]` only when the user
+explicitly asks for starter files.
 
 ## Manifest
 

@@ -193,9 +193,9 @@ interchange files.
 
 `zero status`, `zero verify-projection`, `zero import`, and `zero export` define the
 repository graph projection surface.
-`zero init --manifest toml <project>` creates a graph-first package with
-`zero.toml` and `zero.graph`. It does not materialize `.0` files. Agents can
-patch the package with
+`zero init [project]` creates a graph-first package with `zero.toml` and
+`zero.graph`. It does not materialize `.0` files. Pass `--manifest json` only
+for explicit compatibility cases. Agents can patch the package with
 `zero patch <project> --op ...`; from inside a graph-first package,
 `zero patch --op ...` defaults to the current directory. Then normal
 `zero check`, `zero run`, and `zero test` run against the graph store.
@@ -435,13 +435,12 @@ document symbols, and quick-fix code actions surfaced from `zero fix` for
 
 ## Utility Commands
 
-For new agent-authored packages, prefer `zero init`; it creates the manifest and
-`zero.graph` compiler input without materializing a `.0` projection. Use
-`zero new` only when you explicitly want a projection-oriented starter template.
+Use `zero init` for all project creation. By default it creates the manifest and
+`zero.graph` compiler input without materializing a `.0` projection. Use the
+template flag only when you explicitly want starter projection files.
 
 ```sh
 zero --version [--json]
-zero new cli|lib|package <path>
 zero doctor [--json]
 zero check [--json] [--target <target>] [--emit exe|obj|llvm-ir] [--backend direct|llvm|<direct-emitter>] [graph-input]
 zero dev [--json] [--trace] [--target <target>] [graph-input]
@@ -450,7 +449,7 @@ zero build [--emit exe|obj|llvm-ir] [--backend direct|llvm|<direct-emitter>] [--
 zero ship [--json] [--target <target>] [--profile release-small|tiny|audit] [--out <file>] [graph-input]
 zero test [--json] [--filter <name>] [--target <target>] [--cc <path>] [--out <file>] [graph-input]
 zero fmt [--check] <source-input>
-zero init [--json] [--manifest toml|json] [project-path]
+zero init [--json] [--manifest toml|json] [--format text|binary] [--template cli|lib|package] [project-path]
 zero query [--json] [--fn <name>] [--find <text>] [--refs <name>] [--calls <name>] [--node <id>] [graph-input]
 zero dump|validate|roundtrip [--json] [--format text|binary] [--out <program-graph-artifact>] [graph-input]
 zero view [--json] [--out <file.0>] [graph-input]

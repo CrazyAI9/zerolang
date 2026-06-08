@@ -41,9 +41,10 @@ zero patch --op 'addMain'
 
 `zero init` defaults to the current directory and uses that directory's folder
 name as the package name. Use `zero init app` when the user asks to create
-a new subdirectory, and use `zero init --manifest toml [package]` when the user
-asks for TOML package metadata. Use `zero new` only when the user explicitly
-asks for a projection-oriented starter template.
+a new subdirectory. `zero init` writes TOML metadata by default; use
+`zero init --manifest json [package]` only for explicit compatibility cases.
+If the user explicitly asks for starter files, use
+`zero init --template cli|lib|package [package]`.
 
 3. Inspect the current program through the graph:
 

@@ -16,49 +16,63 @@ zero --version
 The installer downloads the latest matching binary from the GitHub release and
 writes it to `$HOME/.zero/bin/zero`.
 
+## Install The Skill
+
+Install the Zerolang skill in your project. The skill teaches your agent the
+local compiler surface and the graph-first workflow, so it knows to read and
+write through the graph instead of hand-editing source:
+
+```sh
+npx skills add vercel-labs/zerolang
+```
+
 ## Ask An Agent For Hello World
 
-Start by telling the agent to use Zero's bundled skills and to write through
-the graph. The agent should learn the local compiler surface from `zero skills`
-before it edits anything:
+With the skill installed, just ask for what you want. A typical agent
+conversation should look like this. Expand a command to see what it returns:
 
-```text
-Check out the agent, graph, and language skills for Zero:
-zero skills
-zero skills get agent
-zero skills get graph
-zero skills get language
-
-Create a hello world Zero program. Use the graph to read and write. `.0` files
-are for humans only; do not export them unless I ask for a projection.
-```
-
-A typical agent conversation should look like this:
-
-```text
-You:
-  Create a hello world Zero program. Use the graph to read and write.
-  `.0` files are for humans only.
-
-Agent:
-  I will initialize a graph-first package in this directory, patch zero.graph,
-  and run it. The patch command validates the graph and returns the new graph
-  hash and symbols.
-
-Agent runs:
-  zero init
-  zero patch --op 'addMain' --op 'addCheckWrite fn="main" text="hello from zero\n"'
-  zero run
-
-Agent reports:
-  zero.graph was patched successfully, the new graph hash is graph:..., and
-  zero run prints "hello from zero".
-```
-
-Expected output from the run:
-
-```text
-hello from zero
+```json-render
+{
+  "messages": [
+    {
+      "role": "user",
+      "text": "Create a hello world Zero program. Use the graph to read and write. .0 files are for humans only."
+    },
+    {
+      "role": "skill",
+      "name": "zerolang"
+    },
+    {
+      "role": "assistant",
+      "text": "I'll initialize a graph-first package, patch zero.graph, and run it. The patch command validates the graph and returns the new graph hash and symbols."
+    },
+    {
+      "role": "tools",
+      "calls": [
+        {
+          "command": "zero init",
+          "output": "Created zero.toml\nCreated zero.graph  graph:e3b0c442\nInitialized package \"hello\""
+        },
+        {
+          "command": "zero patch --op 'addMain' --op 'addCheckWrite fn=\"main\" text=\"hello from zero\\n\"'",
+          "output": "Patched zero.graph\n  graph hash  graph:a7f7e689\n  symbols     main"
+        },
+        {
+          "command": "zero run",
+          "output": "hello from zero"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Done. zero.graph was patched successfully, the new graph hash is graph:a7f7e689 with symbol main, and zero run prints:"
+    },
+    {
+      "role": "output",
+      "text": "hello from zero"
+    }
+  ]
+}
 ```
 
 ## What The Agent Created
@@ -114,17 +128,40 @@ the human projection needs to be refreshed.
 
 ## Ask For The Next Change
 
-Keep the same graph-first instruction in the prompt:
+Keep talking to the same agent. It uses `zero patch` operations, and for
+behavior changes it runs the relevant command such as `zero test` or `zero run`:
 
-```text
-Add a function add(x, y) that returns x + y, and add a test for it.
-Use the graph to read and write. Do not hand-edit `.0`; do not export a
-projection unless I ask.
+```json-render
+{
+  "messages": [
+    {
+      "role": "user",
+      "text": "Add a function add(x, y) that returns x + y, and add a test for it. Use the graph to read and write. Do not hand-edit .0; do not export a projection unless I ask."
+    },
+    {
+      "role": "assistant",
+      "text": "I'll add the function and a test with graph patches, then run the tests."
+    },
+    {
+      "role": "tools",
+      "calls": [
+        {
+          "command": "zero patch --op 'addFunction name=\"add\" ret=\"i32\"' --op 'addParam fn=\"add\" name=\"x\" type=\"i32\"' --op 'addParam fn=\"add\" name=\"y\" type=\"i32\"' --op 'addLetBinary fn=\"add\" name=\"sum\" type=\"i32\" operator=\"+\" left=\"x\" right=\"y\"' --op 'addReturnValue fn=\"add\" value=\"sum\" type=\"i32\"'",
+          "output": "Patched zero.graph\n  graph hash  graph:5d9b2c10\n  symbols     add, main"
+        },
+        {
+          "command": "zero test",
+          "output": "running 1 test\n  test add_adds ... ok\n\n1 passed; 0 failed"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Done. add(x, y) is in the graph and its test passes. The new graph hash is graph:5d9b2c10 with symbols add and main."
+    }
+  ]
+}
 ```
-
-The agent should use `zero patch` operations. A successful patch validates the
-graph and reports the new hash and top-level symbols. For behavior changes, the
-agent should run the relevant command, such as `zero test` or `zero run`.
 
 ## Learn The Core Syntax
 
