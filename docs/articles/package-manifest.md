@@ -65,20 +65,18 @@ missing, stale, conflicting, or unavailable, and do not rewrite `.0` files. A
 graph-first package can be created with:
 
 ```sh
-zero init --manifest toml app
-cd app
+zero init --manifest toml
 zero patch --op 'addMain'
-zero check .
 ```
 
-Use `zero export` to materialize or refresh `.0` projections
-for human review. Use `zero import` after humans edit `.0` so
-the graph store reflects the reviewed source projection. Use
-`zero verify-projection` when CI or review needs the no-write projection drift
-gate. A package without `zero.graph` is missing its compiler input; run
-`zero import` after reviewing the projection or create it with `zero init`.
+Use `zero export` only when a human needs to materialize or refresh `.0`
+projections for review. Use `zero import` after humans edit `.0` so the graph
+store reflects the reviewed source projection. Use `zero verify-projection`
+when CI or review needs the no-write projection drift gate. A package without
+`zero.graph` is missing its compiler input; run `zero import` after reviewing
+the projection or create it with `zero init`.
 
-`zero inspect --json <package>` reports:
+`zero inspect --json [package]` reports:
 
 - `package.dependencies`
 - `package.lockfile`
@@ -97,6 +95,6 @@ Package graph failures use stable diagnostics:
 - `PKG003`: the graph resolves one package name to conflicting versions
 - `PKG004`: the selected target is not listed in a dependency's target metadata
 
-`zero doc --json <package>` exposes registry-oriented publication metadata.
+`zero doc --json [package]` exposes registry-oriented publication metadata.
 Public package APIs should carry docs/examples metadata before publication. The
 current compiler reports this as `publicationGate`.

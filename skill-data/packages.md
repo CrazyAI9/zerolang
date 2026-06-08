@@ -12,17 +12,17 @@ Use this when working with `zero.toml`, compatibility `zero.json`, package-local
 For agent-authored packages, start graph-first:
 
 ```sh
-zero init hello
-cd hello
+zero init
 zero patch --op 'addMain'
-zero check .
-zero export .
 ```
 
 `zero.graph` is the package graph store and compiler input. `.0` files are the
-human-readable projection; export them after graph checks pass. Use `zero new`
-only when the user explicitly asks for a projection-oriented starter template.
-Use `zero init --manifest toml <package>` when the user wants TOML metadata.
+human-readable projection; export them only when a human asks to review or edit
+the projection. `zero init` defaults to the current directory and uses that
+directory's folder name as the package name. Use `zero init app` when the
+user asks for a new subdirectory. Use `zero new` only when the user explicitly
+asks for a projection-oriented starter template. Use
+`zero init --manifest toml [package]` when the user wants TOML metadata.
 
 ## Manifest
 
@@ -58,7 +58,7 @@ testing precedence.
 Pass either the package directory or manifest to commands:
 
 ```sh
-zero check .
+zero check
 zero check zero.toml
 zero run examples/systems-package
 ```
@@ -81,8 +81,8 @@ use std.parse
 Avoid implicit files. If an import is unknown, run:
 
 ```sh
-zero check <package>
-zero inspect <package>
+zero check
+zero inspect
 ```
 
 ## Dependencies
@@ -113,14 +113,14 @@ Package compiler commands validate and compile from a checked-in `zero.graph`
 store, including target and package metadata, and can operate when `.0` source
 projections are missing. Commands report projection state and never rewrite
 `.0` files. Use `zero verify-projection` when drift must fail the workflow, and
-`zero export` to regenerate projections.
+`zero export` only when a human-readable projection needs regeneration.
 
 ## Inspect
 
 ```sh
-zero inspect <package>
-zero doc <package>
-zero dev <package>
+zero inspect
+zero doc
+zero dev
 ```
 
 Use `--json` when a tool needs exact graph, doc, or dev fields. Useful `graph`
@@ -133,29 +133,26 @@ facts, and package cache key inputs.
 For agent-authored packages, prefer the repository graph surface:
 
 ```sh
-zero init <package>
-cd <package>
+zero init
 zero patch --op 'addMain'
-zero check .
-zero run .
 ```
 
 Inspect and patch existing packages through the graph. Create an artifact under
 `.zero/` only when another tool needs a file artifact:
 
 ```sh
-zero view <package>
-zero check <package>
-zero patch <package> --op 'addMain'
+zero view
+zero patch --op 'addMain'
 ```
 
-Package-level patches write `zero.graph`; use `zero export <package>` to
-materialize `.0` for human review and `zero import <package>` after humans edit
-that projection. Keep derived graph artifacts out of the package source unless
-the user explicitly asks for them.
+Package-level patches write `zero.graph`; successful patch output includes the
+new graph hash and top-level symbols. Use `zero export` only to materialize
+`.0` for human review, and `zero import` after humans edit that projection. Keep
+derived graph artifacts out of the package source unless the user explicitly
+asks for them.
 
 Repository graph stores are binary by default. Use `zero init --format text` or
-`zero import --format text <package>` only when the package
+`zero import --format text [package]` only when the package
 intentionally needs a readable debug store. Normal reads auto-detect both
 encodings, and normal writes preserve an existing text or binary store. Stdlib
 `std/*.graph` stores are binary graph stores; `std/*.0` siblings are human

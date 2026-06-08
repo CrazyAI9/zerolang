@@ -19,7 +19,7 @@ Use the same compiler binary that will run the project:
 
 ```sh
 zero --version
-zero skills list
+zero skills
 zero skills get language
 zero skills get graph
 zero skills get diagnostics
@@ -35,28 +35,27 @@ the package root, `zero.toml` is the active manifest.
 2. For a new agent-authored package, start from the graph:
 
 ```sh
-zero init <package>
-cd <package>
+zero init
 zero patch --op 'addMain'
-zero query .
-zero check .
 ```
 
-Use `zero init --manifest toml <package>` when the user asks for TOML package
-metadata.
+`zero init` defaults to the current directory and uses that directory's folder
+name as the package name. Use `zero init app` when the user asks to create
+a new subdirectory, and use `zero init --manifest toml [package]` when the user
+asks for TOML package metadata. Use `zero new` only when the user explicitly
+asks for a projection-oriented starter template.
 
 3. Inspect the current program through the graph:
 
 ```sh
-zero query <graph-input>
-zero query --fn main <graph-input>
-zero query --find write <graph-input>
-zero query --calls std <graph-input>
-zero query --refs add <graph-input>
-zero query --node '#expr_2cad38f9' <graph-input>
-zero view <graph-input>
-zero check <graph-input>
-zero status <graph-input>
+zero query
+zero query --fn main
+zero query --find write
+zero query --calls std
+zero query --refs add
+zero query --node '#expr_2cad38f9'
+zero view
+zero status
 ```
 
 4. Stay on normal graph output for agent inspection. Add `--json` only when an
@@ -70,21 +69,21 @@ and child edges. Delete patches preserve valid sibling order for ordered graph
 groups. Use full dumps only when a tool needs the complete node/edge table:
 
 ```sh
-zero query <graph-input>
-zero query --fn main <graph-input>
-zero query --find parse <graph-input>
-zero query --calls std <graph-input>
-zero query --refs add <graph-input>
-zero query --node '#fn_main' <graph-input>
+zero query
+zero query --fn main
+zero query --find parse
+zero query --calls std
+zero query --refs add
+zero query --node '#fn_main'
 ```
 
-5. For graph-first packages, patch the package graph store and validate with
-normal compiler commands:
+5. For graph-first packages, patch the package graph store. A successful patch
+has already loaded, applied, validated, and saved the graph; plain output
+includes the saved path, new graph hash, functions, and tests. Do not run
+`zero check` or `zero query` just to confirm that the patch applied.
 
 ```sh
 zero patch --op 'addCheckWrite fn="main" text="hello\n"'
-zero check .
-zero test .
 ```
 
 For multi-statement functions, compose graph builder operations instead of
@@ -94,7 +93,6 @@ writing `.0` source by hand:
 zero patch \
   --op 'addLetLiteral fn="main" name="message" type="String" value="hello\n"' \
   --op 'addCheckWriteValue fn="main" value="message" type="String"'
-zero check .
 ```
 
 For custom behavior such as CLI argument flow, write row syntax inside
@@ -119,7 +117,7 @@ For branch-local changes, query block handles and replace only the selected
 block:
 
 ```sh
-zero query --find Block <graph-input>
+zero query --find Block
 ```
 
 ```text
@@ -132,7 +130,7 @@ end
 Preview repository graph patches without writing:
 
 ```sh
-zero patch --check-only <package> /tmp/body.patch
+zero patch --check-only /tmp/body.patch
 ```
 
 When you need patch operation shapes, ask the compiler without loading or
@@ -148,19 +146,20 @@ with `--op`, `--patch-text`, or a `zero-program-graph-patch v1` file under
 `/tmp`. If the graph surface cannot express the change, say which graph
 operation is missing instead of silently switching to source text.
 
-6. When human review source is needed, write it explicitly:
+6. Only touch `.0` projections when the user asks for human-readable review or
+after a human edited the projection. Agents should not export as a routine
+post-patch step.
 
 ```sh
-zero export <package>
-zero verify-projection <package>
+zero export
+zero verify-projection
 ```
 
 7. If a human edits `.0`, import the reviewed projection back to the graph store:
 
 ```sh
-zero status <package>
-zero import <package>
-zero check <package>
+zero status
+zero import
 ```
 
 8. When a graph artifact is necessary, write it under `.zero/`, patch the
@@ -181,10 +180,12 @@ and plain package writes preserve an existing text or binary store. `--format
 binary` is still useful for explicit graph artifact outputs. Stdlib
 `std/*.graph` stores are binary by design; sibling `.0` files are human
 projections, not the stdlib compiler source.
-10. Run a focused check:
+10. Run a focused compiler command only when it verifies behavior the patch
+cannot prove, such as executing changed code or running tests:
 
 ```sh
-zero check <graph-input>
+zero test
+zero run
 ```
 
 11. When the compiler reports a diagnostic, explain the code first. If an
@@ -192,8 +193,8 @@ automation tool needs stable fields or a repair plan, rerun with JSON:
 
 ```sh
 zero explain <diagnostic-code>
-zero check --json <graph-input>
-zero fix --plan --json <graph-input>
+zero check --json
+zero fix --plan --json
 ```
 
 12. If behavior changes, add or update a `test` block or conformance fixture.
@@ -216,13 +217,13 @@ zero fix --plan --json <graph-input>
 ## Useful Focused Commands
 
 ```sh
-zero check <graph-input>
-zero inspect <graph-input>
-zero query <graph-input>
-zero view <graph-input>
-zero status <graph-input>
-zero test <graph-input>
-zero size <graph-input>
+zero check
+zero inspect
+zero query
+zero view
+zero status
+zero test
+zero size
 zero doctor
 ```
 

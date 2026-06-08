@@ -1455,8 +1455,16 @@ static int zero_http_request_target(ZeroByteView request, size_t *offset_out, si
     end++;
   }
   if (end == start) return 0;
-  for (size_t i = end + 1; i < line.len; i++) {
-    if (line.ptr[i] != ' ') return 0;
+  if (end < line.len) {
+    size_t version_start = end;
+    while (version_start < line.len && line.ptr[version_start] == ' ') version_start++;
+    if (version_start < line.len) {
+      ZeroByteView version = {line.ptr + version_start, line.len - version_start};
+      if (!((version.len == 8 && memcmp(version.ptr, "HTTP/1.0", 8) == 0) ||
+            (version.len == 8 && memcmp(version.ptr, "HTTP/1.1", 8) == 0))) {
+        return 0;
+      }
+    }
   }
   if (offset_out) *offset_out = (size_t)(line.ptr + start - request.ptr);
   if (len_out) *len_out = end - start;

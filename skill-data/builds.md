@@ -22,15 +22,19 @@ For packages, normal check, build, run, test, size, ship, and mem commands
 compile from the checked-in `zero.graph` store. Source projections may be
 clean, missing, stale, or in conflict; commands report that state and do not
 rewrite `.0` files. Use `zero verify-projection` when CI or review needs
-projection drift to fail, and `zero export` to regenerate projections from the
-store. `.0` files are projection/import inputs, not compiler inputs; pass the
-package, manifest, `.graph` store, or `.program-graph` artifact instead.
+projection drift to fail, and `zero export` only when a human-readable
+projection needs regeneration. `.0` files are projection/import inputs, not
+compiler inputs; pass the package, manifest, `.graph` store, or
+`.program-graph` artifact instead. When already inside a package, omit the input
+and commands default to the current directory.
 
 ## Run
 
 Use `zero run` for the host development loop:
 
 ```sh
+zero run
+zero run -- input.txt
 zero run examples/hello.graph
 zero run examples/cli-file.graph -- input.txt
 ```
@@ -42,6 +46,8 @@ Arguments after `--` are passed to the Zero program.
 Use direct emitters. The removed generated-C backend is not a fallback path.
 
 ```sh
+zero build --emit exe --out .zero/out/app
+zero build --emit obj --out .zero/out/app.o
 zero build --emit exe examples/hello.graph --out .zero/out/hello
 zero build --emit obj examples/hello.graph --out .zero/out/hello.o
 ```
@@ -75,16 +81,14 @@ require `.0` projections to exist:
 
 ```sh
 zero patch --op 'addMain'
-zero check .
-zero run .
-zero build . --out .zero/out/app
+zero run
+zero build --out .zero/out/app
 ```
 
-Use `zero export <package>` when humans need checked-in `.0`
-projections. If a human edits a projection, run
-`zero import <package>` before the next graph-store compile.
+Use `zero export` when humans need checked-in `.0` projections. If a human
+edits a projection, run `zero import` before the next graph-store compile.
 Normal build and run commands read binary `zero.graph` stores directly by
-default; `zero status <package>` reports the active store format.
+default; `zero status` reports the active store format.
 
 Repository graph build/run/test/size/ship/mem commands and standalone
 `.program-graph` build, run, and size artifact commands also maintain a final

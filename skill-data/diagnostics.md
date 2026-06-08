@@ -13,16 +13,16 @@ session needs exact spans, repair metadata, or machine-readable diagnostics.
 ## Commands
 
 ```sh
-zero check <graph-input>
+zero check
 zero explain <diagnostic-code>
 ```
 
 Use machine-readable output when a tool needs exact fields:
 
 ```sh
-zero check --json <graph-input>
+zero check --json
 zero explain --json <diagnostic-code>
-zero fix --plan --json <graph-input>
+zero fix --plan --json
 ```
 
 `zero fix` reads graph-backed inputs. It reports candidate repairs for graph diagnostics; projection-only source must be imported before repair planning.

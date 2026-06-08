@@ -805,7 +805,7 @@ Build resolution is declarative and does not execute dependency code. Unknown
 imports, direct import cycles, bad manifests, and duplicate public exports are
 reported before parsing the combined package source.
 
-`zero inspect --json <package>` lists module names, source paths, import edges
+`zero inspect --json [package]` lists module names, source paths, import edges
 with source ranges, parsed `useImports` with source ranges, public/private
 symbol counts, target metadata, function effects, required capabilities, and
 whether the selected target provides hosted filesystem support.

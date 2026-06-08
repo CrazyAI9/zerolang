@@ -8,6 +8,8 @@
 #include "c_import.h"
 #include "capability_summary.h"
 #include "canonical_text.h"
+#include "cli_help.h"
+#include "http_listen_runner.h"
 #include "program_graph_build.h"
 #include "program_graph_command.h"
 #include "program_graph_compare.h"
@@ -132,8 +134,6 @@ typedef struct {
   long long sbom_bytes;
 } ShipArtifacts;
 
-static void print_command_help(const char *command);
-static void print_graph_patch_help_text(void);
 static void manifest_path_for_input(const SourceInput *input, char *manifest_path, size_t manifest_path_len);
 static bool is_program_graph_root_command(const char *command);
 
@@ -474,7 +474,7 @@ static int embedded_skills_command(int argc, char **argv, bool json) {
   }
 
   if (strcmp(subcommand, "help") == 0) {
-    print_command_help("skills");
+    z_cli_print_command_help("skills");
     return 0;
   }
   if (strcmp(subcommand, "list") == 0) return embedded_skills_list_command(json);
@@ -1948,7 +1948,14 @@ static uint64_t source_interface_hash(const SourceInput *input) {
   return hash;
 }
 
-static uint64_t graph_interface_cache_key(const SourceInput *input, const char *graph_hash) { uint64_t hash = fnv1a_text("program-graph-interface"); hash ^= source_interface_hash(input); hash *= 1099511628211ull; return mix_hash_text(hash, graph_hash); }
+static uint64_t graph_interface_cache_key(const SourceInput *input, const char *graph_hash) {
+  uint64_t hash = fnv1a_text("program-graph-interface");
+  hash ^= source_interface_hash(input);
+  hash *= 1099511628211ull;
+  hash ^= z_std_source_graph_fingerprint();
+  hash *= 1099511628211ull;
+  return mix_hash_text(hash, graph_hash);
+}
 
 static uint64_t source_dependency_hash_ex(const SourceInput *input, bool include_source_files) {
   uint64_t hash = fnv1a_text("dependencies"); if (!input) return hash;
@@ -2122,6 +2129,8 @@ static uint64_t graph_compile_cache_key(const SourceInput *input, const ZTargetI
   uint64_t hash = fnv1a_text(kind);
   hash = mix_hash_text(hash, ZERO_VERSION);
   hash = mix_hash_text(hash, graph_hash ? graph_hash : "");
+  hash ^= z_std_source_graph_fingerprint();
+  hash *= 1099511628211ull;
   hash = mix_hash_text(hash, target ? target->name : z_host_target());
   hash = mix_hash_text(hash, profile ? profile : "release");
   hash ^= graph_dependency_hash(input);
@@ -2198,13 +2207,13 @@ static void append_compiler_phases_json(ZBuf *buf, const SourceInput *input) {
   zbuf_append(buf, "]");
 }
 
-static const char *GRAPH_CACHE_INPUTS_PARSE = "[\"graphHash\",\"moduleHash\",\"nodeHashes\",\"typeFacts\",\"symbolFacts\",\"importGraph\",\"importPaths\",\"compilerVersion\",\"packageDependencies\"]";
-static const char *GRAPH_CACHE_INPUTS_INTERFACE = "[\"graphHash\",\"moduleHash\",\"modulePaths\",\"symbolFacts\",\"importGraph\"]";
-static const char *GRAPH_CACHE_INPUTS_CHECK = "[\"graphHash\",\"moduleHash\",\"nodeHashes\",\"typeFacts\",\"symbolFacts\",\"importGraph\",\"importPaths\",\"targetFacts\",\"compilerVersion\",\"packageDependencies\"]";
-static const char *GRAPH_CACHE_INPUTS_SPECIALIZATION = "[\"graphHash\",\"moduleHash\",\"nodeHashes\",\"typeFacts\",\"symbolFacts\",\"importGraph\",\"importPaths\",\"targetFacts\",\"profile\",\"compilerVersion\",\"packageDependencies\"]";
-static const char *GRAPH_CACHE_INPUTS_MAPPED_MIR = "[\"graphHash\",\"moduleHash\",\"nodeHashes\",\"typeFacts\",\"symbolFacts\",\"importGraph\",\"importPaths\",\"targetFacts\",\"compilerVersion\",\"packageDependencies\",\"emitKind\",\"backend\"]";
-static const char *GRAPH_CACHE_INPUTS_OBJECT = "[\"graphHash\",\"moduleHash\",\"nodeHashes\",\"typeFacts\",\"symbolFacts\",\"importGraph\",\"importPaths\",\"targetFacts\",\"profile\",\"compilerVersion\",\"packageDependencies\"]";
-static const char *GRAPH_CACHE_INPUTS_AGGREGATE = "[\"graphHash\",\"moduleHash\",\"modulePaths\",\"nodeHashes\",\"typeFacts\",\"symbolFacts\",\"importGraph\",\"importPaths\",\"targetFacts\",\"profile\",\"compilerVersion\",\"packageDependencies\"]";
+static const char *GRAPH_CACHE_INPUTS_PARSE = "[\"graphHash\",\"stdlibGraph\",\"moduleHash\",\"nodeHashes\",\"typeFacts\",\"symbolFacts\",\"importGraph\",\"importPaths\",\"compilerVersion\",\"packageDependencies\"]";
+static const char *GRAPH_CACHE_INPUTS_INTERFACE = "[\"graphHash\",\"stdlibGraph\",\"moduleHash\",\"modulePaths\",\"symbolFacts\",\"importGraph\"]";
+static const char *GRAPH_CACHE_INPUTS_CHECK = "[\"graphHash\",\"stdlibGraph\",\"moduleHash\",\"nodeHashes\",\"typeFacts\",\"symbolFacts\",\"importGraph\",\"importPaths\",\"targetFacts\",\"compilerVersion\",\"packageDependencies\"]";
+static const char *GRAPH_CACHE_INPUTS_SPECIALIZATION = "[\"graphHash\",\"stdlibGraph\",\"moduleHash\",\"nodeHashes\",\"typeFacts\",\"symbolFacts\",\"importGraph\",\"importPaths\",\"targetFacts\",\"profile\",\"compilerVersion\",\"packageDependencies\"]";
+static const char *GRAPH_CACHE_INPUTS_MAPPED_MIR = "[\"graphHash\",\"stdlibGraph\",\"moduleHash\",\"nodeHashes\",\"typeFacts\",\"symbolFacts\",\"importGraph\",\"importPaths\",\"targetFacts\",\"compilerVersion\",\"packageDependencies\",\"emitKind\",\"backend\"]";
+static const char *GRAPH_CACHE_INPUTS_OBJECT = "[\"graphHash\",\"stdlibGraph\",\"moduleHash\",\"nodeHashes\",\"typeFacts\",\"symbolFacts\",\"importGraph\",\"importPaths\",\"targetFacts\",\"profile\",\"compilerVersion\",\"packageDependencies\"]";
+static const char *GRAPH_CACHE_INPUTS_AGGREGATE = "[\"graphHash\",\"stdlibGraph\",\"moduleHash\",\"modulePaths\",\"nodeHashes\",\"typeFacts\",\"symbolFacts\",\"importGraph\",\"importPaths\",\"targetFacts\",\"profile\",\"compilerVersion\",\"packageDependencies\"]";
 
 static void append_compiler_caches_json_ex(ZBuf *buf, const SourceInput *input, const ZTargetInfo *target, const char *profile, const char *source_kind, const char *graph_hash) {
   bool graph_input = source_kind && strcmp(source_kind, "program-graph") == 0;
@@ -2236,6 +2245,7 @@ static void append_compiler_caches_json_ex(ZBuf *buf, const SourceInput *input, 
       zbuf_append(buf, ",\"graphHash\":"); \
       append_json_string(buf, graph_hash); \
     } \
+    if (graph_input) zbuf_appendf(buf, ",\"stdlibGraphHash\":\"%016llx\"", (unsigned long long)z_std_source_graph_fingerprint()); \
     if (graph_input) { zbuf_append(buf, ",\"graphKeyInputs\":"); zbuf_append(buf, key_inputs); zbuf_append(buf, ",\"parserArtifactsInKey\":false"); } \
     zbuf_appendf(buf, ",\"dependencyGraphHash\":\"%016llx\",\"lockfileHash\":\"%016llx\",\"invalidatesOn\":", \
                  (unsigned long long)(input ? input->dependency_graph_hash : 0), \
@@ -2260,6 +2270,7 @@ static void append_compiler_caches_json_ex(ZBuf *buf, const SourceInput *input, 
     append_json_string(buf, input->package_version ? input->package_version : "");
     zbuf_append(buf, ",\"sourceKind\":\"program-graph\",\"graphHash\":");
     append_json_string(buf, graph_hash ? graph_hash : "");
+    zbuf_appendf(buf, ",\"stdlibGraphHash\":\"%016llx\"", (unsigned long long)z_std_source_graph_fingerprint());
     zbuf_append(buf, ",\"graphKeyInputs\":");
     zbuf_append(buf, GRAPH_CACHE_INPUTS_MAPPED_MIR);
     zbuf_append(buf, ",\"parserArtifactsInKey\":false");
@@ -4021,141 +4032,6 @@ static int print_or_apply_fix_json(const char *path, SourceInput *input, const Z
   return apply && has_edit && !applied ? 1 : 0;
 }
 
-static void print_help(void) {
-  printf("zero %s native bootstrap\n\n", ZERO_VERSION);
-  printf("Usage:\n");
-  printf("  zero --version [--json]\n");
-  printf("  zero skills [list|get] [--json]\n");
-  printf("  zero new cli|lib|package <name>\n");
-  printf("  zero check [--json] [--target <target>] [--emit exe|obj|llvm-ir] <graph-input>\n");
-  printf("  zero patch [--json] [--check-only|--dry-run] [--format text|binary] [--out <program-graph-artifact>] [<graph-input>] (<patch-file>|--op <operation>)\n");
-  printf("  zero test <graph-input>\n");
-  printf("  zero fmt <file.0|project|zero.toml|zero.json>\n");
-  printf("  zero build [--json] [--emit exe|obj|llvm-ir] [--backend direct|llvm|<direct-emitter>] [--target <target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <graph-input>\n");
-  printf("  zero run [--backend direct|llvm|<direct-emitter>] [--target <target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <graph-input> [-- args...]\n");
-  printf("  zero ship [--json] [--target <target>] [--profile release-small|tiny|audit] [--out <file>] <graph-input>\n");
-  printf("  zero tokens --json <file.0|project|zero.toml|zero.json>\n");
-  printf("  zero parse --json <file.0|project|zero.toml|zero.json>\n");
-  printf("  zero init [--json] [--manifest toml|json] [--format text|binary] <project-path>\n");
-  printf("  zero query [--json] [--fn <name>] [--find <text>] [--refs <name>] [--calls <name>] [--node <id>] <graph-input>\n");
-  printf("  zero view [--json] [--out <file.0>] <graph-input>\n");
-  printf("  zero status|verify-projection [--json] <project|zero.toml|zero.json|file.0>\n");
-  printf("  zero import [--json] [--format text|binary] [--out <program-graph-artifact>] <project|zero.toml|zero.json|file.0>\n");
-  printf("  zero export [--json] <project|zero.toml|zero.json|file.0>\n");
-  printf("  zero dump|validate|roundtrip [--json] [--format text|binary] [--out <program-graph-artifact>] <graph-input>\n");
-  printf("  zero source-map [--json] <graph-input>\n");
-  printf("  zero reconcile [--json] <base-graph-input> --source <edited-file.0|project|zero.toml|zero.json>\n");
-  printf("  zero merge --base <base-zero.graph> --left <left-zero.graph> --right <right-zero.graph> [--json] [--format text|binary] <project|zero.toml|zero.json|file.0>\n");
-  printf("  zero doc [--json] <graph-input>\n");
-  printf("  zero size [--json] [--out <artifact>] <graph-input>\n");
-  printf("  zero mem [--json] [--target <target>] <graph-input>\n");
-  printf("  zero dev [--json] [--trace] <graph-input>\n");
-  printf("  zero time --json <graph-input>\n");
-  printf("  zero abi check|dump [--json] [--target <target>] <graph-input>\n");
-  printf("  zero explain [--json] <code>\n");
-  printf("  zero fix --plan --json <graph-input>\n");
-  printf("  zero doctor [--json]\n");
-  printf("  zero clean [--all]\n");
-  printf("  zero targets\n");
-  printf("\nExamples:\n");
-  printf("  zero new cli hello\n");
-  printf("  zero run examples/add.graph\n");
-  printf("  zero build --emit exe examples/hello.graph --out .zero/out/hello\n");
-  printf("  zero ship --target linux-musl-x64 examples/hello.graph --out .zero/ship/hello\n");
-  printf("  zero check --json examples/hello.graph\n");
-  printf("  zero build --target linux-musl-x64 examples/memory-package\n");
-}
-
-static void print_command_help(const char *command) {
-  if (strcmp(command, "new") == 0) {
-    printf("Usage: zero new cli|lib|package <name>\n\n");
-    printf("Create a small Zero project template.\n\n");
-    printf("Examples:\n");
-    printf("  zero new cli hello\n");
-    printf("  zero new lib math-kit\n");
-    printf("  zero new package demo\n");
-  } else if (strcmp(command, "skills") == 0) {
-    printf("Usage: zero skills [list|get] [--json]\n\n");
-    printf("List and retrieve version-matched skill content for agents.\n\n");
-    printf("Subcommands:\n");
-    printf("  list                 list available skills (default)\n");
-    printf("  get <name> [--full]  print bundled skill content\n");
-    printf("  get --all            print every visible skill\n");
-  } else if (strcmp(command, "doctor") == 0) {
-    printf("Usage: zero doctor [--json]\n\n");
-    printf("Check host, compiler, target toolchain, and docs/example readiness.\n");
-  } else if (strcmp(command, "clean") == 0) {
-    printf("Usage: zero clean [--all]\n\n");
-    printf("Remove generated output while preserving compiler caches by default.\n\n");
-    printf("Flags:\n");
-    printf("  --all    remove broader .zero generated state while preserving .zero/bin\n");
-  } else if (strcmp(command, "check") == 0) {
-    printf("Usage: zero check [--json] [--target <target>] [--emit exe|obj|llvm-ir] [--backend direct|llvm|<direct-emitter>] <graph-input>\n\n");
-    printf("Validate and typecheck graph-backed Zero input without emitting artifacts.\n");
-  } else if (strcmp(command, "patch") == 0) {
-    printf("Usage: zero patch [--json] [--check-only|--dry-run] [--format text|binary] [--out <program-graph-artifact>] [<graph-input>] (<patch-file>|--op <operation>)\n\n");
-    print_graph_patch_help_text();
-  } else if (strcmp(command, "build") == 0) {
-    printf("Usage: zero build [--json] [--emit exe|obj|llvm-ir] [--backend direct|llvm|<direct-emitter>] [--target <target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <graph-input>\n\n");
-    printf("Build direct native executable or object artifacts.\n\n");
-    printf("Example: zero build --release tiny --emit exe examples/hello.graph --out .zero/out/hello\n");
-  } else if (strcmp(command, "run") == 0) {
-    printf("Usage: zero run [--backend direct|llvm|<direct-emitter>] [--target <target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <graph-input> [-- args...]\n\n");
-    printf("Build a host executable with the selected backend and run it. Direct is the default; LLVM is explicit and requires clang. Program stdout and stderr are passed through unchanged.\n\n");
-    printf("Example: zero run examples/add.graph\n");
-  } else if (strcmp(command, "ship") == 0) {
-    printf("Usage: zero ship [--json] [--target <target>] [--profile release-small|tiny|audit] [--out <file>] <graph-input>\n\n");
-    printf("Produce a deterministic release preview with a direct binary, stripped binary copy, checksum, archive manifest, debug-symbol metadata, size report, and SBOM placeholder.\n\n");
-    printf("Example: zero ship --target linux-musl-x64 examples/hello.graph --out .zero/ship/hello\n");
-  } else if (strcmp(command, "test") == 0) {
-    printf("Usage: zero test [--json] [--filter <name>] [--target <target>] [--cc <path>] [--out <file>] <graph-input>\n\n");
-    printf("Build and run inline `test` blocks.\n");
-  } else if (strcmp(command, "fmt") == 0) {
-    printf("Usage: zero fmt [--check] <file.0|project|zero.toml|zero.json>\n\n");
-    printf("Print deterministic bootstrap formatting for Zero source.\n");
-  } else if (strcmp(command, "targets") == 0) {
-    printf("Usage: zero targets\n\n");
-    printf("Print supported target facts as JSON.\n");
-  } else if (strcmp(command, "tokens") == 0) {
-    printf("Usage: zero tokens --json <file.0|project|zero.toml|zero.json>\n\n");
-    printf("Emit source token JSON for oracle comparisons.\n");
-  } else if (strcmp(command, "parse") == 0) {
-    printf("Usage: zero parse --json <file.0|project|zero.toml|zero.json>\n\n");
-    printf("Emit normalized source parse JSON for oracle comparisons.\n");
-  } else if (strcmp(command, "abi") == 0) {
-    printf("Usage: zero abi check|dump [--json] [--target <target>] <graph-input>\n\n");
-    printf("Check ABI-safe declarations or dump target-aware graph layout facts.\n");
-  } else if (strcmp(command, "graph") == 0 || is_program_graph_root_command(command)) {
-    z_program_graph_print_command_help();
-  } else if (strcmp(command, "doc") == 0) {
-    printf("Usage: zero doc [--json] [--target <target>] <graph-input>\n\n");
-    printf("Emit package API documentation facts without emitting artifacts.\n");
-  } else if (strcmp(command, "size") == 0) {
-    printf("Usage: zero size [--json] [--target <target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <artifact>] <graph-input>\n\n");
-    printf("Report direct IR size, optional artifact bytes, capabilities, and stdlib helper metadata.\n");
-  } else if (strcmp(command, "mem") == 0) {
-    printf("Usage: zero mem [--json] [--target <target>] <graph-input>\n\n");
-    printf("Report direct stack, static, heap, buffer, and runtime memory facts.\n");
-  } else if (strcmp(command, "dev") == 0) {
-    printf("Usage: zero dev [--json] [--trace] [--target <target>] <graph-input>\n\n");
-    printf("Emit a direct incremental watch plan, interface fingerprints, and affected-test summary.\n");
-  } else if (strcmp(command, "time") == 0) {
-    printf("Usage: zero time --json [--target <target>] <graph-input>\n\n");
-    printf("Emit compiler phase, cache, and invalidation timing facts.\n");
-  } else if (strcmp(command, "explain") == 0) {
-    printf("Usage: zero explain [--json] <diagnostic-code>\n\n");
-    printf("Explain a diagnostic and its repair metadata.\n");
-  } else if (strcmp(command, "fix") == 0) {
-    printf("Usage: zero fix (--plan|--patch|--apply) --json [--target <target>] <graph-input>\n\n");
-    printf("Print repair plans, reviewable patches, or apply behavior-preserving edits for graph-backed inputs.\n");
-  } else if (strcmp(command, "version") == 0 || strcmp(command, "--version") == 0) {
-    printf("Usage: zero --version [--json]\n\n");
-    printf("Print version, commit, host target, compiler backend, and target toolchain availability.\n");
-  } else {
-    print_help();
-  }
-}
-
 static bool cli_arg_is(const char *arg, const char *expected) {
   return strcmp(arg ? arg : "", expected) == 0;
 }
@@ -4325,6 +4201,23 @@ static bool parse_graph_merge_option(int argc, char **argv, int *index, Command 
   return true;
 }
 
+static bool command_defaults_to_current_directory(const Command *command) {
+  if (!command || command->input) return false;
+  static const char *const current_dir_default_commands[] = {"init", "check", "test", "build", "run", "ship", "doc", "size", "mem", "dev", "time", "fix"};
+  for (size_t i = 0; i < sizeof(current_dir_default_commands) / sizeof(current_dir_default_commands[0]); i++) {
+    if (cli_arg_is(command->command, current_dir_default_commands[i])) return true;
+  }
+  if (cli_arg_is(command->command, "abi") &&
+      command->kind &&
+      (cli_arg_is(command->kind, "check") || cli_arg_is(command->kind, "dump"))) return true;
+  if (command_is_program_graph_command(command)) return true;
+  return false;
+}
+
+static void command_apply_current_directory_default(Command *command) {
+  if (command_defaults_to_current_directory(command)) command->input = ".";
+}
+
 static bool parse_command(int argc, char **argv, Command *command) {
   if (argc < 2) return false;
   command->command = argv[1];
@@ -4379,16 +4272,22 @@ static bool parse_command(int argc, char **argv, Command *command) {
   if (is_root_graph_command && command->kind && cli_arg_is(command->kind, "export")) command->graph_export_from_graph = true;
   command->graph_reconcile_command = (is_graph_command || is_root_graph_command) && command->kind && cli_arg_is(command->kind, "reconcile");
   bool graph_merge_command = (is_graph_command || is_root_graph_command) && command->kind && cli_arg_is(command->kind, "merge");
-  if (strcmp(command->command, "run") == 0) {
+  if (cli_arg_is(command->command, "run")) {
     for (int i = arg_start; i < argc; i++) {
       if (command->input) {
-        if (strcmp(argv[i], "--") == 0) {
+        if (cli_arg_is(argv[i], "--")) {
           command->run_argc = argc - i - 1;
           command->run_argv = &argv[i + 1];
         } else {
           command->run_argc = argc - i;
           command->run_argv = &argv[i];
         }
+        return true;
+      }
+      if (cli_arg_is(argv[i], "--")) {
+        command->input = ".";
+        command->run_argc = argc - i - 1;
+        command->run_argv = &argv[i + 1];
         return true;
       }
       if (parse_common_option(argc, argv, &i, command)) continue;
@@ -4408,31 +4307,12 @@ static bool parse_command(int argc, char **argv, Command *command) {
       command->input = argv[i];
     }
   }
-  return strcmp(command->command, "--version") == 0 ||
-         strcmp(command->command, "version") == 0 ||
-         strcmp(command->command, "skills") == 0 ||
-         strcmp(command->command, "check") == 0 ||
-         strcmp(command->command, "patch") == 0 ||
-         strcmp(command->command, "test") == 0 ||
-         strcmp(command->command, "fmt") == 0 ||
-         strcmp(command->command, "build") == 0 ||
-         strcmp(command->command, "run") == 0 ||
-         strcmp(command->command, "ship") == 0 ||
-         strcmp(command->command, "tokens") == 0 ||
-         strcmp(command->command, "parse") == 0 ||
-         is_graph_command ||
-         is_root_graph_command ||
-         strcmp(command->command, "doc") == 0 ||
-         strcmp(command->command, "size") == 0 ||
-         strcmp(command->command, "mem") == 0 ||
-         strcmp(command->command, "dev") == 0 ||
-         strcmp(command->command, "time") == 0 ||
-         strcmp(command->command, "abi") == 0 ||
-         strcmp(command->command, "explain") == 0 ||
-         strcmp(command->command, "fix") == 0 ||
-         strcmp(command->command, "doctor") == 0 ||
-         strcmp(command->command, "clean") == 0 ||
-         strcmp(command->command, "targets") == 0;
+  static const char *const known_commands[] = {"--version", "version", "skills", "check", "patch", "test", "fmt", "build", "run", "ship", "tokens", "parse", "doc", "size", "mem", "dev", "time", "abi", "explain", "fix", "doctor", "clean", "targets"};
+  if (is_graph_command || is_root_graph_command) return true;
+  for (size_t i = 0; i < sizeof(known_commands) / sizeof(known_commands[0]); i++) {
+    if (cli_arg_is(command->command, known_commands[i])) return true;
+  }
+  return false;
 }
 
 static const char *emit_kind_name(EmitKind emit) {
@@ -7463,12 +7343,12 @@ static bool create_cli_template(const char *root, const char *name, ZDiag *diag)
     "This project was created with `zero new cli`.\n\n"
     "Try:\n\n"
     "```sh\n"
-    "zero check .\n"
-    "zero test .\n"
-    "zero run .\n"
-    "zero dev --json .\n"
-    "zero build --target linux-musl-x64 --out .zero/out/app .\n"
-    "zero ship --target linux-musl-x64 --out .zero/ship/app .\n"
+    "zero check\n"
+    "zero test\n"
+    "zero run\n"
+    "zero dev --json\n"
+    "zero build --target linux-musl-x64 --out .zero/out/app\n"
+    "zero ship --target linux-musl-x64 --out .zero/ship/app\n"
     "```\n\n"
     "The entry point receives `World` explicitly, so I/O is visible in the function signature. The generated output is deterministic and the manifest records the default release target.\n",
     diag)) return false;
@@ -7493,11 +7373,11 @@ static bool create_lib_template(const char *root, const char *name, ZDiag *diag)
     "This small package exposes one public function, docs metadata in `zero.json`, and an inline test.\n\n"
     "Try:\n\n"
     "```sh\n"
-    "zero check .\n"
-    "zero test .\n"
-    "zero dev --json .\n"
-    "zero inspect --json .\n"
-    "zero doc --json .\n"
+    "zero check\n"
+    "zero test\n"
+    "zero dev --json\n"
+    "zero inspect --json\n"
+    "zero doc --json\n"
     "```\n",
     diag)) return false;
   return write_project_file(root, ".gitignore", ".zero/\n", diag);
@@ -7540,13 +7420,13 @@ static bool create_package_template(const char *root, const char *name, ZDiag *d
     "This template shows package-local imports, one public symbol, and one private helper.\n\n"
     "Try:\n\n"
     "```sh\n"
-    "zero check .\n"
-    "zero test .\n"
-    "zero run .\n"
-    "zero dev --json .\n"
-    "zero build --target linux-musl-x64 --out .zero/out/app .\n"
-    "zero ship --target linux-musl-x64 --out .zero/ship/app .\n"
-    "zero inspect --json .\n"
+    "zero check\n"
+    "zero test\n"
+    "zero run\n"
+    "zero dev --json\n"
+    "zero build --target linux-musl-x64 --out .zero/out/app\n"
+    "zero ship --target linux-musl-x64 --out .zero/ship/app\n"
+    "zero inspect --json\n"
     "```\n",
     diag)) return false;
   return write_project_file(root, ".gitignore", ".zero/\n", diag);
@@ -7586,12 +7466,16 @@ static int new_command(const Command *command) {
   }
 
   printf("created %s project %s\n", command->kind, command->input);
-  if (strcmp(command->kind, "lib") == 0) printf("next: cd %s && zero check . && zero test .\n", command->input);
-  else printf("next: cd %s && zero check . && zero test . && zero run .\n", command->input);
+  if (strcmp(command->kind, "lib") == 0) printf("next: cd %s && zero check && zero test\n", command->input);
+  else printf("next: cd %s && zero check && zero test && zero run\n", command->input);
   return 0;
 }
 
 static char *graph_init_package_name(const char *path) {
+  char cwd[4096];
+  if (!path || !path[0] || strcmp(path, ".") == 0) {
+    if (getcwd(cwd, sizeof(cwd))) path = cwd;
+  }
   const char *end = path ? path + strlen(path) : NULL;
   while (end && end > path && end[-1] == '/') end--;
   const char *start = end;
@@ -7703,7 +7587,7 @@ static int run_graph_init_command(const Command *command, ZDiag *diag) {
     diag->column = 1;
     diag->length = 1;
     snprintf(diag->message, sizeof(diag->message), "graph init writes repository files and does not support --out");
-    snprintf(diag->expected, sizeof(diag->expected), "zero init [--manifest toml|json] [--format text|binary] <project-path>");
+    snprintf(diag->expected, sizeof(diag->expected), "zero init [--manifest toml|json] [--format text|binary] [project-path]");
     snprintf(diag->actual, sizeof(diag->actual), "zero init --out");
     snprintf(diag->help, sizeof(diag->help), "remove --out; init writes zero.toml or zero.json plus zero.graph in the selected project");
     print_command_diag(command, command->out, diag);
@@ -7714,9 +7598,9 @@ static int run_graph_init_command(const Command *command, ZDiag *diag) {
     diag->line = 1;
     diag->column = 1;
     diag->length = 1;
-    snprintf(diag->message, sizeof(diag->message), "graph init requires a project path");
-    snprintf(diag->expected, sizeof(diag->expected), "zero init [--manifest toml|json] [--format text|binary] <project-path>");
-    snprintf(diag->actual, sizeof(diag->actual), "missing project path");
+    snprintf(diag->message, sizeof(diag->message), "graph init requires an input directory");
+    snprintf(diag->expected, sizeof(diag->expected), "zero init [--manifest toml|json] [--format text|binary] [project-path]");
+    snprintf(diag->actual, sizeof(diag->actual), "missing input directory");
     print_command_diag(command, "<graph-init>", diag);
     return 1;
   }
@@ -7763,15 +7647,10 @@ static int run_graph_init_command(const Command *command, ZDiag *diag) {
       ZBuf json;
       zbuf_init(&json);
       ZBuf patch_command;
-      ZBuf export_command;
       zbuf_init(&patch_command);
-      zbuf_init(&export_command);
       zbuf_append(&patch_command, "cd ");
       zbuf_append(&patch_command, command->input);
       zbuf_append(&patch_command, " && zero patch --op 'addMain'");
-      zbuf_append(&export_command, "cd ");
-      zbuf_append(&export_command, command->input);
-      zbuf_append(&export_command, " && zero export .");
       zbuf_append(&json, "{\n  \"schemaVersion\": 1,\n  \"ok\": true,\n  \"project\": ");
       append_json_string(&json, command->input);
       zbuf_append(&json, ",\n  \"compilerInput\": \"repository-graph\",\n  \"writes\": [");
@@ -7781,19 +7660,17 @@ static int run_graph_init_command(const Command *command, ZDiag *diag) {
       append_json_string(&json, store_path);
       zbuf_append(&json, "],\n  \"sourceProjection\": {\"path\": \"src/main.0\", \"materialized\": false},\n  \"next\": [");
       append_json_string(&json, patch_command.data ? patch_command.data : "");
-      zbuf_append(&json, ", ");
-      append_json_string(&json, export_command.data ? export_command.data : "");
       zbuf_append(&json, "]\n}\n");
       fputs(json.data, stdout);
       zbuf_free(&json);
       zbuf_free(&patch_command);
-      zbuf_free(&export_command);
       free(manifest_path);
     } else if (ok) {
       printf("graph project init ok\n");
       printf("wrote: %s/%s\n", command->input, manifest_file_name);
       printf("wrote: %s/zero.graph\n", command->input);
-      printf("next: cd %s && zero patch --op 'addMain'\n", command->input);
+      if (strcmp(command->input, ".") == 0) printf("next: zero patch --op 'addMain'\n");
+      else printf("next: cd %s && zero patch --op 'addMain'\n", command->input);
     }
     free(store_path);
   }
@@ -8185,6 +8062,277 @@ static const Function *find_program_function(const Program *program, const char 
     if (strcmp(program->functions.items[i].name, name) == 0) return &program->functions.items[i];
   }
   return NULL;
+}
+
+typedef struct {
+  bool present;
+  bool auto_increment_port;
+  uint16_t port;
+  const char *handler;
+  int line;
+  int column;
+} HttpListenSpec;
+
+static bool parse_u16_literal_text(const char *text, uint16_t *out);
+
+static bool parse_u16_number_literal(const Expr *expr, uint16_t *out) {
+  if (out) *out = 0;
+  if (!expr || expr->kind != EXPR_NUMBER || !expr->text || !expr->text[0]) return false;
+  return parse_u16_literal_text(expr->text, out);
+}
+
+static bool parse_u16_literal_text(const char *text, uint16_t *out) {
+  if (out) *out = 0;
+  if (!text || !text[0]) return false;
+  unsigned long value = 0;
+  size_t digits = 0;
+  for (const char *p = text; *p; p++) {
+    if (*p == '_') break;
+    if (*p < '0' || *p > '9') return false;
+    value = value * 10ul + (unsigned long)(*p - '0');
+    if (value > 65535ul) return false;
+    digits++;
+  }
+  if (digits == 0) return false;
+  if (out) *out = (uint16_t)value;
+  return true;
+}
+
+static bool find_http_listen_expr(const Expr *expr, HttpListenSpec *spec, ZDiag *diag) {
+  if (!expr || !spec) return false;
+  if (expr->kind == EXPR_CALL && expr->left) {
+    char *callee = expr_callee_name(expr->left);
+    bool is_listen = strcmp(callee, "std.http.listen") == 0;
+    free(callee);
+    if (is_listen) {
+      spec->present = true;
+      spec->handler = "handle";
+      spec->line = expr->line > 0 ? expr->line : 1;
+      spec->column = expr->column > 0 ? expr->column : 1;
+      if (expr->args.len == 1) {
+        spec->auto_increment_port = true;
+        spec->port = 3000;
+      } else if (expr->args.len != 2 || !parse_u16_number_literal(expr->args.items[1], &spec->port)) {
+        if (diag) {
+          diag->code = 2002;
+          diag->line = spec->line;
+          diag->column = spec->column;
+          snprintf(diag->message, sizeof(diag->message), "std.http.listen expects World plus an optional literal u16 port");
+          snprintf(diag->expected, sizeof(diag->expected), "std.http.listen(world) or std.http.listen(world, 3000_u16)");
+          snprintf(diag->actual, sizeof(diag->actual), "non-literal or invalid port");
+          snprintf(diag->help, sizeof(diag->help), "use a literal port and define handle(request: Span<u8>, response: MutSpan<u8>) -> Maybe<Span<u8>>");
+        }
+      }
+      return true;
+    }
+  }
+  if (find_http_listen_expr(expr->left, spec, diag) || find_http_listen_expr(expr->right, spec, diag)) return true;
+  for (size_t i = 0; i < expr->args.len; i++) {
+    if (find_http_listen_expr(expr->args.items[i], spec, diag)) return true;
+  }
+  for (size_t i = 0; i < expr->fields.len; i++) {
+    if (find_http_listen_expr(expr->fields.items[i].value, spec, diag)) return true;
+  }
+  return false;
+}
+
+static bool find_http_listen_stmt_vec(const StmtVec *body, HttpListenSpec *spec, ZDiag *diag) {
+  if (!body || !spec) return false;
+  for (size_t i = 0; i < body->len; i++) {
+    const Stmt *stmt = body->items[i];
+    if (!stmt) continue;
+    if (find_http_listen_expr(stmt->expr, spec, diag) ||
+        find_http_listen_expr(stmt->target, spec, diag) ||
+        find_http_listen_expr(stmt->range_end, spec, diag)) {
+      return true;
+    }
+    if (find_http_listen_stmt_vec(&stmt->then_body, spec, diag) ||
+        find_http_listen_stmt_vec(&stmt->else_body, spec, diag)) {
+      return true;
+    }
+    for (size_t arm_index = 0; arm_index < stmt->match_arms.len; arm_index++) {
+      if (find_http_listen_expr(stmt->match_arms.items[arm_index].guard, spec, diag) ||
+          find_http_listen_stmt_vec(&stmt->match_arms.items[arm_index].body, spec, diag)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+static bool find_http_listen_program(const Program *program, HttpListenSpec *spec, ZDiag *diag) {
+  if (spec) *spec = (HttpListenSpec){0};
+  const Function *main_fun = find_program_function(program, "main");
+  return main_fun && find_http_listen_stmt_vec(&main_fun->body, spec, diag);
+}
+
+static bool validate_http_listen_handler(const Program *program, const HttpListenSpec *spec, ZDiag *diag) {
+  const char *handler = spec && spec->handler ? spec->handler : "handle";
+  const Function *fun = find_program_function(program, handler);
+  if (fun && fun->params.len == 2 &&
+      fun->params.items[0].type && strcmp(fun->params.items[0].type, "Span<u8>") == 0 &&
+      fun->params.items[1].type && strcmp(fun->params.items[1].type, "MutSpan<u8>") == 0 &&
+      fun->return_type && strcmp(fun->return_type, "Maybe<Span<u8>>") == 0) {
+    return true;
+  }
+  if (diag) {
+    diag->code = 2002;
+    diag->line = spec && spec->line > 0 ? spec->line : 1;
+    diag->column = spec && spec->column > 0 ? spec->column : 1;
+    snprintf(diag->message, sizeof(diag->message), "std.http.listen requires a same-module HTTP handler");
+    snprintf(diag->expected, sizeof(diag->expected), "fn handle(request: Span<u8>, response: MutSpan<u8>) -> Maybe<Span<u8>>");
+    snprintf(diag->actual, sizeof(diag->actual), "%s", fun ? "handler signature mismatch" : "missing handle function");
+    snprintf(diag->help, sizeof(diag->help), "define handle with the expected request/response envelope signature");
+  }
+  return false;
+}
+
+static const ZProgramGraphNode *graph_find_node_id(const ZProgramGraph *graph, const char *id) {
+  if (!graph || !id) return NULL;
+  for (size_t i = 0; i < graph->node_len; i++) {
+    if (graph->nodes[i].id && strcmp(graph->nodes[i].id, id) == 0) return &graph->nodes[i];
+  }
+  return NULL;
+}
+
+static const ZProgramGraphNode *graph_child_node(const ZProgramGraph *graph, const ZProgramGraphNode *parent, const char *edge, size_t order) {
+  if (!graph || !parent || !parent->id || !edge) return NULL;
+  for (size_t i = 0; i < graph->edge_len; i++) {
+    const ZProgramGraphEdge *candidate = &graph->edges[i];
+    if (candidate->target == Z_PROGRAM_GRAPH_EDGE_TARGET_NODE &&
+        candidate->from && strcmp(candidate->from, parent->id) == 0 &&
+        candidate->kind && strcmp(candidate->kind, edge) == 0 &&
+        candidate->order == order) {
+      return graph_find_node_id(graph, candidate->to);
+    }
+  }
+  return NULL;
+}
+
+static const ZProgramGraphNode *graph_find_function_node(const ZProgramGraph *graph, const char *name) {
+  if (!graph || !name) return NULL;
+  for (size_t i = 0; i < graph->node_len; i++) {
+    const ZProgramGraphNode *node = &graph->nodes[i];
+    if (node->kind == Z_PROGRAM_GRAPH_NODE_FUNCTION && node->name && strcmp(node->name, name) == 0) return node;
+  }
+  return NULL;
+}
+
+static void graph_append_expr_qualified_name(const ZProgramGraph *graph, const ZProgramGraphNode *node, ZBuf *buf) {
+  if (!node || !buf) return;
+  if (node->kind == Z_PROGRAM_GRAPH_NODE_IDENTIFIER) {
+    zbuf_append(buf, node->name ? node->name : "");
+    return;
+  }
+  if (node->kind == Z_PROGRAM_GRAPH_NODE_FIELD_ACCESS) {
+    graph_append_expr_qualified_name(graph, graph_child_node(graph, node, "left", 0), buf);
+    if (buf->len > 0) zbuf_append_char(buf, '.');
+    zbuf_append(buf, node->name ? node->name : "");
+  }
+}
+
+static char *graph_expr_qualified_name(const ZProgramGraph *graph, const ZProgramGraphNode *node) {
+  ZBuf buf;
+  zbuf_init(&buf);
+  graph_append_expr_qualified_name(graph, node, &buf);
+  return buf.data ? buf.data : z_strdup("");
+}
+
+static bool find_http_listen_graph_node(const ZProgramGraph *graph, const ZProgramGraphNode *node, HttpListenSpec *spec, ZDiag *diag) {
+  if (!graph || !node || !spec) return false;
+  if (node->kind == Z_PROGRAM_GRAPH_NODE_CALL || node->kind == Z_PROGRAM_GRAPH_NODE_METHOD_CALL) {
+    char *callee = graph_expr_qualified_name(graph, graph_child_node(graph, node, "left", 0));
+    bool is_listen = callee && strcmp(callee, "std.http.listen") == 0;
+    free(callee);
+    if (is_listen) {
+      const ZProgramGraphNode *world = graph_child_node(graph, node, "arg", 0);
+      const ZProgramGraphNode *port = graph_child_node(graph, node, "arg", 1);
+      const ZProgramGraphNode *extra = graph_child_node(graph, node, "arg", 2);
+      spec->present = true;
+      spec->handler = "handle";
+      spec->line = node->line > 0 ? node->line : 1;
+      spec->column = node->column > 0 ? node->column : 1;
+      if (world && !port && !extra) {
+        spec->auto_increment_port = true;
+        spec->port = 3000;
+      } else if (!world || extra || !port || port->kind != Z_PROGRAM_GRAPH_NODE_LITERAL || !parse_u16_literal_text(port->value, &spec->port)) {
+        if (diag) {
+          diag->code = 2002;
+          diag->line = spec->line;
+          diag->column = spec->column;
+          snprintf(diag->message, sizeof(diag->message), "std.http.listen expects World plus an optional literal u16 port");
+          snprintf(diag->expected, sizeof(diag->expected), "std.http.listen(world) or std.http.listen(world, 3000_u16)");
+          snprintf(diag->actual, sizeof(diag->actual), "missing world, extra argument, or invalid port");
+          snprintf(diag->help, sizeof(diag->help), "use a literal port and define handle(request: Span<u8>, response: MutSpan<u8>) -> Maybe<Span<u8>>");
+        }
+      }
+      return true;
+    }
+  }
+  for (size_t i = 0; i < graph->edge_len; i++) {
+    const ZProgramGraphEdge *edge = &graph->edges[i];
+    if (edge->target != Z_PROGRAM_GRAPH_EDGE_TARGET_NODE || !edge->from || !node->id || strcmp(edge->from, node->id) != 0) continue;
+    const ZProgramGraphNode *child = graph_find_node_id(graph, edge->to);
+    if (find_http_listen_graph_node(graph, child, spec, diag)) return true;
+  }
+  return false;
+}
+
+static bool find_http_listen_graph_program(const ZProgramGraph *graph, HttpListenSpec *spec, ZDiag *diag) {
+  if (spec) *spec = (HttpListenSpec){0};
+  const ZProgramGraphNode *main_fun = graph_find_function_node(graph, "main");
+  const ZProgramGraphNode *body = graph_child_node(graph, main_fun, "body", 0);
+  return find_http_listen_graph_node(graph, body, spec, diag);
+}
+
+static bool validate_http_listen_handler_graph(const ZProgramGraph *graph, const HttpListenSpec *spec, ZDiag *diag) {
+  const char *handler = spec && spec->handler ? spec->handler : "handle";
+  const ZProgramGraphNode *fun = graph_find_function_node(graph, handler);
+  const ZProgramGraphNode *request = graph_child_node(graph, fun, "param", 0);
+  const ZProgramGraphNode *response = graph_child_node(graph, fun, "param", 1);
+  if (fun && request && response &&
+      request->type && strcmp(request->type, "Span<u8>") == 0 &&
+      response->type && strcmp(response->type, "MutSpan<u8>") == 0 &&
+      fun->type && strcmp(fun->type, "Maybe<Span<u8>>") == 0) {
+    return true;
+  }
+  if (diag) {
+    diag->code = 2002;
+    diag->line = spec && spec->line > 0 ? spec->line : 1;
+    diag->column = spec && spec->column > 0 ? spec->column : 1;
+    snprintf(diag->message, sizeof(diag->message), "std.http.listen requires a same-module HTTP handler");
+    snprintf(diag->expected, sizeof(diag->expected), "fn handle(request: Span<u8>, response: MutSpan<u8>) -> Maybe<Span<u8>>");
+    snprintf(diag->actual, sizeof(diag->actual), "%s", fun ? "handler signature mismatch" : "missing handle function");
+    snprintf(diag->help, sizeof(diag->help), "define handle with the expected request/response envelope signature");
+  }
+  return false;
+}
+
+static int run_http_listen_or_diag(const Command *command, const ZTargetInfo *target, const HttpListenSpec *listen, const char *zero_exe, ZDiag *diag) {
+  (void)target;
+  if (!command || !listen) return 1;
+  if (strcmp(command->command, "build") == 0 || strcmp(command->command, "ship") == 0) {
+    diag->code = 2002;
+    diag->line = listen->line > 0 ? listen->line : 1;
+    diag->column = listen->column > 0 ? listen->column : 1;
+    snprintf(diag->message, sizeof(diag->message), "std.http.listen standalone artifacts are not implemented yet");
+    snprintf(diag->expected, sizeof(diag->expected), "zero run starts the host listener");
+    snprintf(diag->actual, sizeof(diag->actual), "zero %s requested a listen artifact", command->command);
+    snprintf(diag->help, sizeof(diag->help), "run the graph package with zero run, or keep build targets to request/response handler functions for now");
+    return 1;
+  }
+  ZHttpListenRunConfig listen_config = {
+    .zero_exe = zero_exe,
+    .input = command->repository_graph_source_input ? command->repository_graph_source_input : command->input,
+    .target = command->target,
+    .profile = command->profile,
+    .backend = command->backend,
+    .cc = command->cc,
+    .handler = listen->handler,
+    .port = listen->port,
+    .auto_increment_port = listen->auto_increment_port,
+  };
+  return z_http_listen_run(&listen_config, diag);
 }
 
 typedef struct TestValue TestValue;
@@ -11814,7 +11962,7 @@ static void print_graph_inspect_text(SourceInput *input, Program *program, const
              param->type ? param->type : "Unknown");
     }
   }
-  printf("\nnext: use `zero query %s` for patch-ready node handles\n", input && input->source_file ? input->source_file : "<graph-input>");
+  printf("\nnext: use `zero query %s` for patch-ready node handles\n", input && input->source_file ? input->source_file : "[graph-input]");
 
   z_program_graph_free(&graph);
 }
@@ -11904,7 +12052,7 @@ static int reject_graph_unsupported_out(const Command *command, ZDiag *diag) {
   diag->column = 1;
   diag->length = 1;
   snprintf(diag->message, sizeof(diag->message), "%s", contract.message ? contract.message : "graph command does not support --out");
-  snprintf(diag->expected, sizeof(diag->expected), "%s", contract.expected ? contract.expected : "zero dump|validate|roundtrip --out <program-graph-artifact> <graph-input>");
+  snprintf(diag->expected, sizeof(diag->expected), "%s", contract.expected ? contract.expected : "zero dump|validate|roundtrip --out <program-graph-artifact> [graph-input]");
   bool root_command = command && is_program_graph_root_command(command->command);
   snprintf(diag->actual, sizeof(diag->actual), root_command ? "zero %s --out" : "%s", root_command ? command->command : (contract.actual ? contract.actual : "zero --out"));
   snprintf(diag->help, sizeof(diag->help), "%s", contract.help ? contract.help : "remove --out or choose a graph subcommand that writes an artifact");
@@ -11921,7 +12069,7 @@ static bool reject_graph_source_text_out(const Command *command, const char *exp
   diag->column = 1;
   diag->length = 1;
   snprintf(diag->message, sizeof(diag->message), "program graph output must not use source text extension");
-  snprintf(diag->expected, sizeof(diag->expected), "%s", expected ? expected : "zero dump|validate|roundtrip --out <program-graph-artifact> <graph-input>");
+  snprintf(diag->expected, sizeof(diag->expected), "%s", expected ? expected : "zero dump|validate|roundtrip --out <program-graph-artifact> [graph-input]");
   snprintf(diag->actual, sizeof(diag->actual), "%s", command->out);
   snprintf(diag->help, sizeof(diag->help), ".0 files are canonical source text; write derived ProgramGraph artifacts to a non-source path");
   print_command_diag(command, command->out, diag);
@@ -12259,6 +12407,52 @@ static void append_graph_patch_operation_json(ZBuf *buf, const ZProgramGraphPatc
   zbuf_append(buf, "}");
 }
 
+static void append_graph_patch_symbols_json(ZBuf *buf, const ZProgramGraph *graph) {
+  zbuf_append(buf, "{\"functions\":[");
+  bool first_function = true;
+  for (size_t i = 0; graph && i < graph->node_len; i++) {
+    const ZProgramGraphNode *node = &graph->nodes[i];
+    if (node->kind != Z_PROGRAM_GRAPH_NODE_FUNCTION || (node->value && node->value[0])) continue;
+    if (!first_function) zbuf_append(buf, ",");
+    append_json_string(buf, node->name ? node->name : "");
+    first_function = false;
+  }
+  zbuf_append(buf, "],\"tests\":[");
+  bool first_test = true;
+  for (size_t i = 0; graph && i < graph->node_len; i++) {
+    const ZProgramGraphNode *node = &graph->nodes[i];
+    if (node->kind != Z_PROGRAM_GRAPH_NODE_FUNCTION || !node->value || !node->value[0]) continue;
+    if (!first_test) zbuf_append(buf, ",");
+    append_json_string(buf, node->value);
+    first_test = false;
+  }
+  zbuf_append(buf, "]}");
+}
+
+static void print_graph_patch_symbols_text(const ZProgramGraph *graph) {
+  printf("graphHash: %s\n", graph && graph->graph_hash ? graph->graph_hash : "");
+  printf("functions:");
+  size_t functions = 0;
+  for (size_t i = 0; graph && i < graph->node_len; i++) {
+    const ZProgramGraphNode *node = &graph->nodes[i];
+    if (node->kind != Z_PROGRAM_GRAPH_NODE_FUNCTION || (node->value && node->value[0])) continue;
+    printf("%s%s", functions == 0 ? " " : ", ", node->name ? node->name : "");
+    functions++;
+  }
+  if (functions == 0) printf(" none");
+  printf("\n");
+  printf("tests:");
+  size_t tests = 0;
+  for (size_t i = 0; graph && i < graph->node_len; i++) {
+    const ZProgramGraphNode *node = &graph->nodes[i];
+    if (node->kind != Z_PROGRAM_GRAPH_NODE_FUNCTION || !node->value || !node->value[0]) continue;
+    printf("%s%s", tests == 0 ? " " : ", ", node->value);
+    tests++;
+  }
+  if (tests == 0) printf(" none");
+  printf("\n");
+}
+
 static const char *graph_patch_source_label(const Command *command) {
   if (command && command->patch_file) return command->patch_file;
   if (command && (command->patch_text || command->patch_op_len > 0)) return "<inline>";
@@ -12331,7 +12525,10 @@ static void append_graph_patch_json(
     if (i > 0) zbuf_append(buf, ", ");
     append_graph_patch_operation_json(buf, &result->operations[i]);
   }
-  zbuf_append(buf, "],\n  \"diagnostic\": ");
+  zbuf_append(buf, "],\n  \"summary\": ");
+  if (ok) append_graph_patch_symbols_json(buf, graph);
+  else zbuf_append(buf, "null");
+  zbuf_append(buf, ",\n  \"diagnostic\": ");
   if (ok) zbuf_append(buf, "null");
   else append_graph_patch_diagnostic_json(buf, result);
   zbuf_append(buf, ",\n  \"saved\": ");
@@ -12436,7 +12633,7 @@ static int run_graph_validate_command(const Command *command, const ZTargetInfo 
     goto cleanup;
   }
   if (command->out) {
-    if (reject_graph_source_text_out(command, "zero validate --out <program-graph-artifact> <graph-input>", diag)) {
+    if (reject_graph_source_text_out(command, "zero validate --out <program-graph-artifact> [graph-input]", diag)) {
       goto cleanup;
     }
     ZProgramGraphStoreFormat store_format = Z_PROGRAM_GRAPH_STORE_FORMAT_TEXT;
@@ -12470,7 +12667,7 @@ cleanup:
 }
 
 static int run_graph_dump_input_command(const Command *command, const ZTargetInfo *target, ZDiag *diag, bool graph_import) {
-  if (command->out && reject_graph_source_text_out(command, graph_import ? "zero import --out <program-graph-artifact> <project|zero.toml|zero.json|file.0>" : "zero dump --out <program-graph-artifact> <graph-input>", diag)) {
+  if (command->out && reject_graph_source_text_out(command, graph_import ? "zero import --out <program-graph-artifact> [project|zero.toml|zero.json|file.0]" : "zero dump --out <program-graph-artifact> [graph-input]", diag)) {
     return 1;
   }
   SourceInput input = {0};
@@ -12532,7 +12729,7 @@ static int run_graph_view_command(const Command *command, ZDiag *diag) {
     diag->column = 1;
     diag->length = 1;
     snprintf(diag->message, sizeof(diag->message), "graph view output must use .0 extension");
-    snprintf(diag->expected, sizeof(diag->expected), "zero view --out <file.0> <graph-input>");
+    snprintf(diag->expected, sizeof(diag->expected), "zero view --out <file.0> [graph-input]");
     snprintf(diag->actual, sizeof(diag->actual), "%s", command->out);
     snprintf(diag->help, sizeof(diag->help), "graph view writes canonical source text");
     print_command_diag(command, command->out, diag);
@@ -12783,7 +12980,7 @@ static bool validate_graph_patch_sources(const Command *command, bool *has_file,
     diag->column = 1;
     diag->length = 1;
     snprintf(diag->message, sizeof(diag->message), "graph patch requires patch operations");
-    snprintf(diag->expected, sizeof(diag->expected), "zero patch <graph-input> (<patch-file>|--op <operation>|--patch-text <text>)");
+    snprintf(diag->expected, sizeof(diag->expected), "zero patch [graph-input] (<patch-file>|--op <operation>|--patch-text <text>)");
     snprintf(diag->actual, sizeof(diag->actual), "missing patch input");
     snprintf(diag->help, sizeof(diag->help), "pass a zero-program-graph-patch v1 file or one or more --op lines");
     return false;
@@ -12829,14 +13026,6 @@ static void print_graph_patch_help_json(void) {
   zbuf_append(&json, "]}\n");
   fputs(json.data, stdout);
   zbuf_free(&json);
-}
-
-static void print_graph_patch_help_text(void) {
-  printf("program graph patch operations\n");
-  printf("accepted by zero patch --op, --patch-text, and zero-program-graph-patch v1 files\n");
-  const char *const *ops = z_program_graph_patch_operation_examples();
-  for (size_t i = 0; ops[i]; i++) printf("  %s\n", ops[i]);
-  printf("\nFor larger graph edits, put these lines in a patch file under /tmp or pass --patch-text.\n");
 }
 
 static bool save_graph_patch_output(const Command *command, const ZTargetInfo *target, ZProgramGraph *graph, GraphInputKind input_kind, const SourceInput *input, const char **saved_path, ZDiag *diag) {
@@ -12900,7 +13089,7 @@ static void free_graph_patch_state(char *inline_text, ZProgramGraphPatchResult *
 static int run_graph_patch_command(const Command *command, const ZTargetInfo *target, ZDiag *diag) {
   if (graph_patch_help_requested(command)) {
     if (command->json) print_graph_patch_help_json();
-    else print_graph_patch_help_text();
+    else z_cli_print_graph_patch_help_text();
     return 0;
   }
   bool has_file = command->patch_file != NULL;
@@ -12944,8 +13133,11 @@ static int run_graph_patch_command(const Command *command, const ZTargetInfo *ta
     zbuf_free(&json);
   } else if (ok && command->graph_patch_check_only) {
     printf("program graph patch ok (check-only)\n");
+    print_graph_patch_symbols_text(&graph);
   } else if (ok && saved_path) {
     printf("program graph patch ok\n");
+    printf("saved: %s\n", saved_path);
+    print_graph_patch_symbols_text(&graph);
   } else if (ok) {
     ZProgramGraphValidation validation = {0};
     z_program_graph_validate(&graph, &validation);
@@ -13096,7 +13288,7 @@ static int run_graph_size_command(const Command *command, const ZTargetInfo *tar
 }
 
 static int run_graph_artifact_roundtrip_command(const Command *command, ZDiag *diag) {
-  if (reject_graph_source_text_out(command, "zero roundtrip --out <program-graph-artifact> <graph-input>", diag)) return 1;
+  if (reject_graph_source_text_out(command, "zero roundtrip --out <program-graph-artifact> [graph-input]", diag)) return 1;
   ZProgramGraphDirectRoundtrip result = {0};
   if (!z_program_graph_direct_roundtrip_file(command->input, command->out, &result, diag)) {
     const char *path = diag->path ? diag->path : (command->out ? command->out : command->input);
@@ -13240,6 +13432,7 @@ static bool resolve_graph_command_manifest_input(Command *command, bool *artifac
 static int resolve_direct_command_manifest_graph_input(Command *command, const ZTargetInfo *target, bool *handled) {
   if (handled) *handled = false;
   if (!command || !z_program_graph_manifest_command_can_use_compiler_input(command->command)) return 0;
+  if (command->input && path_has_program_graph_storage_header(command->input)) return 0;
 
   bool enabled = false;
   ZDiag diag = {0};
@@ -13413,7 +13606,7 @@ static int run_graph_roundtrip_command(const Command *command, SourceInput *inpu
     return 1;
   }
   if (command->out) {
-    if (reject_graph_source_text_out(command, "zero roundtrip --out <program-graph-artifact> <graph-input>", diag)) {
+    if (reject_graph_source_text_out(command, "zero roundtrip --out <program-graph-artifact> [graph-input]", diag)) {
       z_program_graph_free(&roundtrip);
       z_program_graph_free(&original);
       zbuf_free(&view);
@@ -13471,7 +13664,7 @@ static int run_graph_command(const Command *command, SourceInput *input, Program
   }
   if (graph_roundtrip) return run_graph_roundtrip_command(command, input, program, diag);
   if (graph_dump && command->out) {
-    if (reject_graph_source_text_out(command, "zero dump --out <program-graph-artifact> <graph-input>", diag)) return 1;
+    if (reject_graph_source_text_out(command, "zero dump --out <program-graph-artifact> [graph-input]", diag)) return 1;
     ZProgramGraph stored = {0};
     if (!z_program_graph_from_program(input, program, &stored)) {
       diag->code = 2002;
@@ -13607,7 +13800,7 @@ static int reject_retired_graph_subcommand(const Command *command) {
   const bool no_subcommand = !subcommand[0];
   diag.code = 2002; diag.line = 1; diag.column = 1; diag.length = 1;
   snprintf(diag.message, sizeof(diag.message), no_subcommand ? "zero graph is not supported" : "zero graph %s is not supported", subcommand);
-  snprintf(diag.expected, sizeof(diag.expected), no_subcommand ? "zero inspect <graph-input>" : (patch_subcommand ? "zero patch [<graph-input>] (<patch-file>|--op <operation>)" : "zero %s <graph-input>"), subcommand);
+  snprintf(diag.expected, sizeof(diag.expected), no_subcommand ? "zero inspect [graph-input]" : (patch_subcommand ? "zero patch [graph-input] (<patch-file>|--op <operation>)" : "zero %s [graph-input]"), subcommand);
   snprintf(diag.actual, sizeof(diag.actual), no_subcommand ? "zero graph" : "zero graph %s", subcommand);
   snprintf(diag.help, sizeof(diag.help), no_subcommand ? "run zero inspect, zero query, zero dump, or another first-class graph command" : (patch_subcommand ? "run zero patch; graph is now the first-class patch surface" : "run zero %s; graph commands are first-class root commands"), subcommand);
   if (command && command->json) print_command_diag_json(command, diag.actual, &diag);
@@ -13686,19 +13879,19 @@ static bool validate_repository_graph_c_libraries_before_mir(const Command *comm
 
 int main(int argc, char **argv) {
   if (argc >= 2 && (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "help") == 0)) {
-    print_help();
+    z_cli_print_help();
     return 0;
   }
   Command command = {0};
   if (!parse_command(argc, argv, &command)) {
-    print_help();
+    z_cli_print_help();
     return 1;
   }
   if (command.retired_graph_subcommand || strcmp(command.command, "graph") == 0) {
     return reject_retired_graph_subcommand(&command);
   }
   if (command.kind && strcmp(command.kind, "help") == 0) {
-    print_command_help(command.command);
+    z_cli_print_command_help(command.command);
     return 0;
   }
   if (command.unknown_flag) return reject_unknown_flag(&command);
@@ -13752,8 +13945,9 @@ int main(int argc, char **argv) {
   if (!command.input && command.graph_patch_command && (command.patch_op_len > 0 || command.patch_text || command.patch_file)) {
     command.input = ".";
   }
+  command_apply_current_directory_default(&command);
   if (!command.input) {
-    print_command_help(command.command);
+    z_cli_print_command_help(command.command);
     return 1;
   }
 
@@ -13785,7 +13979,7 @@ int main(int argc, char **argv) {
     diag.column = 1;
     diag.length = 1;
     snprintf(diag.message, sizeof(diag.message), "C backend output is not supported");
-    snprintf(diag.expected, sizeof(diag.expected), "zero build --emit exe|obj <graph-input>");
+    snprintf(diag.expected, sizeof(diag.expected), "zero build --emit exe|obj [graph-input]");
     snprintf(diag.actual, sizeof(diag.actual), command.legacy_backend ? "--legacy-backend" : "--emit c");
     snprintf(diag.help, sizeof(diag.help), "use direct emitters; C backend output is not a compatibility or debug path");
     if (command.json) print_command_diag_json(&command, command.input, &diag);
@@ -13800,7 +13994,7 @@ int main(int argc, char **argv) {
       diag.column = 1;
       diag.length = 1;
       snprintf(diag.message, sizeof(diag.message), "zero run does not support --json");
-      snprintf(diag.expected, sizeof(diag.expected), "zero run <graph-input>");
+      snprintf(diag.expected, sizeof(diag.expected), "zero run [graph-input]");
       snprintf(diag.actual, sizeof(diag.actual), "zero run --json");
       snprintf(diag.help, sizeof(diag.help), "program stdout belongs to the program; use zero build --json to inspect the artifact before running it");
       print_command_diag_json(&command, command.input, &diag);
@@ -13815,7 +14009,7 @@ int main(int argc, char **argv) {
       diag.code = 2002;
       diag.line = 1; diag.column = 1; diag.length = 1;
       snprintf(diag.message, sizeof(diag.message), "zero run only supports executable output");
-      snprintf(diag.expected, sizeof(diag.expected), "zero run <graph-input>");
+      snprintf(diag.expected, sizeof(diag.expected), "zero run [graph-input]");
       snprintf(diag.actual, sizeof(diag.actual), "--emit %s", emit_kind_name(command.emit));
       snprintf(diag.help, sizeof(diag.help), "use zero build --emit %s when you need a non-executable artifact", emit_kind_name(command.emit));
       print_diag(command.input, &diag);
@@ -13853,7 +14047,7 @@ int main(int argc, char **argv) {
     diag.line = 1;
     diag.column = 1;
     snprintf(diag.message, sizeof(diag.message), "fix requires a mode");
-    snprintf(diag.expected, sizeof(diag.expected), "zero fix --plan, --patch, or --apply --json <graph-input>");
+    snprintf(diag.expected, sizeof(diag.expected), "zero fix --plan, --patch, or --apply --json [graph-input]");
     snprintf(diag.actual, sizeof(diag.actual), "zero fix without a mode");
     snprintf(diag.help, sizeof(diag.help), "rerun with --plan to inspect repairs, --patch to preview edits, or --apply for behavior-preserving edits");
     if (command.json) print_command_diag_json(&command, command.input, &diag);
@@ -14047,6 +14241,60 @@ int main(int argc, char **argv) {
   bool graph_metadata_command = (command.repository_graph_input &&
                                  (strcmp(command.command, "doc") == 0 || strcmp(command.command, "dev") == 0 || strcmp(command.command, "abi") == 0)) ||
                                 graph_abi_artifact_command;
+  if ((command.repository_graph_input || root_graph_artifact_input) &&
+      (strcmp(command.command, "run") == 0 || strcmp(command.command, "build") == 0 || strcmp(command.command, "ship") == 0)) {
+    ZProgramGraphStore listen_store;
+    ZProgramGraph artifact_listen_graph;
+    z_program_graph_store_init(&listen_store);
+    z_program_graph_init(&artifact_listen_graph);
+    const ZProgramGraph *listen_graph = NULL;
+    if (root_graph_artifact_input) {
+      if (!z_program_graph_load(command.input, &artifact_listen_graph, &diag)) {
+        if (command.json) print_command_diag_json(&command, diag.path ? diag.path : command.input, &diag);
+        else print_diag(diag.path ? diag.path : command.input, &diag);
+        z_program_graph_free(&artifact_listen_graph);
+        z_program_graph_store_free(&listen_store);
+        return 1;
+      }
+      listen_graph = &artifact_listen_graph;
+    } else if (!z_program_graph_store_load_for_input(command.input, &listen_store, &diag)) {
+      if (command.json) print_command_diag_json(&command, diag.path ? diag.path : command.input, &diag);
+      else print_diag(diag.path ? diag.path : command.input, &diag);
+      z_program_graph_free(&artifact_listen_graph);
+      z_program_graph_store_free(&listen_store);
+      return 1;
+    } else {
+      listen_graph = &listen_store.graph;
+    }
+    HttpListenSpec graph_http_listen = {0};
+    bool graph_has_http_listen = listen_graph && find_http_listen_graph_program(listen_graph, &graph_http_listen, &diag);
+    if (graph_has_http_listen && diag.code != 0) {
+      if (command.json) print_command_diag_json(&command, diag.path ? diag.path : command.input, &diag);
+      else print_diag(diag.path ? diag.path : command.input, &diag);
+      z_program_graph_free(&artifact_listen_graph);
+      z_program_graph_store_free(&listen_store);
+      return 1;
+    }
+    if (graph_has_http_listen) {
+      if (!validate_http_listen_handler_graph(listen_graph, &graph_http_listen, &diag)) {
+        if (command.json) print_command_diag_json(&command, diag.path ? diag.path : command.input, &diag);
+        else print_diag(diag.path ? diag.path : command.input, &diag);
+        z_program_graph_free(&artifact_listen_graph);
+        z_program_graph_store_free(&listen_store);
+        return 1;
+      }
+      int listen_rc = run_http_listen_or_diag(&command, target, &graph_http_listen, argv[0], &diag);
+      if (listen_rc != 0 && diag.code != 0) {
+        if (command.json) print_command_diag_json(&command, diag.path ? diag.path : command.input, &diag);
+        else print_diag(diag.path ? diag.path : command.input, &diag);
+      }
+      z_program_graph_free(&artifact_listen_graph);
+      z_program_graph_store_free(&listen_store);
+      return listen_rc;
+    }
+    z_program_graph_free(&artifact_listen_graph);
+    z_program_graph_store_free(&listen_store);
+  }
   if (graph_metadata_command) {
     if (!prepare_graph_metadata_command(&command, direct_graph_manifest_input, direct_graph_manifest_command, target, &input, &program, &diag)) {
       if (command.json) print_command_diag_json(&command, diag.path ? diag.path : command.input, &diag);
@@ -14150,6 +14398,54 @@ int main(int argc, char **argv) {
     else print_diag(diag.path ? diag.path : command.input, &diag);
     free_loaded_command_state(&input, &program, &graph_prepared_ir);
     return 1;
+  }
+
+  HttpListenSpec http_listen = {0};
+  bool has_http_listen = find_http_listen_program(&program, &http_listen, &diag);
+  if (has_http_listen && diag.code != 0) {
+    if (command.json) print_command_diag_json(&command, diag.path ? diag.path : command.input, &diag);
+    else print_diag(diag.path ? diag.path : command.input, &diag);
+    free_loaded_command_state(&input, &program, &graph_prepared_ir);
+    return 1;
+  }
+  if (has_http_listen && (strcmp(command.command, "build") == 0 || strcmp(command.command, "ship") == 0)) {
+    diag.code = 2002;
+    diag.line = http_listen.line > 0 ? http_listen.line : 1;
+    diag.column = http_listen.column > 0 ? http_listen.column : 1;
+    snprintf(diag.message, sizeof(diag.message), "std.http.listen standalone artifacts are not implemented yet");
+    snprintf(diag.expected, sizeof(diag.expected), "zero run starts the host listener");
+    snprintf(diag.actual, sizeof(diag.actual), "zero %s requested a listen artifact", command.command);
+    snprintf(diag.help, sizeof(diag.help), "run the graph package with zero run, or keep build targets to request/response handler functions for now");
+    if (command.json) print_command_diag_json(&command, diag.path ? diag.path : command.input, &diag);
+    else print_diag(diag.path ? diag.path : command.input, &diag);
+    free_loaded_command_state(&input, &program, &graph_prepared_ir);
+    return 1;
+  }
+  if (has_http_listen && strcmp(command.command, "run") == 0) {
+    if (!validate_http_listen_handler(&program, &http_listen, &diag)) {
+      if (command.json) print_command_diag_json(&command, diag.path ? diag.path : command.input, &diag);
+      else print_diag(diag.path ? diag.path : command.input, &diag);
+      free_loaded_command_state(&input, &program, &graph_prepared_ir);
+      return 1;
+    }
+    ZHttpListenRunConfig listen_config = {
+      .zero_exe = argv[0],
+      .input = command.input,
+      .target = command.target,
+      .profile = command.profile,
+      .backend = command.backend,
+      .cc = command.cc,
+      .handler = http_listen.handler,
+      .port = http_listen.port,
+      .auto_increment_port = http_listen.auto_increment_port,
+    };
+    int listen_rc = z_http_listen_run(&listen_config, &diag);
+    if (listen_rc != 0 && diag.code != 0) {
+      if (command.json) print_command_diag_json(&command, diag.path ? diag.path : command.input, &diag);
+      else print_diag(diag.path ? diag.path : command.input, &diag);
+    }
+    free_loaded_command_state(&input, &program, &graph_prepared_ir);
+    return listen_rc;
   }
   if (strcmp(command.command, "fix") == 0) {
     if (command.apply || command.patch) print_or_apply_fix_json(input.source_file, &input, NULL, command.apply);

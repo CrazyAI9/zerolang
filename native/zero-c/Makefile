@@ -10,8 +10,10 @@ SRC := $(wildcard src/*.c)
 INCLUDES := $(wildcard include/*.h) $(wildcard src/*.h) $(wildcard src/*.inc)
 EMBEDDED_SKILLS := src/embedded_skills.inc
 EMBEDDED_STDLIB_GRAPH := src/embedded_stdlib_graph.inc
+EMBEDDED_RUNTIME_SOURCES := src/embedded_runtime_sources.inc
 SKILL_INPUTS := $(ROOT)/skills/zero/SKILL.md $(wildcard $(ROOT)/skill-data/*.md)
 STDLIB_GRAPH_INPUTS := $(wildcard $(ROOT)/std/*.graph)
+RUNTIME_SOURCE_INPUTS := $(ROOT)/native/zero-c/include/zero_runtime.h $(ROOT)/native/zero-c/runtime/zero_runtime.c $(ROOT)/native/zero-c/runtime/zero_http_curl.c
 
 .PHONY: all clean install-local FORCE
 
@@ -30,7 +32,10 @@ $(EMBEDDED_SKILLS): $(ROOT)/scripts/embed-skill-data.mts $(SKILL_INPUTS)
 $(EMBEDDED_STDLIB_GRAPH): $(ROOT)/scripts/embed-stdlib-graphs.mts $(STDLIB_GRAPH_INPUTS)
 	cd $(ROOT) && $(NODE_TS) scripts/embed-stdlib-graphs.mts
 
-$(OUT): $(BUILD_STAMP) $(SRC) $(INCLUDES) $(EMBEDDED_SKILLS) $(EMBEDDED_STDLIB_GRAPH)
+$(EMBEDDED_RUNTIME_SOURCES): $(ROOT)/scripts/embed-runtime-sources.mts $(RUNTIME_SOURCE_INPUTS)
+	cd $(ROOT) && $(NODE_TS) scripts/embed-runtime-sources.mts
+
+$(OUT): $(BUILD_STAMP) $(SRC) $(INCLUDES) $(EMBEDDED_SKILLS) $(EMBEDDED_STDLIB_GRAPH) $(EMBEDDED_RUNTIME_SOURCES)
 	@mkdir -p $(dir $(OUT))
 	$(CC) $(CFLAGS) -Iinclude $(SRC) -o $(OUT)
 

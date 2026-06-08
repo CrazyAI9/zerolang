@@ -51,13 +51,13 @@ contracts, or machine-readable diagnostics.
 ## Common Entry Points
 
 ```sh
-zero query <graph-or-package>
-zero patch <graph-or-package> --op '<operation>'
-zero check <graph-or-package>
-zero test <graph-or-package>
-zero run <graph-or-package> -- <args>
+zero query [graph-or-package]
+zero patch [graph-or-package] --op '<operation>'
+zero check [graph-or-package]
+zero test [graph-or-package]
+zero run [graph-or-package] -- <args>
 zero explain <diagnostic-code>
-zero fix --plan <graph-or-package>
+zero fix --plan [graph-or-package]
 ```
 
 In a Zero repository checkout, prefer `bin/zero` when the task is about that checkout rather than the globally installed compiler.

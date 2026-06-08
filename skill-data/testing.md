@@ -45,13 +45,13 @@ zero test conformance/packages/test-app
 
 Use `--filter` for a narrow loop. The filter matches test names by substring.
 
-For packages, normal `zero test <package>` compiles from `zero.graph` and can
+For packages, normal `zero test [package]` compiles from `zero.graph` and can
 run before `.0` projections exist:
 
 ```sh
 zero patch --op 'addTest name="addition works" call="add" arg0="2" arg1="3" expect="5" type="i32"'
-zero test .
-zero test --filter addition .
+zero test
+zero test --filter addition
 ```
 
 If another tool hands you a derived ProgramGraph artifact, `zero test` can

@@ -16,8 +16,8 @@ with `zero query` or `zero inspect`, and patch user programs through the graph.
 Module pages include Zero snippets because `.0` projections are still the most
 compact way for humans to read examples. Treat those snippets as reviewable
 projections of graph-authored programs. When a human rarely edits a projection,
-run `zero import <package>` before checking or building so the graph store is
-current again.
+run `zero import` from the package root, or `zero import <package>` from
+outside it, before checking or building so the graph store is current again.
 
 Runnable modules:
 
@@ -58,11 +58,11 @@ fields:
 
 | Command | Shows |
 | --- | --- |
-| `zero query <graph-input>` | Module, function, call, reference, and node handles for graph edits. |
-| `zero inspect <graph-input>` | Required capabilities and imported helpers in readable form. |
-| `zero inspect --json <graph-input>` | Required capabilities and imported helpers. |
-| `zero size --json <graph-input>` | Helper metadata and retained helper cost. |
-| `zero mem --json <graph-input>` | `memoryBudgets`, `allocatorFacts`, `allocationInstrumentation`, and `collectionFacts`. |
+| `zero query [graph-input]` | Module, function, call, reference, and node handles for graph edits. |
+| `zero inspect [graph-input]` | Required capabilities and imported helpers in readable form. |
+| `zero inspect --json [graph-input]` | Required capabilities and imported helpers. |
+| `zero size --json [graph-input]` | Helper metadata and retained helper cost. |
+| `zero mem --json [graph-input]` | `memoryBudgets`, `allocatorFacts`, `allocationInstrumentation`, and `collectionFacts`. |
 
 The `stdlibHelpers` and `usedStdlibHelpers` JSON entries include `module`,
 `effects`, `allocationBehavior`, `targetSupport`, `errorBehavior`,

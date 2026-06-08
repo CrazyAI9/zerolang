@@ -24,13 +24,13 @@ before it edits anything:
 
 ```text
 Check out the agent, graph, and language skills for Zero:
-zero skills list
+zero skills
 zero skills get agent
 zero skills get graph
 zero skills get language
 
 Create a hello world Zero program. Use the graph to read and write. `.0` files
-are for humans only; export them from the graph after the graph checks and runs.
+are for humans only; do not export them unless I ask for a projection.
 ```
 
 A typical agent conversation should look like this:
@@ -41,21 +41,18 @@ You:
   `.0` files are for humans only.
 
 Agent:
-  I will initialize a graph-first package, patch zero.graph, validate it, run it,
-  then export the `.0` projection for review.
+  I will initialize a graph-first package in this directory, patch zero.graph,
+  and run it. The patch command validates the graph and returns the new graph
+  hash and symbols.
 
 Agent runs:
-  zero init hello
-  cd hello
+  zero init
   zero patch --op 'addMain' --op 'addCheckWrite fn="main" text="hello from zero\n"'
-  zero check .
-  zero run .
-  zero export .
-  zero verify-projection .
+  zero run
 
 Agent reports:
-  The package compiles from zero.graph, zero run . prints "hello from zero",
-  and src/main.0 was regenerated from the graph for human review.
+  zero.graph was patched successfully, the new graph hash is graph:..., and
+  zero run prints "hello from zero".
 ```
 
 Expected output from the run:
@@ -72,8 +69,6 @@ The graph-first package has these important files:
 hello/
   zero.toml
   zero.graph
-  src/
-    main.0
 ```
 
 `zero.graph` is the repository graph store and the normal compiler input for
@@ -90,7 +85,8 @@ bidirectional: humans can review it, and humans may edit it directly when that
 is the right workflow. After a human edit, run `zero import .`
 to refresh `zero.graph`. Agents should not normally hand-write `.0` files.
 
-After `zero export .`, the projection should look like this:
+If you ask the agent to export a projection for human review, `src/main.0`
+should look like this:
 
 ```zero
 pub fn main(world: World) -> Void raises {
@@ -107,9 +103,9 @@ to make a checked graph edit.
 From inside the graph-first package:
 
 ```sh
-zero check .
-zero run .
-zero build --target linux-musl-x64 --out .zero/out/hello .
+zero check
+zero run
+zero build --target linux-musl-x64 --out .zero/out/hello
 ```
 
 Normal compiler commands compile from `zero.graph`. They report source
@@ -122,13 +118,13 @@ Keep the same graph-first instruction in the prompt:
 
 ```text
 Add a function add(x, y) that returns x + y, and add a test for it.
-Use the graph to read and write. Do not hand-edit `.0`; export the projection
-from the graph after checks pass.
+Use the graph to read and write. Do not hand-edit `.0`; do not export a
+projection unless I ask.
 ```
 
-The agent should use `zero patch` operations, validate with `zero check .` and
-`zero test .`, then run `zero export .` only for the human
-projection.
+The agent should use `zero patch` operations. A successful patch validates the
+graph and reports the new hash and top-level symbols. For behavior changes, the
+agent should run the relevant command, such as `zero test` or `zero run`.
 
 ## Learn The Core Syntax
 
@@ -161,9 +157,9 @@ as the default write path.
 Use graph query to inspect a package in slices:
 
 ```sh
-zero query .
-zero query --fn main .
-zero query --find write .
+zero query
+zero query --fn main
+zero query --find write
 ```
 
 The manifest records package metadata; the checked-in `zero.graph` beside it is

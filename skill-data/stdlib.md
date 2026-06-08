@@ -59,7 +59,7 @@ These modules depend on host or runtime capabilities:
 - `std.env`: process environment
 - `std.fs`: hosted filesystem and explicit `Fs` or `owned<File>` handles
 - `std.net`: bootstrap network handles
-- `std.http`: HTTP request/response helpers
+- `std.http`: HTTP request/response helpers and loopback listeners
 - `std.proc`: process execution helpers
 - `World.out` and `World.err`: program output capabilities
 
@@ -67,8 +67,8 @@ Non-host targets may reject these APIs with target diagnostics. Inspect target f
 
 ```sh
 zero targets
-zero check --target linux-musl-x64 <graph-input>
-zero inspect --target linux-musl-x64 <graph-input>
+zero check --target linux-musl-x64 [graph-input]
+zero inspect --target linux-musl-x64 [graph-input]
 ```
 
 Add `--json` only when a tool needs exact target facts or diagnostics.
@@ -390,6 +390,7 @@ copyFile(arg0: String, arg1: String, arg2: MutSpan<u8>) -> Bool
 parseMethod(arg0: String) -> HttpMethod
 client(arg0: Net) -> HttpClient
 server(arg0: Net, arg1: Address) -> HttpServer
+listen(arg0: World, arg1: u16) -> Void
 fetch(arg0: HttpClient, arg1: Span<u8>, arg2: MutSpan<u8>, arg3: Duration) -> HttpResult
 resultOk(arg0: HttpResult) -> Bool
 resultStatus(arg0: HttpResult) -> u16
@@ -860,6 +861,30 @@ and `std.http.writeCorsJsonResponse` when a JSON response also needs
 fragment such as `"200 OK"` or `"422 Unprocessable Entity"`. Use
 `std.http.responseBodyBytes` to read the body from a response envelope produced
 locally by `writeResponse` or a JSON writer.
+
+For a runnable local API server, define a same-module handler and call
+`std.http.listen(world)` from `main`. The handler signature is
+`fn handle(request: Span<u8>, response: MutSpan<u8>) -> Maybe<Span<u8>>`.
+When no port is passed, `std.http.listen(world)` starts at development port
+`3000` and increments by one until it finds a free loopback port. It prints the
+actual URL, such as `listening on http://127.0.0.1:3001`; use that printed port
+for curl or browser checks. Do not assume `3000`, because the user may already
+have another local server there. When a port is explicit,
+`std.http.listen(world, 3000_u16)` tries exactly that port and fails with a bind
+diagnostic if it is occupied.
+
+```zero
+pub fn main(world: World) -> Void raises {
+    check std.http.listen(world)
+}
+
+fn handle(request: Span<u8>, response: MutSpan<u8>) -> Maybe<Span<u8>> {
+    if std.http.requestIsGet(request, "/ping") {
+        return std.http.writeJsonOk(response, "{\"message\":\"pong\"}")
+    }
+    return std.http.writeJsonNotFound(response, "{\"error\":\"not_found\"}")
+}
+```
 
 ```zero
 pub fn main() -> Void {

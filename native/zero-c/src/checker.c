@@ -6949,10 +6949,45 @@ static bool check_stdlib_table_call_expected(CheckContext *ctx, const Program *p
   return true;
 }
 
+static bool check_stdlib_call_fallibility_expected(CheckContext *ctx, const Expr *expr, ZDiag *diag, const ZCallResolution *resolution);
+
+static bool check_stdlib_http_listen_call_expected(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, ZCallResolution *resolution) {
+  if (!expr) return true;
+  if (expr->args.len != 1 && expr->args.len != 2) {
+    return set_diag_detail(diag,
+                           3011,
+                           "std function 'std.http.listen' expects World plus an optional u16 port",
+                           expr->line,
+                           expr->column,
+                           "std.http.listen(world) or std.http.listen(world, 3000_u16)",
+                           "wrong argument count",
+                           "omit the port for auto-incrementing dev port selection, or pass one explicit u16 port");
+  }
+  if (!check_stdlib_call_fallibility_expected(ctx, expr, diag, resolution)) return false;
+  if (!check_expr_expected(ctx, program, expr->args.items[0], scope, diag, "World")) return false;
+  const char *world_type = expr_type(ctx, program, expr->args.items[0], scope);
+  record_stdlib_arg_fact(resolution, 0, expr->args.items[0], "World", world_type);
+  if (!types_compatible_in_scope(program, scope, "World", world_type)) {
+    return set_diag_detail(diag, 3012, "argument 1 to 'std.http.listen' has incompatible type", expr->args.items[0]->line, expr->args.items[0]->column, "World", world_type, "pass the main function's World capability");
+  }
+  if (expr->args.len == 2) {
+    if (!check_expr_expected(ctx, program, expr->args.items[1], scope, diag, "u16")) return false;
+    const char *port_type = expr_type(ctx, program, expr->args.items[1], scope);
+    record_stdlib_arg_fact(resolution, 1, expr->args.items[1], "u16", port_type);
+    if (!types_compatible_in_scope(program, scope, "u16", port_type)) {
+      return set_diag_detail(diag, 3012, "argument 2 to 'std.http.listen' has incompatible type", expr->args.items[1]->line, expr->args.items[1]->column, "u16", port_type, "pass a u16 port literal such as 3000_u16");
+    }
+  }
+  set_expr_resolved_type(expr, "Void");
+  return true;
+}
+
 static bool check_stdlib_known_call_expected(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, ZCallResolution *resolution) {
   const char *name = resolution && resolution->callee_name ? resolution->callee_name : "std helper";
   ZStdHelperKind kind = z_std_helper_kind(resolution ? resolution->std_helper : NULL);
   switch (kind) {
+    case Z_STD_HELPER_KIND_HTTP_LISTEN:
+      return check_stdlib_http_listen_call_expected(ctx, program, expr, scope, diag, resolution);
     case Z_STD_HELPER_KIND_MEM_LEN:
       return check_stdlib_mem_len_call_expected(ctx, program, expr, scope, diag, resolution);
     case Z_STD_HELPER_KIND_MEM_GET:
@@ -7029,12 +7064,14 @@ static bool check_stdlib_call_expected(CheckContext *ctx, const Program *program
     z_call_resolution_free(&std_resolution);
     return false;
   }
-  size_t expected_count = z_call_resolution_expected_arg_count(&std_resolution);
-  if (expected_count != expr->args.len) {
-    char message[256];
-    snprintf(message, sizeof(message), "std function '%s' expects %zu argument(s), got %zu", std_name, expected_count, expr->args.len);
-    z_call_resolution_free(&std_resolution);
-    return set_diag_detail(diag, 3011, message, expr->line, expr->column, "matching std helper signature", "wrong argument count", "update the std helper call");
+  if (z_std_helper_kind(std_resolution.std_helper) != Z_STD_HELPER_KIND_HTTP_LISTEN) {
+    size_t expected_count = z_call_resolution_expected_arg_count(&std_resolution);
+    if (expected_count != expr->args.len) {
+      char message[256];
+      snprintf(message, sizeof(message), "std function '%s' expects %zu argument(s), got %zu", std_name, expected_count, expr->args.len);
+      z_call_resolution_free(&std_resolution);
+      return set_diag_detail(diag, 3011, message, expr->line, expr->column, "matching std helper signature", "wrong argument count", "update the std helper call");
+    }
   }
   if (!check_stdlib_call_fallibility_expected(ctx, expr, diag, &std_resolution)) {
     z_call_resolution_free(&std_resolution);

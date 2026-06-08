@@ -100,8 +100,9 @@ describe("docs registry", () => {
     assert.match(await readDoc("getting-started"), /curl -fsSL https:\/\/zerolang\.ai\/install\.sh \| bash/);
     const gettingStarted = await readDoc("getting-started");
     assert.match(gettingStarted, /Ask An Agent For Hello World/);
-    assert.match(gettingStarted, /zero init hello/);
+    assert.match(gettingStarted, /zero init\n/);
     assert.match(gettingStarted, /zero patch --op 'addMain'/);
+    assert.match(gettingStarted, /do not export them unless I ask/);
     assert.match(gettingStarted, /`src\/main\.0` is the human-readable projection/);
     assert.match(await readDoc("getting-started"), /zero build --target linux-musl-x64/);
     assert.match(await readDoc("examples"), /bin\/zero check examples\/hello\.graph/);
@@ -130,7 +131,7 @@ describe("docs registry", () => {
       assert.match(moduleDoc, /## Graph Surface/, `${moduleDocInfo.sourcePath} should explain its graph surface`);
       assert.match(moduleDoc, /This module is graph-backed/, `${moduleDocInfo.sourcePath} should be graph-first`);
       assert.match(moduleDoc, /human-readable projection/, `${moduleDocInfo.sourcePath} should explain .0 projection snippets`);
-      assert.match(moduleDoc, /zero query <graph-input>/, `${moduleDocInfo.sourcePath} should point agents at graph inspection`);
+      assert.match(moduleDoc, /zero query \[graph-input\]/, `${moduleDocInfo.sourcePath} should point agents at graph inspection`);
       assert.doesNotMatch(moduleDoc, /`(?:examples|conformance)\/[^`]+\.0`/, `${moduleDocInfo.sourcePath} should link graph inputs`);
     }
     for (const moduleSlug of ["module-io", "module-rand", "module-proc", "module-crypto", "module-net", "module-http"]) {

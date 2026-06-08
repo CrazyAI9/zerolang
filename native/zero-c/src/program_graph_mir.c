@@ -2087,6 +2087,12 @@ static bool ir_graph_lower_http_std_call(const ZProgramGraph *graph, IrProgram *
   if (local_handled) return true;
   if (!ir_graph_lower_http_capability_call(graph, ir, fun, expr, callee_name, arg_count, &local_handled, out)) return false;
   if (local_handled) return true;
+  if (ir_text_eq(callee_name, "std.http.listen") && (arg_count == 1 || arg_count == 2)) {
+    IrValue *value = ir_new_integer_literal_value(ir, IR_TYPE_I64, 0, ir_graph_line(expr), ir_graph_column(expr));
+    value->element_type = IR_TYPE_VOID;
+    *out = value;
+    return true;
+  }
   if (ir_text_eq(callee_name, "std.http.fetch")) {
     if (!ir_graph_lower_http_fetch_call(graph, ir, fun, expr, arg_count, &local_handled, out)) return false;
     if (local_handled) return true;

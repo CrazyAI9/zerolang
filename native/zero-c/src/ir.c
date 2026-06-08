@@ -3382,6 +3382,13 @@ static bool ir_lower_expr(const Program *program, IrProgram *ir, const IrFunctio
         *out = value;
         return true;
       }
+      if (strcmp(callee_name, "std.http.listen") == 0 && (expr->args.len == 1 || expr->args.len == 2)) {
+        IrValue *value = ir_new_integer_literal_value(ir, IR_TYPE_I64, 0, expr->line, expr->column);
+        value->element_type = IR_TYPE_VOID;
+        free(callee_name);
+        *out = value;
+        return true;
+      }
       if (strcmp(callee_name, "std.http.fetch") == 0 && expr->args.len == 4) {
         IrValue *client = NULL;
         IrValue *request = NULL;

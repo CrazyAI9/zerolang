@@ -5,8 +5,8 @@
 This module is graph-backed. The compiler uses its standard-library graph store,
 while the Zero snippets below show the human-readable projection that agents may
 export for review. Agents should discover helpers with `zero skills get stdlib`,
-inspect user packages with `zero query <graph-input>` or
-`zero inspect <graph-input>`, and patch user code through the graph instead of
+inspect user packages with `zero query [graph-input]` or
+`zero inspect [graph-input]`, and patch user code through the graph instead of
 hand-editing `.0` files.
 
 Runnable today:
@@ -100,7 +100,7 @@ Target support: current compiler targets.
 
 ## Reporting Contract
 
-`zero mem --json <graph-input>` reports the allocator contract in machine-readable form:
+`zero mem --json [graph-input]` reports the allocator contract in machine-readable form:
 
 - `memoryBudgets`: stack, static, heap, arena, fixed-buffer, collection-capacity, allocator-capacity, requested-allocation, and linear-memory floor budgets.
 - `allocatorFacts`: `NullAlloc`, `FixedBufAlloc`, `Arena`, `PageAlloc`, and

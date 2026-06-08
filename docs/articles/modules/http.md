@@ -5,8 +5,8 @@
 This module is graph-backed. The compiler uses its standard-library graph store,
 while the Zero snippets below show the human-readable projection that agents may
 export for review. Agents should discover helpers with `zero skills get stdlib`,
-inspect user packages with `zero query <graph-input>` or
-`zero inspect <graph-input>`, and patch user code through the graph instead of
+inspect user packages with `zero query [graph-input]` or
+`zero inspect [graph-input]`, and patch user code through the graph instead of
 hand-editing `.0` files.
 
 Runnable today:
@@ -16,6 +16,8 @@ Runnable today:
 | `std.http.parseMethod(text)` | `HttpMethod` | Parses a small HTTP method token. |
 | `std.http.client(net)` | `HttpClient` | Creates hosted client metadata from a network capability. |
 | `std.http.server(net, address)` | `HttpServer` | Creates hosted server metadata from a network capability and address. |
+| `std.http.listen(world)` | `Void` | Starts a loopback HTTP listener from `zero run`, auto-selecting a development port from 3000 upward. |
+| `std.http.listen(world, port)` | `Void` | Starts a loopback HTTP listener on exactly `port`, failing if the port is occupied. |
 | `std.http.fetch(client, request, response, timeout)` | `HttpResult` | Performs a hosted HTTP(S) request with a `Duration` timeout and writes response metadata, headers, and body into caller-owned storage. |
 | `std.http.resultOk(result)` | `Bool` | True when transport succeeded and the status is 2xx. |
 | `std.http.resultStatus(result)` | `u16` | Reads the HTTP status, or `0` when no status was available. |
@@ -101,8 +103,8 @@ Metadata labels:
 - allocation behavior: metadata helpers do not allocate; `fetch` writes into a
   caller-owned response buffer and uses the provider runtime internally
 - target support: request/response parsing and writing helpers are
-  target-neutral; client/server require a net-capable target; `fetch` runs on
-  supported Darwin arm64 and Linux x64 host executable targets
+  target-neutral; client/server require a net-capable target; `fetch` and
+  `listen` run on supported Darwin arm64 and Linux x64 host executable targets
 - error behavior: metadata helpers are infallible; `fetch` returns status,
   body length, and error metadata so non-2xx responses are distinguishable from
   transport failures
@@ -259,6 +261,36 @@ pub fn main(world: World) -> Void raises {
     check world.err.write("http response json failed\n")
 }
 ```
+
+Loopback API server:
+
+```zero
+pub fn main(world: World) -> Void raises {
+    check std.http.listen(world)
+}
+
+fn handle(request: Span<u8>, response: MutSpan<u8>) -> Maybe<Span<u8>> {
+    if std.http.requestIsGet(request, "/ping") {
+        return std.http.writeJsonOk(response, "{\"message\":\"pong\"}")
+    }
+    return std.http.writeJsonNotFound(response, "{\"error\":\"not_found\"}")
+}
+```
+
+Run it through the graph-backed package and use the port printed by the
+listener:
+
+```sh
+zero run .
+# listening on http://127.0.0.1:3001
+curl -sS -i http://127.0.0.1:3001/ping
+```
+
+When no port is passed, `listen(world)` starts at `3000` and increments by one
+until it finds a free loopback port. This lets agent-run examples coexist with
+a user's docs server or other local development process. When the program passes
+an explicit port, such as `std.http.listen(world, 3000_u16)`, Zero tries exactly
+that port and reports the bind failure instead of auto-incrementing.
 
 ## Design Notes
 

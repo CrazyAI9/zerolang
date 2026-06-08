@@ -76,7 +76,7 @@ Build a small object artifact for a foreign native target:
 bin/zero build --emit obj --target darwin-arm64 examples/direct-call-add.graph --out .zero/out/direct-call-add.o
 ```
 
-Use `bin/zero check --json --emit obj --target <target> <graph-input>` before a build
+Use `bin/zero check --json --emit obj --target <target> [graph-input]` before a build
 when an agent needs structured readiness data without writing artifacts.
 
 ## Current Language Subset

@@ -514,13 +514,28 @@ fn __zero_std_http_request_target(request: Span<u8>) -> Maybe<Span<u8>> {
         return null
     }
     var index: usize = space + 1
-    while index < line_end.value {
+    while index < line_end.value && request[index] != 32_u8 {
         if request[index] <= 32_u8 {
             return null
         }
         index = index + 1
     }
-    return request[space + 1..line_end.value]
+    if index == space + 1 {
+        return null
+    }
+    if index < line_end.value {
+        var version_start: usize = index
+        while version_start < line_end.value && request[version_start] == 32_u8 {
+            version_start = version_start + 1
+        }
+        if version_start < line_end.value {
+            let version: Span<u8> = request[version_start..line_end.value]
+            if !std.mem.eql(version, "HTTP/1.0") && !std.mem.eql(version, "HTTP/1.1") {
+                return null
+            }
+        }
+    }
+    return request[space + 1..index]
 }
 
 fn __zero_std_http_request_path(request: Span<u8>) -> Maybe<Span<u8>> {

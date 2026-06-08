@@ -1,4 +1,5 @@
 #include "mir_binary.h"
+#include "std_source.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -1270,6 +1271,9 @@ char *z_mir_binary_cache_path_for_graph_store(const char *store_path, const char
   uint64_t hash = 1469598103934665603ull;
   hash = mir_hash_text(hash, ZERO_VERSION);
   hash = mir_hash_text(hash, graph_hash ? graph_hash : "");
+  char stdlib_fingerprint[32];
+  snprintf(stdlib_fingerprint, sizeof(stdlib_fingerprint), "%016llx", (unsigned long long)z_std_source_graph_fingerprint());
+  hash = mir_hash_text(hash, stdlib_fingerprint);
   hash = mir_hash_text(hash, target && target->name ? target->name : "");
   hash = mir_hash_text(hash, emit_kind ? emit_kind : "");
   hash = mir_hash_text(hash, backend ? backend : "");

@@ -313,6 +313,7 @@ const ZStdHelperInfo z_std_helpers[] = {
   {"std.http.parseMethod", "HttpMethod", 1, {"String"}, {NULL}, "parse", "target-neutral", "no allocation", true, Z_STD_HELPER_KIND_TABLE},
   {"std.http.client", "HttpClient", 1, {"Net"}, {NULL}, "net", "host", "borrows network capability", true, Z_STD_HELPER_KIND_TABLE},
   {"std.http.server", "HttpServer", 2, {"Net", "Address"}, {NULL}, "net", "host", "borrows network capability", true, Z_STD_HELPER_KIND_TABLE},
+  {"std.http.listen", "Void", 2, {"World", "u16"}, {"Io"}, "net", "host-runtime", "starts a loopback HTTP listener from zero run and dispatches to handle(request, response)", false, Z_STD_HELPER_KIND_HTTP_LISTEN},
   {"std.http.fetch", "HttpResult", 4, {"HttpClient", "Span<u8>", "MutSpan<u8>", "Duration"}, {NULL}, "net", "host-runtime", "writes caller response buffer from raw HTTP request envelope", true, Z_STD_HELPER_KIND_TABLE},
   {"std.http.resultOk", "Bool", 1, {"HttpResult"}, {NULL}, "net", "host-runtime", "inspects HTTP result metadata", true, Z_STD_HELPER_KIND_TABLE},
   {"std.http.resultStatus", "u16", 1, {"HttpResult"}, {NULL}, "net", "host-runtime", "reads HTTP status metadata", true, Z_STD_HELPER_KIND_TABLE},
