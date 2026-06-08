@@ -44,8 +44,15 @@ Runnable today:
 | `std.http.writeJsonOk(buffer, body)` | `Maybe<Span<u8>>` | Writes a 200 JSON response envelope into caller storage. |
 | `std.http.writeJsonCreated(buffer, body)` | `Maybe<Span<u8>>` | Writes a 201 JSON response envelope into caller storage. |
 | `std.http.writeJsonBadRequest(buffer, body)` | `Maybe<Span<u8>>` | Writes a 400 JSON response envelope into caller storage. |
+| `std.http.writeJsonUnauthorized(buffer, body)` | `Maybe<Span<u8>>` | Writes a 401 JSON response envelope into caller storage. |
+| `std.http.writeJsonForbidden(buffer, body)` | `Maybe<Span<u8>>` | Writes a 403 JSON response envelope into caller storage. |
 | `std.http.writeJsonNotFound(buffer, body)` | `Maybe<Span<u8>>` | Writes a 404 JSON response envelope into caller storage. |
 | `std.http.writeJsonMethodNotAllowed(buffer, body)` | `Maybe<Span<u8>>` | Writes a 405 JSON response envelope into caller storage. |
+| `std.http.writeJsonConflict(buffer, body)` | `Maybe<Span<u8>>` | Writes a 409 JSON response envelope into caller storage. |
+| `std.http.writeJsonUnprocessable(buffer, body)` | `Maybe<Span<u8>>` | Writes a 422 JSON response envelope into caller storage. |
+| `std.http.writeJsonTooManyRequests(buffer, body)` | `Maybe<Span<u8>>` | Writes a 429 JSON response envelope into caller storage. |
+| `std.http.writeJsonInternalServerError(buffer, body)` | `Maybe<Span<u8>>` | Writes a 500 JSON response envelope into caller storage. |
+| `std.http.writeNoContent(buffer)` | `Maybe<Span<u8>>` | Writes a 204 response envelope with an empty body. |
 | `std.http.requestMethodName(request)` | `Maybe<Span<u8>>` | Borrows the method token from a request envelope. |
 | `std.http.requestTarget(request)` | `Maybe<Span<u8>>` | Borrows the raw target from a request envelope. |
 | `std.http.requestPath(request)` | `Maybe<Span<u8>>` | Borrows the path from an absolute or origin-form request target. |
@@ -57,6 +64,14 @@ Runnable today:
 | `std.http.requestHasJsonContentType(request)` | `Bool` | True when the request content type is `application/json`, ignoring ASCII case and allowing parameters. |
 | `std.http.requestJsonBodyWithin(request, max)` | `Maybe<Span<u8>>` | Borrows the body only when content type is JSON, body length is within `max`, and bytes validate as JSON. |
 | `std.http.requestMatches(request, method, path)` | `Bool` | True when a request envelope has the exact method and normalized path. |
+| `std.http.requestMethodIs(request, method)` | `Bool` | True when a request envelope has the exact method. |
+| `std.http.requestIsGet(request, path)` | `Bool` | True when a request envelope is `GET` for the normalized path. |
+| `std.http.requestIsPost(request, path)` | `Bool` | True when a request envelope is `POST` for the normalized path. |
+| `std.http.requestIsPut(request, path)` | `Bool` | True when a request envelope is `PUT` for the normalized path. |
+| `std.http.requestIsPatch(request, path)` | `Bool` | True when a request envelope is `PATCH` for the normalized path. |
+| `std.http.requestIsDelete(request, path)` | `Bool` | True when a request envelope is `DELETE` for the normalized path. |
+| `std.http.requestPathStartsWith(request, prefix)` | `Bool` | True when the normalized request path starts with `prefix`. |
+| `std.http.requestPathTailAfter(request, prefix)` | `Maybe<Span<u8>>` | Borrows the normalized request path after `prefix`, or `null` when it does not match. |
 | `std.http.headerBytes(response, value)` | `Maybe<Span<u8>>` | Borrows a response header value after validating packed metadata. |
 | `std.http.responseBody(response, result)` | `Maybe<Span<u8>>` | Borrows the response body when the transport result succeeded. |
 | `std.http.responseBodyBytes(response)` | `Maybe<Span<u8>>` | Borrows the body bytes from a local response envelope written by response helpers. |
@@ -147,7 +162,7 @@ pub fn main(world: World) -> Void raises {
     var response: [256]u8 = [0_u8; 256]
     let body: Maybe<Span<u8>> = std.http.requestJsonBodyWithin(request, 64)
     let tenant: Maybe<Span<u8>> = std.http.requestQueryValue(request, "tenant")
-    if std.http.requestMatches(request, "POST", "/users") && tenant.has && body.has {
+    if std.http.requestIsPost(request, "/users") && tenant.has && body.has {
         let written: Maybe<Span<u8>> = std.http.writeJsonCreated(response, "{\"created\":true}")
         if written.has {
             check world.out.write("http route ok\n")

@@ -1,8 +1,11 @@
 fn handle(request: Span<u8>, response: MutSpan<u8>) -> Maybe<Span<u8>> {
-    if std.http.requestMatches(request, "GET", "/health") {
+    if std.http.requestIsGet(request, "/health") {
         return std.http.writeJsonOk(response, "{\"ok\":true}")
     }
-    if std.http.requestMatches(request, "POST", "/users") {
+    if std.http.requestIsDelete(request, "/users/7") {
+        return std.http.writeResponse(response, 204_u16, "")
+    }
+    if std.http.requestIsPost(request, "/users") {
         let tenant: Maybe<Span<u8>> = std.http.requestQueryValue(request, "tenant")
         let body: Maybe<Span<u8>> = std.http.requestJsonBodyWithin(request, 64)
         var id: Maybe<u32> = null
@@ -13,6 +16,9 @@ fn handle(request: Span<u8>, response: MutSpan<u8>) -> Maybe<Span<u8>> {
             return std.http.writeJsonCreated(response, "{\"created\":true}")
         }
         return std.http.writeJsonBadRequest(response, "{\"error\":\"invalid\"}")
+    }
+    if std.http.requestPathStartsWith(request, "/users/") {
+        return std.http.writeJsonNotFound(response, "{\"error\":\"not_found\",\"resource\":\"user\"}")
     }
     return std.http.writeJsonNotFound(response, "{\"error\":\"not_found\"}")
 }
@@ -33,6 +39,10 @@ pub fn main(world: World) -> Void raises {
     let header: Maybe<Span<u8>> = std.http.headerBytes(output.value, content_type)
     let body: Maybe<Span<u8>> = std.http.responseBodyBytes(output.value)
     if header.has && std.mem.eql(header.value, "application/json") && std.str.contains(output.value, "201 Created") && body.has && std.mem.eql(body.value, "{\"created\":true}") {
+        check world.out.write("json api router ok\n")
+        return
+    }
+    if std.str.contains(output.value, "204 No Content") {
         check world.out.write("json api router ok\n")
         return
     }

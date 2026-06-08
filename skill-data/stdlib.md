@@ -425,8 +425,15 @@ writeJsonResponse(arg0: MutSpan<u8>, arg1: u16, arg2: Span<u8>) -> Maybe<Span<u8
 writeJsonOk(arg0: MutSpan<u8>, arg1: Span<u8>) -> Maybe<Span<u8>>
 writeJsonCreated(arg0: MutSpan<u8>, arg1: Span<u8>) -> Maybe<Span<u8>>
 writeJsonBadRequest(arg0: MutSpan<u8>, arg1: Span<u8>) -> Maybe<Span<u8>>
+writeJsonUnauthorized(arg0: MutSpan<u8>, arg1: Span<u8>) -> Maybe<Span<u8>>
+writeJsonForbidden(arg0: MutSpan<u8>, arg1: Span<u8>) -> Maybe<Span<u8>>
 writeJsonNotFound(arg0: MutSpan<u8>, arg1: Span<u8>) -> Maybe<Span<u8>>
 writeJsonMethodNotAllowed(arg0: MutSpan<u8>, arg1: Span<u8>) -> Maybe<Span<u8>>
+writeJsonConflict(arg0: MutSpan<u8>, arg1: Span<u8>) -> Maybe<Span<u8>>
+writeJsonUnprocessable(arg0: MutSpan<u8>, arg1: Span<u8>) -> Maybe<Span<u8>>
+writeJsonTooManyRequests(arg0: MutSpan<u8>, arg1: Span<u8>) -> Maybe<Span<u8>>
+writeJsonInternalServerError(arg0: MutSpan<u8>, arg1: Span<u8>) -> Maybe<Span<u8>>
+writeNoContent(arg0: MutSpan<u8>) -> Maybe<Span<u8>>
 requestMethodName(arg0: Span<u8>) -> Maybe<Span<u8>>
 requestTarget(arg0: Span<u8>) -> Maybe<Span<u8>>
 requestPath(arg0: Span<u8>) -> Maybe<Span<u8>>
@@ -438,6 +445,14 @@ requestBodyWithin(arg0: Span<u8>, arg1: usize) -> Maybe<Span<u8>>
 requestHasJsonContentType(arg0: Span<u8>) -> Bool
 requestJsonBodyWithin(arg0: Span<u8>, arg1: usize) -> Maybe<Span<u8>>
 requestMatches(arg0: Span<u8>, arg1: Span<u8>, arg2: Span<u8>) -> Bool
+requestMethodIs(arg0: Span<u8>, arg1: Span<u8>) -> Bool
+requestIsGet(arg0: Span<u8>, arg1: Span<u8>) -> Bool
+requestIsPost(arg0: Span<u8>, arg1: Span<u8>) -> Bool
+requestIsPut(arg0: Span<u8>, arg1: Span<u8>) -> Bool
+requestIsPatch(arg0: Span<u8>, arg1: Span<u8>) -> Bool
+requestIsDelete(arg0: Span<u8>, arg1: Span<u8>) -> Bool
+requestPathStartsWith(arg0: Span<u8>, arg1: Span<u8>) -> Bool
+requestPathTailAfter(arg0: Span<u8>, arg1: Span<u8>) -> Maybe<Span<u8>>
 headerBytes(arg0: Span<u8>, arg1: HttpHeaderValue) -> Maybe<Span<u8>>
 responseBody(arg0: Span<u8>, arg1: HttpResult) -> Maybe<Span<u8>>
 responseBodyBytes(arg0: Span<u8>) -> Maybe<Span<u8>>
@@ -809,15 +824,20 @@ pub fn main() -> Void {
 }
 ```
 
-For API-style handlers, parse the request envelope with `std.http.requestMatches`,
+For API-style handlers, parse the request envelope with route helpers such as
+`std.http.requestIsGet`, `std.http.requestIsPost`,
+`std.http.requestPathStartsWith`, `std.http.requestPathTailAfter`,
 `std.http.requestQueryValue`, `std.http.requestHeader`,
 `std.http.requestHasJsonContentType`, and `std.http.requestJsonBodyWithin`.
 Prefer the status-specific JSON writers for common responses:
 `std.http.writeJsonOk`, `std.http.writeJsonCreated`,
-`std.http.writeJsonBadRequest`, `std.http.writeJsonNotFound`, and
-`std.http.writeJsonMethodNotAllowed`. Use `std.http.responseBodyBytes` to read
-the body from a response envelope produced locally by `writeResponse` or a JSON
-writer.
+`std.http.writeJsonBadRequest`, `std.http.writeJsonUnauthorized`,
+`std.http.writeJsonForbidden`, `std.http.writeJsonNotFound`,
+`std.http.writeJsonMethodNotAllowed`, `std.http.writeJsonConflict`,
+`std.http.writeJsonUnprocessable`, `std.http.writeJsonTooManyRequests`, and
+`std.http.writeJsonInternalServerError`. Use `std.http.writeNoContent` for
+204 responses and `std.http.responseBodyBytes` to read the body from a response
+envelope produced locally by `writeResponse` or a JSON writer.
 
 ```zero
 pub fn main() -> Void {
@@ -825,7 +845,7 @@ pub fn main() -> Void {
     var response_buf: [192]u8 = [0_u8; 192]
     let body: Maybe<Span<u8>> = std.http.requestJsonBodyWithin(request, 64)
     let tenant: Maybe<Span<u8>> = std.http.requestQueryValue(request, "tenant")
-    if std.http.requestMatches(request, "POST", "/users") && tenant.has && body.has {
+    if std.http.requestIsPost(request, "/users") && tenant.has && body.has {
         let response: Maybe<Span<u8>> = std.http.writeJsonCreated(response_buf, "{\"created\":true}")
         expect response.has
     }

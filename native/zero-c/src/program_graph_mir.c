@@ -4454,16 +4454,11 @@ static IrProgram ir_lower_program_graph(const ZProgramGraph *graph, const Source
   return ir;
 }
 
-IrProgram z_lower_program_graph_with_source(const ZProgramGraph *graph, const SourceInput *input, const ZTargetInfo *target) {
-  return ir_lower_program_graph(graph, input, target);
-}
+IrProgram z_lower_program_graph_with_source(const ZProgramGraph *graph, const SourceInput *input, const ZTargetInfo *target) { return ir_lower_program_graph(graph, input, target); }
 
 static bool ir_graph_lower_checked_program(const ZProgramGraph *graph, const char *path, const ZTargetInfo *target, Program *program, SourceInput *input, ZDiag *diag) {
   bool ok = z_program_graph_lower_to_program_with_source(graph, path, program, input, diag);
-  if (ok) {
-    z_set_check_target(target);
-    ok = z_check_program(program, diag);
-  }
+  if (ok) { z_set_check_target(target); ok = z_check_program(program, diag); }
   if (!ok) {
     if (input && input->source_file) z_map_source_diag(input, diag);
     if (diag && !diag->path) diag->path = input && input->source_file ? input->source_file : path;
@@ -4477,6 +4472,10 @@ bool z_program_graph_prepare_artifact_mir_input(const char *artifact_path, const
   ZProgramGraph graph = {0};
   if (!z_program_graph_load(artifact_path, &graph, diag)) return false;
 
+  if (!z_std_source_path_is_module_artifact(artifact_path) && !z_program_graph_merge_embedded_std_graph_modules(&graph, input, diag)) {
+    z_program_graph_free(&graph);
+    return false;
+  }
   z_program_graph_seed_source_metadata(input, &graph);
   char *mir_cache_path = z_mir_binary_cache_path_for_graph_store(artifact_path, graph.graph_hash, target, emit_kind, requested_backend);
   ZMirBinaryCacheFacts mir_cache = {0};

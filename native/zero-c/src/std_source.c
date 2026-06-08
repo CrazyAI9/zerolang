@@ -1,6 +1,7 @@
 #include "std_source.h"
 
 #include "embedded_stdlib_graph.inc"
+#include "program_graph_format.h"
 #include "program_graph_store_binary.h"
 
 #include <stdio.h>
@@ -83,18 +84,33 @@ static const ZStdSourceCall std_source_calls[] = {
   {"std.http.requestHasJsonContentType", "__zero_std_http_request_has_json_content_type", "std.http"},
   {"std.http.requestJsonBodyWithin", "__zero_std_http_request_json_body_within", "std.http"},
   {"std.http.requestMatches", "__zero_std_http_request_matches", "std.http"},
+  {"std.http.requestMethodIs", "__zero_std_http_request_method_is", "std.http"},
   {"std.http.requestQuery", "__zero_std_http_request_query", "std.http"},
   {"std.http.requestQueryValue", "__zero_std_http_request_query_value", "std.http"},
+  {"std.http.requestIsDelete", "__zero_std_http_request_is_delete", "std.http"},
+  {"std.http.requestIsGet", "__zero_std_http_request_is_get", "std.http"},
+  {"std.http.requestIsPatch", "__zero_std_http_request_is_patch", "std.http"},
+  {"std.http.requestIsPost", "__zero_std_http_request_is_post", "std.http"},
+  {"std.http.requestIsPut", "__zero_std_http_request_is_put", "std.http"},
+  {"std.http.requestPathStartsWith", "__zero_std_http_request_path_starts_with", "std.http"},
+  {"std.http.requestPathTailAfter", "__zero_std_http_request_path_tail_after", "std.http"},
   {"std.http.requestTarget", "__zero_std_http_request_target", "std.http"},
   {"std.http.responseBody", "__zero_std_http_response_body", "std.http"},
   {"std.http.responseBodyBytes", "__zero_std_http_response_body_bytes", "std.http"},
   {"std.http.statusReason", "__zero_std_http_status_reason", "std.http"},
   {"std.http.writeJsonBadRequest", "__zero_std_http_write_json_bad_request", "std.http"},
+  {"std.http.writeJsonConflict", "__zero_std_http_write_json_conflict", "std.http"},
   {"std.http.writeJsonCreated", "__zero_std_http_write_json_created", "std.http"},
+  {"std.http.writeJsonForbidden", "__zero_std_http_write_json_forbidden", "std.http"},
+  {"std.http.writeJsonInternalServerError", "__zero_std_http_write_json_internal_server_error", "std.http"},
   {"std.http.writeJsonMethodNotAllowed", "__zero_std_http_write_json_method_not_allowed", "std.http"},
   {"std.http.writeJsonNotFound", "__zero_std_http_write_json_not_found", "std.http"},
   {"std.http.writeJsonOk", "__zero_std_http_write_json_ok", "std.http"},
   {"std.http.writeJsonRequest", "__zero_std_http_write_json_request", "std.http"},
+  {"std.http.writeJsonTooManyRequests", "__zero_std_http_write_json_too_many_requests", "std.http"},
+  {"std.http.writeJsonUnauthorized", "__zero_std_http_write_json_unauthorized", "std.http"},
+  {"std.http.writeJsonUnprocessable", "__zero_std_http_write_json_unprocessable", "std.http"},
+  {"std.http.writeNoContent", "__zero_std_http_write_no_content", "std.http"},
   {"std.http.writeRequest", "__zero_std_http_write_request", "std.http"},
   {"std.http.writeResponse", "__zero_std_http_write_response", "std.http"},
   {"std.io.countLines", "__zero_std_io_count_lines", "std.io"},
@@ -153,6 +169,13 @@ static const ZStdSourceCall std_source_calls[] = {
   {"std.url.writeQueryParam", "__zero_std_url_write_query_param", "std.url"},
 };
 
+static bool std_source_text_eq(const char *left, const char *right) {
+  left = left ? left : "";
+  right = right ? right : "";
+  size_t left_len = strlen(left);
+  return left_len == strlen(right) && memcmp(left, right, left_len) == 0;
+}
+
 size_t z_std_source_module_count(void) {
   return sizeof(std_source_modules) / sizeof(std_source_modules[0]);
 }
@@ -163,14 +186,47 @@ const ZStdSourceModule *z_std_source_module_at(size_t index) {
 
 const ZStdSourceModule *z_std_source_module_for_name(const char *module) {
   for (size_t i = 0; i < sizeof(std_source_modules) / sizeof(std_source_modules[0]); i++) {
-    if (strcmp(std_source_modules[i].module, module ? module : "") == 0) return &std_source_modules[i];
+    if (std_source_text_eq(std_source_modules[i].module, module)) return &std_source_modules[i];
   }
   return NULL;
 }
 
+static const char *std_source_basename(const char *path) {
+  const char *slash = path ? strrchr(path, '/') : NULL;
+  return slash ? slash + 1 : (path ? path : "");
+}
+
+static bool std_source_stem_eq(const char *left, const char *right) {
+  const char *left_base = std_source_basename(left);
+  const char *right_base = std_source_basename(right);
+  const char *left_dot = strrchr(left_base, '.');
+  const char *right_dot = strrchr(right_base, '.');
+  size_t left_len = left_dot ? (size_t)(left_dot - left_base) : strlen(left_base);
+  size_t right_len = right_dot ? (size_t)(right_dot - right_base) : strlen(right_base);
+  return left_len == right_len && strncmp(left_base, right_base, left_len) == 0;
+}
+
+const ZStdSourceModule *z_std_source_module_for_path(const char *path) {
+  for (size_t i = 0; path && i < sizeof(std_source_modules) / sizeof(std_source_modules[0]); i++) {
+    const ZStdSourceModule *module = &std_source_modules[i];
+    if (std_source_text_eq(module->path, path) ||
+        std_source_text_eq(std_source_basename(module->path), std_source_basename(path)) ||
+        std_source_stem_eq(module->path, path)) {
+      return module;
+    }
+  }
+  return NULL;
+}
+
+bool z_std_source_path_is_module_artifact(const char *path) {
+  return path && path[0] &&
+         (strncmp(path, "std/", strlen("std/")) == 0 || strstr(path, "/std/") != NULL) &&
+         z_std_source_module_for_path(path) != NULL;
+}
+
 static const ZStdSourceCall *std_source_call_for_name(const char *qualified_name) {
   for (size_t i = 0; i < sizeof(std_source_calls) / sizeof(std_source_calls[0]); i++) {
-    if (strcmp(std_source_calls[i].public_name, qualified_name ? qualified_name : "") == 0) return &std_source_calls[i];
+    if (std_source_text_eq(std_source_calls[i].public_name, qualified_name)) return &std_source_calls[i];
   }
   return NULL;
 }
@@ -200,6 +256,34 @@ bool z_std_source_module_load_graph(const ZStdSourceModule *module, ZProgramGrap
       snprintf(diag->actual, sizeof(diag->actual), "%s", module && module->module ? module->module : "unknown std module");
     }
     return false;
+  }
+  if (!z_program_graph_store_bytes_are_binary(module->graph_bytes, module->graph_len)) {
+    char *text = z_checked_malloc(module->graph_len + 1);
+    memcpy(text, module->graph_bytes, module->graph_len);
+    text[module->graph_len] = '\0';
+    bool ok = z_program_graph_parse_dump(text, out, diag);
+    free(text);
+    if (ok) {
+      ZProgramGraphValidation validation = {0};
+      ok = z_program_graph_validate(out, &validation);
+      if (!ok && diag) {
+        *diag = (ZDiag){0};
+        diag->code = 1001;
+        diag->path = module->path;
+        diag->line = 1;
+        diag->column = 1;
+        diag->length = 1;
+        snprintf(diag->message, sizeof(diag->message), "embedded stdlib graph failed validation: %s",
+                 validation.message[0] ? validation.message : "invalid graph shape");
+        snprintf(diag->expected, sizeof(diag->expected), "shape-valid program graph");
+        snprintf(diag->actual, sizeof(diag->actual), "%s", validation.code[0] ? validation.code : "invalid graph");
+      }
+    }
+    if (!ok) {
+      if (diag && !diag->path) diag->path = module->path;
+      if (out) z_program_graph_free(out);
+    }
+    return ok;
   }
   ZProgramGraphStore store;
   z_program_graph_store_init(&store);
