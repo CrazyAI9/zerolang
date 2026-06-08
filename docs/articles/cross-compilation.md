@@ -5,9 +5,9 @@ Run checks against graph inputs or graph-first packages so agents can inspect
 capability denial without touching projections.
 
 ```sh
-bin/zero targets
-bin/zero check --target linux-musl-x64 examples/memory-package
-bin/zero build --target linux-musl-x64 examples/memory-package --out .zero/out/memory-package
+zero targets
+zero check --target linux-musl-x64 examples/memory-package
+zero build --target linux-musl-x64 examples/memory-package --out .zero/out/memory-package
 ```
 
 The compiler separates graph checking from executable linking. Target-neutral
@@ -23,7 +23,7 @@ For agent planning, `check --json` can also report whether a selected direct
 artifact is expected to build without emitting it:
 
 ```sh
-bin/zero check --json --emit obj --target linux-musl-x64 conformance/agent-surface/fixtures/owned-drop-direct-backend-unsupported.graph
+zero check --json --emit obj --target linux-musl-x64 conformance/agent-surface/fixtures/owned-drop-direct-backend-unsupported.graph
 ```
 
 The top-level result stays about language validity. The nested
@@ -38,17 +38,17 @@ targets or language features report diagnostics rather than silently choosing an
 external backend.
 
 ```sh
-bin/zero build --emit exe --target linux-musl-x64 examples/direct-exe-return.graph --out .zero/out/direct-exe-return
-bin/zero build --emit obj --target darwin-arm64 examples/direct-call-add.graph --out .zero/out/direct-call-add.o
+zero build --emit exe --target linux-musl-x64 examples/direct-exe-return.graph --out .zero/out/direct-exe-return
+zero build --emit obj --target darwin-arm64 examples/direct-call-add.graph --out .zero/out/direct-call-add.o
 ```
 
 Use JSON modes to inspect target support, required capabilities, selected
 emitters, and artifact facts:
 
 ```sh
-bin/zero build --json --emit exe --target linux-musl-x64 examples/direct-exe-return.graph
-bin/zero inspect --json --target darwin-arm64 examples/memory-package
-bin/zero size --json --target linux-musl-x64 examples/direct-exe-return.graph
+zero build --json --emit exe --target linux-musl-x64 examples/direct-exe-return.graph
+zero inspect --json --target darwin-arm64 examples/memory-package
+zero size --json --target linux-musl-x64 examples/direct-exe-return.graph
 ```
 
 ## Sysroots And C Boundaries

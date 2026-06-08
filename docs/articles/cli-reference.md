@@ -98,14 +98,8 @@ This repository marks graph stores with a Git diff driver:
 *.graph diff=zero-graph
 ```
 
-Git does not allow repositories to version the textconv command itself. In a
-Zero checkout, configure the driver locally:
-
-```sh
-git config diff.zero-graph.textconv 'bin/zero diff'
-```
-
-For an installed Zero compiler outside this repository, use:
+Git does not allow repositories to version the textconv command itself.
+Configure the driver with the installed compiler:
 
 ```sh
 git config --global diff.zero-graph.textconv 'zero diff'

@@ -11,17 +11,17 @@ Start by inspecting the graph, then check or build it:
 Start here:
 
 ```sh
-bin/zero query examples/hello.graph
-bin/zero check examples/hello.graph
-bin/zero build --emit exe --target linux-musl-x64 examples/add.graph --out .zero/out/add
+zero query examples/hello.graph
+zero check examples/hello.graph
+zero build --emit exe --target linux-musl-x64 examples/add.graph --out .zero/out/add
 ./.zero/out/add
 ```
 
 Tiny profile smoke:
 
 ```sh
-bin/zero build --release tiny --target linux-musl-x64 examples/hello.graph --out .zero/out/hello-tiny
-bin/zero size --json --release tiny --target linux-musl-x64 --out .zero/out/hello-tiny examples/hello.graph
+zero build --release tiny --target linux-musl-x64 examples/hello.graph --out .zero/out/hello-tiny
+zero size --json --release tiny --target linux-musl-x64 --out .zero/out/hello-tiny examples/hello.graph
 ```
 
 The current compiler can produce a tiny hosted/musl-style artifact for hello
@@ -30,10 +30,10 @@ world. This is not a complete no-libc runtime.
 Build profiles:
 
 ```sh
-bin/zero build --json --profile debug --target linux-musl-x64 examples/hello.graph --out .zero/out/hello-debug
-bin/zero build --json --profile fast --target linux-musl-x64 examples/hello.graph --out .zero/out/hello-fast
-bin/zero build --json --profile small --target linux-musl-x64 examples/hello.graph --out .zero/out/hello-small
-bin/zero size --json --profile tiny --target linux-musl-x64 examples/fixed-vec.graph
+zero build --json --profile debug --target linux-musl-x64 examples/hello.graph --out .zero/out/hello-debug
+zero build --json --profile fast --target linux-musl-x64 examples/hello.graph --out .zero/out/hello-fast
+zero build --json --profile small --target linux-musl-x64 examples/hello.graph --out .zero/out/hello-small
+zero size --json --profile tiny --target linux-musl-x64 examples/fixed-vec.graph
 ```
 
 Build JSON reports `profileSemantics` and `profileBudget`. Size JSON adds
@@ -42,7 +42,7 @@ Build JSON reports `profileSemantics` and `profileBudget`. Size JSON adds
 Direct helper audit:
 
 ```sh
-bin/zero size --json --target linux-musl-x64 examples/fixed-vec.graph
+zero size --json --target linux-musl-x64 examples/fixed-vec.graph
 ```
 
 The direct size and graph reports show which helpers are retained for
@@ -52,9 +52,9 @@ generic registries, hidden allocator machinery, and reflection visible.
 Cross-compile smoke:
 
 ```sh
-bin/zero build --release tiny --target linux-musl-x64 examples/hello.graph --out .zero/out/hello-linux-musl
-bin/zero build --release tiny --target win32-x64.exe examples/hello.graph --out .zero/out/hello-win32
-bin/zero size --json --release tiny --target linux-musl-x64 --out .zero/out/hello-linux-musl examples/hello.graph
+zero build --release tiny --target linux-musl-x64 examples/hello.graph --out .zero/out/hello-linux-musl
+zero build --release tiny --target win32-x64.exe examples/hello.graph --out .zero/out/hello-win32
+zero size --json --release tiny --target linux-musl-x64 --out .zero/out/hello-linux-musl examples/hello.graph
 ```
 
 On macOS hosts these commands produce Linux and Windows-style output artifacts
@@ -121,7 +121,7 @@ It stays useful without a large standard library.
 Build command:
 
 ```sh
-bin/zero build --emit exe --target linux-musl-x64 examples/zero-hash --out .zero/out/zero-hash
+zero build --emit exe --target linux-musl-x64 examples/zero-hash --out .zero/out/zero-hash
 ```
 
 Run command:
@@ -139,13 +139,13 @@ zero-hash ok
 Size output:
 
 ```sh
-bin/zero size --json --target linux-musl-x64 examples/zero-hash --out .zero/out/zero-hash-size.json
+zero size --json --target linux-musl-x64 examples/zero-hash --out .zero/out/zero-hash-size.json
 ```
 
 Inspect metadata:
 
 ```sh
-bin/zero inspect --json examples/zero-hash
+zero inspect --json examples/zero-hash
 ```
 
 The graph and size reports show the helper use behind `zero-hash`: args,
@@ -164,7 +164,7 @@ The benchmark report includes the Zero-only `zero-hash` case with expected outpu
 Cross-target status:
 
 ```sh
-bin/zero check --json --target linux-musl-x64 examples/zero-hash
+zero check --json --target linux-musl-x64 examples/zero-hash
 ```
 
 `zero-hash` intentionally uses hosted filesystem APIs. Use
@@ -194,13 +194,13 @@ inside the current executable graph backend while still modeling CRUD behavior.
 Check command:
 
 ```sh
-bin/zero check examples/crm-api
+zero check examples/crm-api
 ```
 
 Build and run commands:
 
 ```sh
-bin/zero build --emit exe --profile debug --out /tmp/zero-crm-api examples/crm-api
+zero build --emit exe --profile debug --out /tmp/zero-crm-api examples/crm-api
 /tmp/zero-crm-api $'GET /health\n\n'
 ```
 

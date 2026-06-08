@@ -40,6 +40,23 @@ const CONSTRAINTS = [
 
 /* ─── Primitives ──────────────────────────────────── */
 
+const NOISE =
+  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")";
+
+function Dither({ className = "", mask }: { className?: string; mask: string }) {
+  return (
+    <div
+      aria-hidden
+      className={`pointer-events-none absolute -z-10 opacity-[0.2] mix-blend-multiply dark:opacity-[0.28] dark:mix-blend-screen ${className}`}
+      style={{
+        backgroundImage: NOISE,
+        maskImage: mask,
+        WebkitMaskImage: mask,
+      }}
+    />
+  );
+}
+
 function GridGlow() {
   return (
     <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
@@ -49,6 +66,10 @@ function GridGlow() {
           background:
             "radial-gradient(circle, color-mix(in srgb, var(--color-fg) 14%, transparent), transparent 68%)",
         }}
+      />
+      <Dither
+        className="left-1/2 top-0 h-[42rem] w-[42rem] -translate-x-1/2 -translate-y-1/3"
+        mask="radial-gradient(circle, #000, transparent 66%)"
       />
       <div
         className="absolute inset-0 opacity-[0.4] dark:opacity-[0.25]"
@@ -67,23 +88,14 @@ function GridGlow() {
 }
 
 function SectionHeader({
-  index,
-  eyebrow,
   title,
   description,
 }: {
-  index: string;
-  eyebrow: string;
   title: string;
   description: string;
 }) {
   return (
     <div className="mb-12 max-w-[44rem]">
-      <div className="mb-5 flex items-center gap-3 font-mono text-xs uppercase tracking-[0.18em] text-muted">
-        <span>{index}</span>
-        <span className="h-px w-8 bg-border" />
-        <span>{eyebrow}</span>
-      </div>
       <h2 className="m-0 max-w-[14ch] text-[clamp(2.25rem,6vw,4.25rem)] font-semibold leading-[0.98] tracking-[-0.045em]">
         {title}
       </h2>
@@ -94,10 +106,30 @@ function SectionHeader({
   );
 }
 
+function VisualGlow({ className = "", children }: { className?: string; children: ReactNode }) {
+  return (
+    <div className={`relative ${className}`}>
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -inset-x-10 -inset-y-16 -z-10 rounded-[3rem] blur-2xl sm:-inset-x-16"
+        style={{
+          background:
+            "radial-gradient(ellipse 60% 70% at 50% 38%, color-mix(in srgb, var(--color-fg) 24%, transparent), transparent 72%)",
+        }}
+      />
+      <Dither
+        className="-inset-x-10 -inset-y-16 sm:-inset-x-16"
+        mask="radial-gradient(ellipse 60% 70% at 50% 38%, #000, transparent 72%)"
+      />
+      {children}
+    </div>
+  );
+}
+
 function Panel({ className = "", children }: { className?: string; children: ReactNode }) {
   return (
     <div
-      className={`relative overflow-hidden rounded-2xl border border-border bg-surface ${className}`}
+      className={`relative overflow-hidden rounded-2xl border border-border/50 ${className}`}
       style={{ boxShadow: "0 1px 0 0 color-mix(in srgb, var(--color-fg) 4%, transparent)" }}
     >
       {children}
@@ -115,7 +147,7 @@ function CodeWindow({
   className?: string;
 }) {
   return (
-    <Panel className={className}>
+    <Panel className={`bg-bg ${className}`}>
       <div className="flex items-center gap-3 border-b border-border px-4 py-3">
         <div className="flex gap-1.5">
           <span className="h-2.5 w-2.5 rounded-full bg-border" />
@@ -124,7 +156,7 @@ function CodeWindow({
         </div>
         <span className="font-mono text-xs font-medium text-muted">{title}</span>
       </div>
-      <pre className="m-0 overflow-x-auto bg-code-bg p-5 text-[0.8125rem] leading-[1.7]">
+      <pre className="m-0 overflow-x-auto bg-bg p-5 text-[0.8125rem] leading-[1.7]">
         <code className="text-code-fg" dangerouslySetInnerHTML={{ __html: html }} />
       </pre>
     </Panel>
@@ -159,9 +191,9 @@ function ToolRun({ command }: { command: string }) {
 
 function ChatMockup() {
   return (
-    <Panel className="shadow-card">
+    <Panel className="bg-bg shadow-card">
       <div className="flex items-center gap-3 border-b border-border px-5 py-3.5">
-        <span className="flex h-7 w-7 items-center justify-center rounded-full border border-border bg-bg">
+        <span className="flex h-7 w-7 items-center justify-center rounded-full border border-border bg-surface-muted">
           <LogoIcon width={12} height={10} className="text-fg" />
         </span>
         <div className="flex flex-col leading-tight">
@@ -248,39 +280,33 @@ export default function HomePage() {
         {/* 01 — Chat (Why) */}
         <Section>
           <SectionHeader
-            index="01"
-            eyebrow="How you use it"
             title="You just ask."
             description="Humans use chat. Nobody hand-writes Zero. You describe what you want, and the agent initializes a package, patches the graph, and runs it."
           />
-          <div className="mx-auto max-w-[40rem]">
+          <VisualGlow className="mx-auto max-w-[40rem]">
             <ChatMockup />
-          </div>
+          </VisualGlow>
         </Section>
 
         {/* 02 — Graph (What) */}
         <Section>
           <SectionHeader
-            index="02"
-            eyebrow="What it is"
             title="The graph is the program."
             description="Source text is a weak interface for understanding code. Zero keeps a typed program graph as the real artifact. Readable source is just a projection of it."
           />
-          <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-            <CodeWindow title="src/main.0 — projection" html={CODE_EXAMPLE} />
-            <CodeWindow title="zero query — graph" html={highlight(GRAPH_EXAMPLE, "zero-graph")} />
-          </div>
+          <VisualGlow className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+            <CodeWindow title="src/main.0 · projection" html={CODE_EXAMPLE} />
+            <CodeWindow title="zero query · graph" html={highlight(GRAPH_EXAMPLE, "zero-graph")} />
+          </VisualGlow>
         </Section>
 
         {/* 03 — Patch (How) */}
         <Section>
           <SectionHeader
-            index="03"
-            eyebrow="How edits land"
             title="Every edit is checked."
             description="Graph patches target a semantic node and field, guarded by a graph-hash and an expected value. Stale edits fail before they touch anything."
           />
-          <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1.4fr_1fr]">
+          <VisualGlow className="grid grid-cols-1 gap-5 lg:grid-cols-[1.4fr_1fr]">
             <CodeWindow title="zero patch" html={highlight(PATCH_EXAMPLE, "sh")} />
             <Panel className="bg-code-bg">
               <div className="flex items-center gap-3 border-b border-border bg-surface px-4 py-3">
@@ -304,28 +330,28 @@ export default function HomePage() {
                 ))}
               </dl>
             </Panel>
-          </div>
+          </VisualGlow>
         </Section>
 
         {/* 04 — Constraints */}
         <Section>
           <SectionHeader
-            index="04"
-            eyebrow="Under the hood"
             title="Still a systems language."
             description="The graph work does not relax the runtime goals. Zero is designed to stay small, fast, and dependency-free for both humans and the agents writing it."
           />
-          <div className="grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-border bg-border md:grid-cols-3">
-            {CONSTRAINTS.map((c) => (
-              <div
-                key={c}
-                className="flex items-center gap-3 bg-bg px-6 py-7 text-[0.9375rem] font-medium tracking-[-0.01em] transition-colors hover:bg-surface-muted"
-              >
-                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-fg/30" />
-                {c}
-              </div>
-            ))}
-          </div>
+          <VisualGlow>
+            <div className="grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-border bg-border md:grid-cols-3">
+              {CONSTRAINTS.map((c) => (
+                <div
+                  key={c}
+                  className="flex items-center gap-3 bg-bg px-6 py-7 text-[0.9375rem] font-medium tracking-[-0.01em] transition-colors hover:bg-surface-muted"
+                >
+                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-fg/30" />
+                  {c}
+                </div>
+              ))}
+            </div>
+          </VisualGlow>
         </Section>
 
         {/* CTA */}
@@ -337,6 +363,10 @@ export default function HomePage() {
               background:
                 "radial-gradient(ellipse 60% 100% at 50% 120%, color-mix(in srgb, var(--color-fg) 10%, transparent), transparent 70%)",
             }}
+          />
+          <Dither
+            className="inset-x-0 bottom-0 h-full"
+            mask="radial-gradient(ellipse 60% 100% at 50% 120%, #000, transparent 70%)"
           />
           <div className="mx-auto flex w-[min(100%-3rem,var(--container-content))] flex-col items-center px-6 py-[clamp(6rem,14vh,9rem)] text-center">
             <h2 className="m-0 text-[clamp(2rem,6vw,3.5rem)] font-semibold leading-[1.02] tracking-[-0.045em]">

@@ -105,7 +105,7 @@ describe("docs registry", () => {
     assert.match(gettingStarted, /do not export them unless I ask/);
     assert.match(gettingStarted, /`src\/main\.0` is the human-readable projection/);
     assert.match(await readDoc("getting-started"), /zero build --target linux-musl-x64/);
-    assert.match(await readDoc("examples"), /bin\/zero check examples\/hello\.graph/);
+    assert.match(await readDoc("examples"), /zero check examples\/hello\.graph/);
     const learnZero = await readDoc("learn-zero");
     for (const topic of ["main", "let", "Write Functions", "type", "Field Defaults", "Span", "check", "Run Tests", "Cross Targets", "Diagnostics"]) {
       assert.match(learnZero, new RegExp(topic));
@@ -269,13 +269,14 @@ describe("docs registry", () => {
       assert.match(examples, new RegExp(repairTerm, "i"));
     }
     const homePage = await readFile(join(docsSiteRoot, "app/page.tsx"), "utf8");
-    assert.match(homePage, /The programming language\s+<br \/>\s+for agents/);
-    assert.match(homePage, /Graph is the artifact\.\s+<br \/>\s+Source is the projection\./);
-    assert.match(homePage, /Semantic navigation/);
-    assert.match(homePage, /Precise edits/);
-    assert.match(homePage, /Validated refactors/);
-    assert.match(homePage, /Shorter feedback loop/);
-    assert.match(homePage, /Token efficiency, low memory usage, fast startup, fast builds, low runtime latency, and zero dependencies/);
+    assert.match(homePage, /The future of\s+<br \/>\s+programming is a graph\./);
+    assert.match(homePage, /Zero is the programming language for agents/);
+    assert.match(homePage, /Humans use chat\. Nobody hand-writes Zero/);
+    assert.match(homePage, /The graph is the program/);
+    assert.match(homePage, /Every edit is checked/);
+    for (const constraint of ["Token efficiency", "Low memory", "Fast startup", "Fast builds", "Low latency", "Zero dependencies"]) {
+      assert.match(homePage, new RegExp(constraint));
+    }
     assert.doesNotMatch(homePage, /format, reparse/);
     assert.match(homePage, /InstallCopy/);
     const installCopy = await readFile(join(docsSiteRoot, "components/install-copy.tsx"), "utf8");
@@ -345,6 +346,18 @@ describe("docs registry", () => {
     assert.match(routeSource, /Zero projection syntax/);
     assert.match(routeSource, /human-readable projection of the graph/);
     assert.doesNotMatch(routeSource, /Zero source code/);
+  });
+
+  it("uses installed zero in public copyable examples", async () => {
+    const allowedBinZeroCodePages = new Set(["install", "building-from-source"]);
+    for (const doc of docs) {
+      const source = await readFile(join(docsSiteRoot, doc.sourcePath.slice(1)), "utf8");
+      const codeBlocks = [...source.matchAll(/```[^\n]*\n([\s\S]*?)```/g)].map((match) => match[1]);
+      for (const code of codeBlocks) {
+        if (allowedBinZeroCodePages.has(doc.slug)) continue;
+        assert.doesNotMatch(code, /\bbin\/zero\b/, `${doc.sourcePath} code examples should use zero, not bin/zero`);
+      }
+    }
   });
 
   it("uses specific first section headings for module pages", async () => {

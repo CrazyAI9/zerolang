@@ -14,8 +14,8 @@ export c fn add(a: i32, b: i32) -> i32 {
 Check the ABI surface:
 
 ```sh
-bin/zero check conformance/native/pass/c-abi-export.graph
-bin/zero abi dump --json conformance/native/pass/c-abi-export.graph
+zero check conformance/native/pass/c-abi-export.graph
+zero abi dump --json conformance/native/pass/c-abi-export.graph
 ```
 
 The ABI dump reports exported C symbols and a small generated header text block.
@@ -26,14 +26,14 @@ Invalid export surfaces fail before C emission; use the diagnostic explanation
 when you need the current repair contract:
 
 ```sh
-bin/zero explain ABI001
+zero explain ABI001
 ```
 
 Header imports expose typed metadata and scalar C functions are callable through
 the declared import alias:
 
 ```sh
-bin/zero inspect --json --target linux-musl-x64 conformance/check/pass/c-header-import.graph
+zero inspect --json --target linux-musl-x64 conformance/check/pass/c-header-import.graph
 ```
 
 The graph JSON exposes `cImports[].typedModel` with imported functions,
@@ -76,5 +76,5 @@ paths.
 Unsafe foreign-target discovery fails with `CIMP003` before code generation:
 
 ```sh
-bin/zero build --json --target linux-musl-x64 conformance/c/host-leak-package --out .zero/out/host-leak-package
+zero build --json --target linux-musl-x64 conformance/c/host-leak-package --out .zero/out/host-leak-package
 ```

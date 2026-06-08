@@ -191,7 +191,7 @@ Standard library modules use the same structured diagnostic contract as compiler
 Hosted filesystem helpers are host-only in the current compiler. This fails clearly on non-host targets:
 
 ```sh
-bin/zero check --json --target linux-musl-x64 conformance/common/fail/unsupported-target-feature.graph
+zero check --json --target linux-musl-x64 conformance/common/fail/unsupported-target-feature.graph
 ```
 
 The diagnostic uses `TAR002`, `fixSafety: "requires-human-review"`, and repair
@@ -259,7 +259,7 @@ pub const answer: i32 = 42
 C interop keeps host and target discovery separate. This fails for a foreign target because the manifest asks for host include/library discovery:
 
 ```sh
-bin/zero build --json --target linux-musl-x64 conformance/c/host-leak-package --out .zero/out/host-leak-package
+zero build --json --target linux-musl-x64 conformance/c/host-leak-package --out .zero/out/host-leak-package
 ```
 
 This reports `CIMP003` with repair id `configure-target-c-dependency`.
