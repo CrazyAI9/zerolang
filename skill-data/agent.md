@@ -165,8 +165,9 @@ zero check <package>
 
 8. When a graph artifact is necessary, write it under `.zero/`, patch the
 artifact, validate it, and then apply the accepted change to the package graph
-store or source projection. Do not commit derived `.program-graph` files unless
-the user explicitly asks.
+store or `.graph` sidecar. Export `.0` separately when humans need to review the
+projection. Do not commit derived `.program-graph` files unless the user
+explicitly asks.
 9. Use `zero verify-projection <input>` when projection drift must fail the
 workflow. For package inputs, normal compiler commands validate and compile
 from `zero.graph`; they report projection state but do not rewrite projections.

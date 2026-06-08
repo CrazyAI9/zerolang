@@ -16,11 +16,45 @@ if (process.env.ZERO_NATIVE_TEST_SANDBOX !== "1" && process.env.ZERO_NATIVE_TEST
 const outDir = ".zero/command-contracts";
 const execMaxBuffer = 16 * 1024 * 1024;
 const zeroBin = process.env.ZERO_BIN || (existsSync(".zero/bin/zero") ? resolve(".zero/bin/zero") : resolve("bin/zero"));
+const compilerInputCommands = new Set(["check", "build", "run", "test", "size", "ship", "mem", "doc", "dev", "time", "fix"]);
+const compilerInputValueFlags = new Set(["--backend", "--emit", "--filter", "--out", "--profile", "--release", "--target"]);
+const abiInputSubcommands = new Set(["check", "dump"]);
 mkdirSync(outDir, { recursive: true });
+
+function graphSidecarPath(sourcePath: string) {
+  return `${sourcePath.slice(0, -2)}.graph`;
+}
+
+function compilerInputPath(inputPath: string) {
+  if (typeof inputPath !== "string" || !inputPath.endsWith(".0")) return inputPath;
+  const graphPath = graphSidecarPath(inputPath);
+  return existsSync(graphPath) ? graphPath : inputPath;
+}
+
+function normalizeZeroCompilerArgs(args: string[]) {
+  const isCompilerInputCommand = compilerInputCommands.has(args[0]);
+  const isAbiInputCommand = args[0] === "abi" && abiInputSubcommands.has(args[1]);
+  if (!isCompilerInputCommand && !isAbiInputCommand) return args;
+  let afterProgramArgs = false;
+  let skipOptionValue = false;
+  return args.map((arg) => {
+    if (afterProgramArgs) return arg;
+    if (arg === "--") afterProgramArgs = true;
+    if (skipOptionValue) {
+      skipOptionValue = false;
+      return arg;
+    }
+    if (compilerInputValueFlags.has(arg)) {
+      skipOptionValue = true;
+      return arg;
+    }
+    return afterProgramArgs ? arg : compilerInputPath(arg);
+  });
+}
 
 function zero(args, options: { allowFailure?: boolean; env?: Record<string, string> } = {}) {
   try {
-    const stdout = execFileSync(zeroBin, args, { encoding: "utf8", maxBuffer: execMaxBuffer, stdio: ["ignore", "pipe", "pipe"], env: options.env ? { ...process.env, ...options.env } : process.env });
+    const stdout = execFileSync(zeroBin, normalizeZeroCompilerArgs(args), { encoding: "utf8", maxBuffer: execMaxBuffer, stdio: ["ignore", "pipe", "pipe"], env: options.env ? { ...process.env, ...options.env } : process.env });
     return { code: 0, stdout };
   } catch (error) {
     if (!options.allowFailure) throw error;
@@ -39,7 +73,7 @@ function json(args, options = {}) {
 
 function projectionSidecarGraphPath(sourcePath: string) {
   assert(sourcePath.endsWith(".0"), `projection path must end in .0: ${sourcePath}`);
-  return `${sourcePath.slice(0, -2)}.graph`;
+  return graphSidecarPath(sourcePath);
 }
 
 function importProjectionSidecar(sourcePath: string) {
@@ -3486,7 +3520,7 @@ assert.equal(graphPatchJson.saved.path, graphPatchedPath);
 assert.equal(zero(["validate", graphPatchedPath]).stdout, "program graph ok\n");
 assert.match(zero(["view", graphPatchedPath]).stdout, /check world\.out\.write\("hello patched\\n"\)/);
 assert.equal(zero(["check", graphPatchedPath]).stdout, "ok\n");
-const graphSourcePatchPath = join(outDir, "hello.projection-backed.0");
+const graphSourcePatchPath = join(outDir, "hello.graph-sidecar.0");
 writeProjectionFile(graphSourcePatchPath, graphView);
 const graphSourcePatchSidecar = importProjectionSidecar(graphSourcePatchPath);
 const graphSourcePatchDumpJson = json(["dump", "--json", graphSourcePatchPath]).body;
@@ -3496,18 +3530,25 @@ assert(graphSourceLiteralNode);
 const graphSourcePatchJson = json([
   "patch",
   "--json",
-  graphSourcePatchPath,
+  "--out",
+  graphSourcePatchSidecar,
+  graphSourcePatchSidecar,
   "--expect-graph-hash",
   graphSourcePatchDumpJson.graphHash,
   "--op",
-  `set node="${graphSourceLiteralNode.id}" field="value" expect="hello from zero\\n" value="hello projection-backed\\n"`,
+  `set node="${graphSourceLiteralNode.id}" field="value" expect="hello from zero\\n" value="hello sidecar graph\\n"`,
 ]).body;
 assert.equal(graphSourcePatchJson.ok, true);
 assert.equal(graphSourcePatchJson.canonicalSource, false);
 assert.equal(graphSourcePatchJson.saved.path, graphSourcePatchSidecar);
 zero(["view", "--out", graphSourcePatchPath, graphSourcePatchSidecar]);
-assert.match(readFileSync(graphSourcePatchPath, "utf8"), /hello projection-backed\\n/);
+assert.match(readFileSync(graphSourcePatchPath, "utf8"), /hello sidecar graph\\n/);
 assertProjectionCheckOk(graphSourcePatchPath);
+const graphSourceProjectionPatchRejected = json(["patch", "--json", graphSourcePatchPath, "--op", "addMain"], { allowFailure: true });
+assert.notEqual(graphSourceProjectionPatchRejected.code, 0);
+assert.equal(graphSourceProjectionPatchRejected.body.diagnostics[0].code, "BLD002");
+assert.equal(graphSourceProjectionPatchRejected.body.diagnostics[0].message, "graph patch requires graph input");
+assert.equal(graphSourceProjectionPatchRejected.body.diagnostics[0].expected, "package graph store, .graph sidecar, or ProgramGraph artifact");
 const graphSourcePackageDir = join(outDir, "graph-source-package");
 const graphSourcePackageMain = join(graphSourcePackageDir, "src", "main.0");
 const graphSourcePackageHelper = join(graphSourcePackageDir, "src", "helper.0");
@@ -3539,7 +3580,7 @@ assert(graphSourcePackageLiteralNode);
 const graphSourcePackagePatchJson = json([
   "patch",
   "--json",
-  graphSourcePackageMain,
+  graphSourcePackageDir,
   "--expect-graph-hash",
   graphSourcePackageDumpJson.graphHash,
   "--op",
@@ -3660,7 +3701,9 @@ assert(graphPublicLiteralNode);
 const graphPublicSumsPatchJson = json([
   "patch",
   "--json",
-  graphPublicSumsSourcePath,
+  "--out",
+  graphPublicSumsSidecar,
+  graphPublicSumsSidecar,
   "--expect-graph-hash",
   graphPublicSumsDumpJson.graphHash,
   "--op",
@@ -3693,7 +3736,9 @@ assert(graphExternFieldsLiteralNode);
 const graphExternFieldsPatchJson = json([
   "patch",
   "--json",
-  graphExternFieldsSourcePath,
+  "--out",
+  graphExternFieldsSidecar,
+  graphExternFieldsSidecar,
   "--expect-graph-hash",
   graphExternFieldsDumpJson.graphHash,
   "--op",
@@ -3728,7 +3773,7 @@ const graphCommentsPatchJson = json([
 ], { allowFailure: true });
 assert.notEqual(graphCommentsPatchJson.code, 0);
 assert.equal(graphCommentsPatchJson.body.diagnostics[0].code, "BLD002");
-assert.equal(graphCommentsPatchJson.body.diagnostics[0].message, "compiler command requires graph input");
+assert.equal(graphCommentsPatchJson.body.diagnostics[0].message, "graph patch requires graph input");
 assert.equal(readFileSync(graphCommentsSourcePath, "utf8"), graphCommentsOriginal);
 const graphInlinePatchJson = json([
   "patch",
@@ -4309,14 +4354,14 @@ sparseOrderGraph = sparseOrderGraph.replace(/hash "graph:[0-9a-f]{16}"/, `hash "
 writeFileSync(graphSparseOrderPath, sparseOrderGraph);
 const sparseOrderValidate = json(["validate", "--json", graphSparseOrderPath], { allowFailure: true });
 assert.notEqual(sparseOrderValidate.code, 0);
-assert.equal(sparseOrderValidate.body.diagnostics[0].actual, "GRF013");
+assert.match(sparseOrderValidate.body.diagnostics[0].actual, /^GRF013\b/);
 assert.match(sparseOrderValidate.body.diagnostics[0].message, /ordered edge group is sparse/);
 let sparseArgGraph = graphDump.replace(/edge (#[^ ]+) arg (#[^ ]+) order:0/, "edge $1 arg $2 order:1000000000000");
 sparseArgGraph = sparseArgGraph.replace(/hash "graph:[0-9a-f]{16}"/, `hash "${recomputeGraphHash(sparseArgGraph)}"`);
 writeFileSync(graphSparseArgPath, sparseArgGraph);
 const sparseArgValidate = json(["validate", "--json", graphSparseArgPath], { allowFailure: true });
 assert.notEqual(sparseArgValidate.code, 0);
-assert.equal(sparseArgValidate.body.diagnostics[0].actual, "GRF013");
+assert.match(sparseArgValidate.body.diagnostics[0].actual, /^GRF013\b/);
 assert.match(sparseArgValidate.body.diagnostics[0].message, /ordered edge group is sparse/);
 const graphWrongSchemaPath = join(outDir, "wrong-schema.program-graph");
 writeFileSync(graphWrongSchemaPath, "zero-graph v2\n");

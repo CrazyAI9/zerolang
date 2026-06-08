@@ -6,7 +6,8 @@ Most commands accept the same input forms:
 
 | Input | Meaning |
 | --- | --- |
-| `file.0` | Human-readable Zero source text. In graph-first packages this is a projection, not the normal agent write surface. |
+| `file.graph` | A binary or text graph store/artifact used directly by compiler commands. |
+| `file.0` | Human-readable Zero projection text for review, formatting, and human import/export workflows. A sibling `.graph` sidecar is the compiler input for graph-backed standalone files. |
 | `project/` | A package directory containing `zero.toml` or `zero.json`; graph-first packages compile from `zero.graph`. |
 | `zero.toml` | A TOML package manifest. Takes precedence for directory inputs when both manifests exist. |
 | `zero.json` | A JSON package manifest. |
@@ -117,15 +118,16 @@ another tool needs stable fields.
 | `zero test --json` | Graph identity for canonical source, test discovery mode, selected fixtures, result counts, output, and per-test locations/failures. |
 | `zero doctor --json` | Host checks plus `targetToolchains`, the per-target readiness matrix. |
 
-Canonical `.0` source JSON for `zero check`, `zero build`, `zero size`,
-`zero ship`, `zero mem`, and `zero test` reports a top-level `graph` object
+Graph-backed compiler commands for `zero check`, `zero build`, `zero size`,
+`zero ship`, `zero mem`, and `zero test` report a top-level `graph` object
 with `artifact`, `canonicalSource`, `moduleIdentity`, `graphHash`, and
-`lowering`. Their compiler cache and incremental invalidation facts use
-`sourceKind: "program-graph"` and include the graph input that keyed the
-compile. Planning and introspection commands such as `zero dev`, `zero time`,
-`zero doc`, and `zero abi` continue to report canonical source cache facts.
-Derived ProgramGraph artifact commands report the same identity fields for the
-artifact being inspected or built.
+`lowering`. For standalone projection paths, the artifact is the sibling
+`.graph` sidecar when one exists. Their compiler cache and incremental
+invalidation facts use `sourceKind: "program-graph"` and include the graph
+input that keyed the compile. Planning and introspection commands such as
+`zero dev`, `zero time`, `zero doc`, and `zero abi` report graph cache facts
+for graph-backed inputs. Derived ProgramGraph artifact commands report the
+same identity fields for the artifact being inspected or built.
 
 Repository graph build/run/test/size/ship/mem commands and standalone
 `.program-graph` build/run/size commands can also report
@@ -248,15 +250,17 @@ zero patch \
 zero check .
 ```
 
-It can also patch projection-backed `.0` files without comments; that path
-updates the graph sidecar, exports the source projection, and verifies semantic
-graph comparison succeeds:
+Direct example files should be patched through their `.graph` sidecar or a
+package graph store. Keep `.0` edits for humans; after a reviewed human edit,
+run `zero import` to rebuild the graph store:
 
 ```sh
 zero patch \
-  examples/hello.0 \
+  --out examples/hello.graph \
+  examples/hello.graph \
   --expect-graph-hash graph:a7f7e6899a73f3b4 \
   --op 'set node="#expr_653eeb6e" field="value" expect="hello from zero\n" value="hello patched\n"'
+zero view --out examples/hello.0 examples/hello.graph
 ```
 
 For larger edits, patch files are line-oriented text:

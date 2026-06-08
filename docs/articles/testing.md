@@ -78,10 +78,11 @@ fuzz fixtures, and minimized crash repros.
 
 ## Fuzz And Crasher Repros
 
-Fuzz harnesses should be small, deterministic, and projection-backed:
+Fuzz harnesses should be small, deterministic, and graph-backed where they
+exercise compiler behavior:
 
 - Parser fuzzing should run `zero tokens --json` and `zero parse --json` on generated `.0` files.
-- Checker fuzzing should run `zero check --json` and assert diagnostics for invalid programs instead of accepting crashes.
+- Checker fuzzing should import valid generated projections to graph artifacts before `zero check --json`; invalid source fuzzing should assert diagnostics from the import or parse boundary instead of accepting crashes.
 - Formatter fuzzing should compare `zero fmt` output against stable source snapshots.
 - Stdlib parser fuzzing should use module examples such as `examples/std-data-formats.0` and inspect `usedStdlibHelpers`.
 

@@ -4531,8 +4531,6 @@ static bool direct_source_reserved_word(const char *text);
 static size_t source_line_count(const char *source);
 static void direct_source_append(SourceInput *input, ZBuf *combined, const char *path, const char *source);
 
-typedef struct { const char *path; const char *source; } DirectSourceReplacement;
-
 static bool is_zero_source_path(const char *path) {
   return path && has_suffix(path, ".0");
 }
@@ -4577,6 +4575,19 @@ static void set_graph_input_required_diag(const char *input_path, const char *gr
   snprintf(diag->expected, sizeof(diag->expected), "repository zero.graph store or .graph sidecar for the .0 projection");
   snprintf(diag->actual, sizeof(diag->actual), "%s", input_path ? input_path : "");
   snprintf(diag->help, sizeof(diag->help), "%s", graph_path && graph_path[0] ? "run zero import to refresh the graph store or pass the .graph artifact directly" : "run zero import/export through the graph workflow before compiling");
+}
+
+static void set_graph_patch_projection_input_diag(const char *input_path, const char *graph_path, ZDiag *diag) {
+  if (!diag) return;
+  diag->code = 2002;
+  diag->path = input_path;
+  diag->line = 1;
+  diag->column = 1;
+  diag->length = 1;
+  snprintf(diag->message, sizeof(diag->message), "graph patch requires graph input");
+  snprintf(diag->expected, sizeof(diag->expected), "package graph store, .graph sidecar, or ProgramGraph artifact");
+  snprintf(diag->actual, sizeof(diag->actual), "%s", input_path ? input_path : "");
+  snprintf(diag->help, sizeof(diag->help), "%s", graph_path && graph_path[0] ? "patch the .graph sidecar directly, or run zero import after a human edits the .0 projection" : "run zero import to create a graph store before patching");
 }
 
 static bool resolve_direct_source_sidecar_graph_input(Command *command, ZDiag *diag) {
@@ -5108,16 +5119,14 @@ static void direct_source_append(SourceInput *input, ZBuf *combined, const char 
   direct_input_push_source_line(input, path, original_line);
 }
 
-static char *direct_read_source_with_replacement(const char *path, const DirectSourceReplacement *replacement, ZDiag *diag) { return replacement && replacement->path && path && strlen(replacement->path) == strlen(path) && memcmp(replacement->path, path, strlen(path)) == 0 ? z_strdup(replacement->source ? replacement->source : "") : z_read_file(path, diag); }
-
-static bool direct_canonical_resolve_file(const char *path, const char *root, SourceInput *input, ZBuf *combined, ZDiag *diag, char ***stack, size_t *stack_len, const DirectSourceReplacement *replacement) {
+static bool direct_canonical_resolve_file(const char *path, const char *root, SourceInput *input, ZBuf *combined, ZDiag *diag, char ***stack, size_t *stack_len) {
   if (direct_input_has_file(input, path)) return true;
   if (direct_source_stack_contains(*stack, *stack_len, path)) {
     direct_source_set_cycle_diag(diag, root, *stack, *stack_len, path, path, 1, 1, 1);
     return false;
   }
 
-  char *source = direct_read_source_with_replacement(path, replacement, diag);
+  char *source = z_read_file(path, diag);
   if (!source) return false;
   char *module = direct_source_module_name_from_path(root, path);
   *stack = z_checked_reallocarray(*stack, *stack_len + 1, sizeof(char *));
@@ -5169,7 +5178,7 @@ static bool direct_canonical_resolve_file(const char *path, const char *root, So
       break;
     }
     direct_input_push_import_edge(input, module, item->module, import_path, path, item->line, item->column, import_length);
-    bool ok = direct_canonical_resolve_file(import_path, root, input, combined, diag, stack, stack_len, replacement);
+    bool ok = direct_canonical_resolve_file(import_path, root, input, combined, diag, stack, stack_len);
     free(import_path);
     if (!ok) break;
   }
@@ -5194,11 +5203,7 @@ static bool direct_canonical_resolve_file(const char *path, const char *root, So
   return diag->code == 0;
 }
 
-static bool resolve_direct_canonical_source_at_root_ex(const char *path, const char *root, const DirectSourceReplacement *replacement, SourceInput *input, ZDiag *diag) { input->source_file = z_strdup(path); input->canonical_text_source = true; ZBuf combined; zbuf_init(&combined); char **stack = NULL; size_t stack_len = 0; bool ok = direct_canonical_resolve_file(path, root, input, &combined, diag, &stack, &stack_len, replacement); free(stack); input->source = ok ? combined.data : NULL; if (!ok) zbuf_free(&combined); return ok; }
-
-static bool resolve_direct_canonical_source_at_root(const char *path, const char *root, SourceInput *input, ZDiag *diag) { return resolve_direct_canonical_source_at_root_ex(path, root, NULL, input, diag); }
-
-static bool resolve_direct_canonical_source_with_replacement(const char *path, const DirectSourceReplacement *replacement, SourceInput *input, ZDiag *diag) { char *root = direct_dirname_of(path); bool ok = resolve_direct_canonical_source_at_root_ex(path, root, replacement, input, diag); free(root); return ok; }
+static bool resolve_direct_canonical_source_at_root(const char *path, const char *root, SourceInput *input, ZDiag *diag) { input->source_file = z_strdup(path); input->canonical_text_source = true; ZBuf combined; zbuf_init(&combined); char **stack = NULL; size_t stack_len = 0; bool ok = direct_canonical_resolve_file(path, root, input, &combined, diag, &stack, &stack_len); free(stack); input->source = ok ? combined.data : NULL; if (!ok) zbuf_free(&combined); return ok; }
 
 static bool resolve_direct_canonical_source(const char *path, SourceInput *input, ZDiag *diag) {
   char *root = direct_dirname_of(path);
@@ -12212,75 +12217,6 @@ static bool load_graph_input_for_patch(const Command *command, SourceInput *inpu
   return reject_graph_source_input_without_store(command, diag);
 }
 
-static bool canonical_source_contains_comment(const SourceInput *input, ZDiag *diag) {
-  if (!input || !input->source) return false;
-  ZCanonicalTokenVec tokens = z_canonical_text_tokenize(input->source, diag);
-  if (diag && diag->code != 0) {
-    z_free_canonical_text_tokens(&tokens);
-    return true;
-  }
-  for (size_t i = 0; i < tokens.len; i++) {
-    if (tokens.items[i].kind != Z_CANON_TOKEN_COMMENT) continue;
-    if (diag) {
-      diag->code = 2002;
-      diag->path = input->source_file;
-      diag->line = tokens.items[i].line;
-      diag->column = tokens.items[i].column;
-      diag->length = tokens.items[i].length > 0 ? (int)tokens.items[i].length : 1;
-      snprintf(diag->message, sizeof(diag->message), "projection-backed graph patch cannot preserve comments");
-      snprintf(diag->expected, sizeof(diag->expected), "canonical source without comments");
-      snprintf(diag->actual, sizeof(diag->actual), "comment token");
-      snprintf(diag->help, sizeof(diag->help), "remove comments before projection-backed patching or patch a ProgramGraph artifact and apply the accepted source change manually");
-    }
-    z_free_canonical_text_tokens(&tokens);
-    return true;
-  }
-  z_free_canonical_text_tokens(&tokens);
-  return false;
-}
-
-static bool canonical_source_file_contains_comment(const char *path, ZDiag *diag) { SourceInput input = {0}; input.source_file = z_strdup(path); input.source = z_read_file(path, diag); if (!input.source) { if (diag && !diag->path) diag->path = z_strdup(path); z_free_source(&input); return true; } bool contains = canonical_source_contains_comment(&input, diag); z_free_source(&input); return contains; }
-
-static bool write_projection_backed_graph(const Command *command, const ZProgramGraph *graph, const SourceInput *input, ZDiag *diag) {
-  (void)input;
-  if (canonical_source_file_contains_comment(command->input, diag)) return false;
-  ZBuf source; zbuf_init(&source);
-  bool ok = z_program_graph_append_source_view(&source, graph, command->input, diag);
-  if (ok) {
-    Program parsed = {0}; SourceInput verify_input = {0}; ZProgramGraph verify_graph = {0}; ZProgramGraphCompare comparison = {0};
-    DirectSourceReplacement replacement = {.path = command->input, .source = source.data ? source.data : ""};
-    ok = resolve_direct_canonical_source_with_replacement(command->input, &replacement, &verify_input, diag);
-    if (ok) ok = z_parse_canonical_text_program_source(verify_input.source, &parsed, diag);
-    if (!ok && diag && diag->code != 0) {
-      z_map_source_diag(&verify_input, diag);
-    }
-    if (ok) ok = graph_build_from_source_program(&verify_input, &parsed, true, &verify_graph, diag);
-    if (ok) {
-      z_program_graph_semantic_compare(graph, &verify_graph, &comparison);
-      if (!comparison.ok) {
-        ok = false;
-        diag->code = 2002;
-        diag->path = command->input; diag->line = 1; diag->column = 1; diag->length = 1;
-        snprintf(diag->message, sizeof(diag->message), "projection-backed graph write is not semantically stable");
-        snprintf(diag->expected, sizeof(diag->expected), "lowered ProgramGraph semantic shape to match patched graph");
-        snprintf(diag->actual, sizeof(diag->actual), "%.120s", comparison.message[0] ? comparison.message : "semantic mismatch");
-        snprintf(diag->help, sizeof(diag->help), "the source file was not changed");
-      }
-    }
-    if (ok) {
-      const ZTargetInfo *host_target = z_find_target(z_host_target()); z_set_check_target(host_target);
-      ok = z_check_program(&parsed, diag);
-      if (!ok) z_map_source_diag(&verify_input, diag);
-    }
-    z_program_graph_free(&verify_graph);
-    z_free_program(&parsed);
-    z_free_source(&verify_input);
-  }
-  if (ok) ok = z_write_file(command->input, source.data ? source.data : "", diag);
-  zbuf_free(&source);
-  return ok;
-}
-
 static bool validate_repository_graph_patch_output(const Command *command, const ZTargetInfo *target, ZProgramGraph *graph, ZDiag *diag) {
   SourceInput input = {.source_file = z_strdup(command && command->input ? command->input : "<repository-graph>")};
   z_program_graph_seed_source_metadata(&input, graph);
@@ -12971,14 +12907,6 @@ static bool graph_patch_help_requested(const Command *command) {
          (cli_arg_is(command->patch_ops[0], "help") || cli_arg_is(command->patch_ops[0], "?"));
 }
 
-static bool graph_patch_input_is_projection_sidecar(const Command *command, GraphInputKind input_kind) {
-  if (input_kind != GRAPH_INPUT_ARTIFACT || !command || !command->repository_graph_source_input || !command->input) return false;
-  char *sidecar = source_sidecar_graph_path(command->repository_graph_source_input);
-  bool matches = sidecar && strcmp(sidecar, command->input) == 0;
-  free(sidecar);
-  return matches;
-}
-
 static void print_graph_patch_help_json(void) {
   ZBuf json;
   zbuf_init(&json);
@@ -13002,28 +12930,9 @@ static void print_graph_patch_help_text(void) {
 }
 
 static bool save_graph_patch_output(const Command *command, const ZTargetInfo *target, ZProgramGraph *graph, GraphInputKind input_kind, const SourceInput *input, const char **saved_path, ZDiag *diag) {
+  (void)input;
   *saved_path = NULL;
-  bool projection_backed = input_kind == GRAPH_INPUT_CANONICAL_SOURCE;
   bool repository_backed = input_kind == GRAPH_INPUT_REPOSITORY_STORE;
-  bool projection_sidecar_backed = graph_patch_input_is_projection_sidecar(command, input_kind);
-  if (projection_backed) {
-    if (command->out) {
-      diag->code = 2002;
-      diag->path = command->out;
-      diag->line = 1;
-      diag->column = 1;
-      diag->length = 1;
-      snprintf(diag->message, sizeof(diag->message), "projection-backed graph patch writes the input .0 file");
-      snprintf(diag->expected, sizeof(diag->expected), "zero patch <file.0> (<patch-file>|--op <operation>)");
-      snprintf(diag->actual, sizeof(diag->actual), "%s", command->out);
-      snprintf(diag->help, sizeof(diag->help), "omit --out when patching canonical source");
-      return false;
-    }
-    if (command->graph_patch_check_only) return true;
-    if (!write_projection_backed_graph(command, graph, input, diag)) return false;
-    *saved_path = command->input;
-    return true;
-  }
   if (repository_backed) {
     if (command->out) {
       diag->code = 2002;
@@ -13045,17 +12954,6 @@ static bool save_graph_patch_output(const Command *command, const ZTargetInfo *t
     ZProgramGraphStoreFormat store_format = fallback_format;
     if (!command_repository_store_format(command, fallback_format, &store_format, diag)) return false;
     if (!z_program_graph_store_write_generated_path_format(command->input, graph, store_format, NULL, diag)) return false;
-    *saved_path = command->input;
-    return true;
-  }
-  if (projection_sidecar_backed && !command->out) {
-    if (command->graph_patch_check_only) return true;
-    ZProgramGraphStoreFormat fallback_format = z_program_graph_store_path_is_binary(command->input)
-      ? Z_PROGRAM_GRAPH_STORE_FORMAT_BINARY
-      : Z_PROGRAM_GRAPH_STORE_FORMAT_TEXT;
-    ZProgramGraphStoreFormat store_format = fallback_format;
-    if (!command_repository_store_format(command, fallback_format, &store_format, diag)) return false;
-    if (!z_program_graph_save_format(command->input, graph, store_format, diag)) return false;
     *saved_path = command->input;
     return true;
   }
@@ -13389,6 +13287,11 @@ static bool resolve_graph_command_manifest_input(Command *command, bool *artifac
   if (input_mode == Z_PROGRAM_GRAPH_INPUT_SOURCE_OR_ARTIFACT && is_zero_source_path(command->input)) {
     if (graph_source_or_artifact_command_prefers_package_source(command)) return true;
     char *sidecar = source_sidecar_graph_path(command->input);
+    if (command->kind && strcmp(command->kind, "patch") == 0) {
+      set_graph_patch_projection_input_diag(command->input, sidecar, diag);
+      free(sidecar);
+      return false;
+    }
     if (sidecar && path_has_program_graph_storage_header(sidecar)) {
       command->repository_graph_source_input = command->input;
       command->input = sidecar;

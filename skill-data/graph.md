@@ -359,7 +359,8 @@ In the Zero repository, `pnpm run repository-graph:check` verifies checked-in
 `zero.graph` stores for CI with the pinned `linux-musl-x64` graph target.
 
 For derived graph artifacts, validate the artifact before applying any accepted
-change to a package graph store or source projection:
+change to a package graph store or `.graph` sidecar. Export `.0` separately when
+humans need to review the projection:
 
 ```sh
 zero validate .zero/agent/app.patched.program-graph

@@ -32,7 +32,7 @@ const checkJobs = parsePositiveInt(process.env.ZERO_CONFORMANCE_CHECK_JOBS, defa
 
 function runnableExeArgs(input, out) {
   if (!runnableDirectTarget) return null;
-  return ["build", "--emit", "exe", "--target", runnableDirectTarget, input, "--out", out];
+  return ["build", "--emit", "exe", "--target", runnableDirectTarget, compilerInputPath(input), "--out", out];
 }
 
 await mkdir(outDir, { recursive: true });
@@ -40,7 +40,8 @@ await mkdir(`${outDir}/check-cache`, { recursive: true });
 
 function execFileAsync(file, args = [], options = {}) {
   return new Promise((resolve, reject) => {
-    execFile(file, args, { maxBuffer: execMaxBuffer, ...options }, (error, stdout, stderr) => {
+    const normalizedArgs = file === zero ? normalizeZeroCompilerArgs(args) : args;
+    execFile(file, normalizedArgs, { maxBuffer: execMaxBuffer, ...options }, (error, stdout, stderr) => {
       if (error) {
         error.stdout = stdout;
         error.stderr = stderr;
@@ -107,6 +108,38 @@ async function writeZeroToml(root, manifest) {
 function graphSidecarPath(sourcePath) {
   if (!sourcePath.endsWith(".0")) throw new Error(`${sourcePath}: expected a .0 projection path`);
   return `${sourcePath.slice(0, -2)}.graph`;
+}
+
+const compilerInputCommands = new Set(["check", "build", "run", "test", "size", "ship", "mem", "doc", "dev", "time", "fix"]);
+const compilerInputValueFlags = new Set(["--backend", "--emit", "--filter", "--out", "--profile", "--release", "--target"]);
+const abiInputSubcommands = new Set(["check", "dump"]);
+
+function compilerInputPath(inputPath) {
+  if (typeof inputPath !== "string" || !inputPath.endsWith(".0")) return inputPath;
+  const graphPath = graphSidecarPath(inputPath);
+  return existsSync(graphPath) ? graphPath : inputPath;
+}
+
+function normalizeZeroCompilerArgs(args) {
+  if (!Array.isArray(args)) return args;
+  const isCompilerInputCommand = compilerInputCommands.has(args[0]);
+  const isAbiInputCommand = args[0] === "abi" && abiInputSubcommands.has(args[1]);
+  if (!isCompilerInputCommand && !isAbiInputCommand) return args;
+  let afterProgramArgs = false;
+  let skipOptionValue = false;
+  return args.map((arg) => {
+    if (afterProgramArgs) return arg;
+    if (arg === "--") afterProgramArgs = true;
+    if (skipOptionValue) {
+      skipOptionValue = false;
+      return arg;
+    }
+    if (compilerInputValueFlags.has(arg)) {
+      skipOptionValue = true;
+      return arg;
+    }
+    return afterProgramArgs ? arg : compilerInputPath(arg);
+  });
 }
 
 async function writeGraphFixture(sourcePath, source) {

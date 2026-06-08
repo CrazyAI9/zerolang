@@ -7,7 +7,7 @@ These examples are intentionally copyable diagnostics and repairs for the curren
 Bad:
 
 ```sh
-bin/zero check --json --target linux-musl-x64 conformance/common/fail/unsupported-target-feature.0
+bin/zero check --json --target linux-musl-x64 conformance/common/fail/unsupported-target-feature.graph
 ```
 
 Good:
@@ -27,7 +27,7 @@ bin/zero explain TYP009
 Good:
 
 ```sh
-bin/zero check conformance/native/pass/std-mem-copy-fill.0
+bin/zero check conformance/native/pass/std-mem-copy-fill.graph
 ```
 
 ## Missing Std Fs Error Name
@@ -41,7 +41,7 @@ bin/zero explain ERR002
 Good:
 
 ```sh
-bin/zero check conformance/native/pass/std-fs-fallible-resources.0
+bin/zero check conformance/native/pass/std-fs-fallible-resources.graph
 ```
 
 ## Unchecked Named-Error Std Fs Call
@@ -55,7 +55,7 @@ bin/zero explain ERR003
 Good:
 
 ```sh
-bin/zero check conformance/native/pass/std-fs-fallible-resources.0
+bin/zero check conformance/native/pass/std-fs-fallible-resources.graph
 ```
 
 ## Inspect Repairs

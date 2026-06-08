@@ -86,7 +86,7 @@ node #expr_c403020c MethodCall name:"write" type:"Void"
 node #expr_653eeb6e Literal type:"String" value:"hello from zero\\n"
 edge #expr_c403020c arg #expr_653eeb6e order:0`;
 
-const PATCH_EXAMPLE = `zero patch examples/hello.0 \\
+const PATCH_EXAMPLE = `zero patch examples/hello.graph \\
   --expect-graph-hash graph:a7f7e6899a73f3b4 \\
   --op 'set node="#expr_653eeb6e" field="value" expect="hello from zero\\n" value="hello graph\\n"'`;
 

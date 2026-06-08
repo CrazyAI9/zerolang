@@ -12,6 +12,9 @@ const outDir = `/tmp/zero-program-graph-parity-${process.pid}`;
 const requireStableNodeIds = process.argv.includes("--require-stable-node-ids");
 const graphHashPrime = 1099511628211n;
 const graphHashMask = (1n << 64n) - 1n;
+const compilerInputCommands = new Set(["check", "build", "run", "test", "size", "ship", "mem", "doc", "dev", "time", "fix"]);
+const compilerInputValueFlags = new Set(["--backend", "--emit", "--filter", "--out", "--profile", "--release", "--target"]);
+const abiInputSubcommands = new Set(["check", "dump"]);
 
 function firstDiagnosticCode(diagnostics) {
   return Array.isArray(diagnostics) && diagnostics.length > 0 ? diagnostics[0].code ?? null : null;
@@ -28,13 +31,13 @@ function targetReadinessSummary(readiness) {
 }
 
 async function zeroJson(args) {
-  const result = await execFileAsync(zero, args, { maxBuffer: execMaxBuffer });
+  const result = await execFileAsync(zero, normalizeZeroCompilerArgs(args), { maxBuffer: execMaxBuffer });
   return JSON.parse(result.stdout);
 }
 
 async function zeroJsonFailure(args) {
   try {
-    await execFileAsync(zero, args, { maxBuffer: execMaxBuffer });
+    await execFileAsync(zero, normalizeZeroCompilerArgs(args), { maxBuffer: execMaxBuffer });
   } catch (error) {
     return JSON.parse(error.stdout);
   }
@@ -42,7 +45,7 @@ async function zeroJsonFailure(args) {
 }
 
 async function zeroText(args) {
-  const result = await execFileAsync(zero, args, { maxBuffer: execMaxBuffer });
+  const result = await execFileAsync(zero, normalizeZeroCompilerArgs(args), { maxBuffer: execMaxBuffer });
   return result.stdout;
 }
 
@@ -58,6 +61,34 @@ async function dumpGraphArtifact(fixture, name) {
 function projectionSidecarPath(sourcePath) {
   assert(sourcePath.endsWith(".0"), `${sourcePath}: expected a .0 projection path`);
   return `${sourcePath.slice(0, -2)}.graph`;
+}
+
+function compilerInputPath(inputPath) {
+  if (typeof inputPath !== "string" || !inputPath.endsWith(".0")) return inputPath;
+  const graphPath = projectionSidecarPath(inputPath);
+  return existsSync(graphPath) ? graphPath : inputPath;
+}
+
+function normalizeZeroCompilerArgs(args) {
+  if (!Array.isArray(args)) return args;
+  const isCompilerInputCommand = compilerInputCommands.has(args[0]);
+  const isAbiInputCommand = args[0] === "abi" && abiInputSubcommands.has(args[1]);
+  if (!isCompilerInputCommand && !isAbiInputCommand) return args;
+  let afterProgramArgs = false;
+  let skipOptionValue = false;
+  return args.map((arg) => {
+    if (afterProgramArgs) return arg;
+    if (arg === "--") afterProgramArgs = true;
+    if (skipOptionValue) {
+      skipOptionValue = false;
+      return arg;
+    }
+    if (compilerInputValueFlags.has(arg)) {
+      skipOptionValue = true;
+      return arg;
+    }
+    return afterProgramArgs ? arg : compilerInputPath(arg);
+  });
 }
 
 async function importProjectionSidecar(sourcePath) {
@@ -1140,49 +1171,51 @@ async function assertPatchRecomputesNestedSymbolOwners() {
   assert.equal(afterParam?.symbolId, "symbol:hello::value.entry/param.world", "nested symbol owner should be recomputed after owner rename");
 }
 
-async function assertProjectionBackedPatchParity() {
-  const fixture = `${outDir}/projection-backed-patch.0`;
+async function assertGraphSidecarPatchParity() {
+  const fixture = `${outDir}/graph-sidecar-patch.0`;
   const original = await readFile("examples/hello.0", "utf8");
   await writeFile(fixture, original);
   const sidecar = await importProjectionSidecar(fixture);
 
   const beforeGraph = await zeroJson(["dump", "--json", fixture]);
   const beforeSidecar = await zeroJson(["validate", "--json", sidecar]);
-  assert.equal(beforeGraph.canonicalSource, false, "projection-backed patch input should read the graph sidecar");
-  assert.equal(beforeGraph.graphHash, beforeSidecar.graphHash, "projection-backed patch input should match the graph sidecar");
-  assert.equal(beforeGraph.validation.state, "shape-valid", "projection-backed patch input should be shape-valid");
+  assert.equal(beforeGraph.canonicalSource, false, "projection handle should read the graph sidecar for graph queries");
+  assert.equal(beforeGraph.graphHash, beforeSidecar.graphHash, "projection handle should match the graph sidecar");
+  assert.equal(beforeGraph.validation.state, "shape-valid", "sidecar graph should be shape-valid");
   const literal = findStringLiteral(beforeGraph, "hello from zero\n");
 
   const patch = await zeroJson([
     "patch",
     "--json",
-    fixture,
+    "--out",
+    sidecar,
+    sidecar,
     "--expect-graph-hash",
     beforeGraph.graphHash,
     "--op",
-    `set node="${literal.id}" field="value" expect="hello from zero\\n" value="hello projection-backed\\n"`,
+    `set node="${literal.id}" field="value" expect="hello from zero\\n" value="hello sidecar graph\\n"`,
   ]);
-  assert.equal(patch.ok, true, "projection-backed graph patch should succeed");
-  assert.equal(patch.canonicalSource, false, "projection-backed graph patch should report graph input");
-  assert.equal(patch.saved.path, sidecar, "projection-backed graph patch should save to the graph sidecar");
-  assert.equal(patch.originalGraphHash, beforeGraph.graphHash, "projection-backed graph patch should check the expected graph hash");
-  assert.match(patch.patchedGraphHash, /^graph:[0-9a-f]{16}$/, "projection-backed graph patch should report a graph hash");
-  assert.notEqual(patch.patchedGraphHash, beforeGraph.graphHash, "projection-backed graph patch should change graph hash");
-  assert.equal(patch.operationCount, 1, "projection-backed graph patch should report one operation");
-  assert.equal(patch.operations[0].ok, true, "projection-backed graph patch operation should pass");
-  assert.equal(patch.operations[0].node, literal.id, "projection-backed graph patch should target the requested node");
+  assert.equal(patch.ok, true, "graph sidecar patch should succeed");
+  assert.equal(patch.canonicalSource, false, "graph sidecar patch should report graph input");
+  assert.equal(patch.saved.path, sidecar, "graph sidecar patch should save to the graph sidecar");
+  assert.equal(patch.originalGraphHash, beforeGraph.graphHash, "graph sidecar patch should check the expected graph hash");
+  assert.match(patch.patchedGraphHash, /^graph:[0-9a-f]{16}$/, "graph sidecar patch should report a graph hash");
+  assert.notEqual(patch.patchedGraphHash, beforeGraph.graphHash, "graph sidecar patch should change graph hash");
+  assert.equal(patch.operationCount, 1, "graph sidecar patch should report one operation");
+  assert.equal(patch.operations[0].ok, true, "graph sidecar patch operation should pass");
+  assert.equal(patch.operations[0].node, literal.id, "graph sidecar patch should target the requested node");
 
   await zeroText(["view", "--out", fixture, sidecar]);
   const patchedSource = await readFile(fixture, "utf8");
-  assert.match(patchedSource, /hello projection-backed\\n/, "projection-backed graph patch should export updated source text");
+  assert.match(patchedSource, /hello sidecar graph\\n/, "graph sidecar patch should export updated source text");
   assert.equal(await zeroText(["check", fixture]), "ok\n", "patched sidecar should check through first-class check command");
 
-  const artifact = await dumpGraphArtifact(fixture, "projection-backed-patch-run");
-  const sourceOut = `${outDir}/projection-backed-patch.source-run`;
-  const graphOut = `${outDir}/projection-backed-patch.graph-run`;
+  const artifact = await dumpGraphArtifact(fixture, "graph-sidecar-patch-run");
+  const sourceOut = `${outDir}/graph-sidecar-patch.source-run`;
+  const graphOut = `${outDir}/graph-sidecar-patch.graph-run`;
   const source = await zeroText(["run", "--out", sourceOut, fixture]);
   const graph = await zeroText(["run", "--out", graphOut, artifact]);
-  assert.equal(source, "hello projection-backed\n", "patched source run output");
+  assert.equal(source, "hello sidecar graph\n", "patched projection handle run output");
   assert.equal(graph, source, "patched graph artifact run output should match source");
 }
 
@@ -1510,7 +1543,7 @@ try {
   await assertRunParity("examples/hello.0", "hello");
   await assertRunParity("conformance/native/pass/std-args.0", "std-args", ["alpha", "beta"]);
   await assertTestParity("conformance/native/pass/test-blocks.0", "test-blocks");
-  await assertProjectionBackedPatchParity();
+  await assertGraphSidecarPatchParity();
   await assertGraphPatchPreservesNodeIds();
 
   await assertSourceEditIdentityBaseline();
