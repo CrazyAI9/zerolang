@@ -32,6 +32,7 @@ const fileBudgets = {
   "native/zero-c/src/ast.c": { maxLines: 250, maxStrcmpCalls: 0 },
   "native/zero-c/src/backend_family.c": { maxLines: 75, maxStrcmpCalls: 5 },
   "native/zero-c/src/buildability.c": { maxLines: 352, maxStrcmpCalls: 2 },
+  "native/zero-c/src/buildability_value_support.c": { maxLines: 210, maxStrcmpCalls: 0 },
   "native/zero-c/src/buildability.h": { maxLines: 20, maxStrcmpCalls: 0 },
   "native/zero-c/src/buildability_internal.h": { maxLines: 40, maxStrcmpCalls: 0 },
   "native/zero-c/src/buildability_context.c": { maxLines: 215, maxStrcmpCalls: 1 },
@@ -208,7 +209,6 @@ const knownLargeFunctionLimits = new Map([
   ["native/zero-c/src/buildability_value_targets.c|bool z_build_check_target_value(const ZBuildability *ctx, const IrFunction *fun, const IrValue *value, unsigned scratch_slot, bool *skip_left, unsigned *right_slot, ZDiag *diag) {", 152],
   ["native/zero-c/src/mir_verify.c|static bool mir_verify_math_runtime_contract(IrProgram *ir, const IrValue *value, MirHelperRequirements *requirements) {", 142],
   ["native/zero-c/src/mir_verify.c|static bool mir_verify_direct_value_kind_contract(IrProgram *ir, const IrFunction *fun, const MirVerifierState *state, const IrValue *value, MirHelperRequirements *requirements) {", 146],
-  ["native/zero-c/src/buildability.c|static bool build_value_supported(const ZBuildability *ctx, const IrValue *value, bool local_set_value) {", 162],
   ["native/zero-c/src/emit_llvm_ir.c|static bool llvm_emit_value(LlvmEmit *emit, const IrValue *value, LlvmValue *out, ZDiag *diag) {", 129],
   ["native/zero-c/src/aarch64_direct.c|static bool a64_emit_str_runtime_to_reg_at(ZBuf *text, const IrFunction *fun, const IrValue *value, unsigned reg, unsigned frame_size, unsigned scratch_slot, ZAArch64DirectContext *ctx, ZDiag *diag) {", 124],
   ["native/zero-c/src/emit_macho64.c|static bool macho_emit_str_runtime_to_reg_at(ZBuf *text, const IrFunction *fun, const IrValue *value, unsigned reg, unsigned frame_size, unsigned scratch_slot, MachOEmitContext *ctx, ZDiag *diag) {", 124],
@@ -1091,6 +1091,17 @@ function budgetViolations(files, allLargeFunctions, stdlib, backendFormats, prog
       manifestToml: backendFormats.manifestToml,
     });
   }
+  if (!backendFormats.buildability.valueSupportSeparatedModule ||
+      !backendFormats.buildability.valueSupportBackendSplit ||
+      !backendFormats.buildability.sharedHostedRuntimePredicate ||
+      !backendFormats.buildability.sharedJsonPredicates ||
+      !backendFormats.buildability.sharedByteRuntimePredicate ||
+      backendFormats.buildability.dispatcherLines > 8) {
+    violations.push({
+      kind: "buildability-value-support-regression",
+      buildability: backendFormats.buildability,
+    });
+  }
   if (!backendFormats.elf.sharedWriter ||
       !backendFormats.elf.x86ObjectUsesSharedWriter ||
       !backendFormats.elf.x86ExecutableUsesSharedWriter ||
@@ -1274,6 +1285,11 @@ const abiReportText = cTextWithoutComments(abiReportRaw);
 const manifestTomlRaw = texts.get("native/zero-c/src/manifest_toml.c") ?? "";
 const manifestTomlSource = cCodeText(manifestTomlRaw);
 const manifestTomlText = cTextWithoutComments(manifestTomlRaw);
+const buildabilityRaw = texts.get("native/zero-c/src/buildability.c") ?? "";
+const buildabilitySource = cCodeText(buildabilityRaw);
+const buildabilityValueSupportRaw = texts.get("native/zero-c/src/buildability_value_support.c") ?? "";
+const buildabilityValueSupportSource = cCodeText(buildabilityValueSupportRaw);
+const buildValueSupportedBody = cBlock(buildabilityValueSupportRaw, "bool z_build_value_supported(const ZBuildability *ctx");
 
 const stdHelpers = parseStdHelpers(stdSig);
 const checkerReturnTypeInfo = parseCheckerReturnTypes(checker);
@@ -1477,6 +1493,18 @@ const backendFormats = {
       manifestTomlText,
       /strcmp\s*\([^,]+,\s*"(?:package\.name|package\.version|targets\.cli\.(?:main|graph|kind)|path|version|targets|target|headers|include|lib|link|mode|pkg_config|pkgConfig)"\s*\)/g,
     ),
+  },
+  buildability: {
+    valueSupportSeparatedModule: /\bz_build_value_supported\s*\(/.test(buildabilitySource) &&
+      !/\bbuild_value_supported_generic\s*\(/.test(buildabilitySource),
+    valueSupportBackendSplit: /\bbuild_value_supported_aarch64\s*\(/.test(buildabilityValueSupportSource) &&
+      /\bbuild_value_supported_macho_x64\s*\(/.test(buildabilityValueSupportSource) &&
+      /\bbuild_value_supported_generic\s*\(/.test(buildabilityValueSupportSource),
+    sharedHostedRuntimePredicate: /\bbuild_backend_supports_hosted_runtime\s*\(/.test(buildabilityValueSupportSource),
+    sharedJsonPredicates: /\bbuild_backend_supports_json_parse\s*\(/.test(buildabilityValueSupportSource) &&
+      /\bbuild_backend_supports_json_validate\s*\(/.test(buildabilityValueSupportSource),
+    sharedByteRuntimePredicate: /\bbuild_backend_has_byte_runtime\s*\(/.test(buildabilityValueSupportSource),
+    dispatcherLines: lineCount(buildValueSupportedBody),
   },
   directTarget: {
     ruleMatrix: /\bdirect_backend_rules\[\]/.test(targetBackendSource),
