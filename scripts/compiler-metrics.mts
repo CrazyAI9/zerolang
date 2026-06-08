@@ -175,7 +175,7 @@ const fileBudgets = {
   "native/zero-c/src/std_source.c": { maxLines: 340, maxStrcmpCalls: 2 },
   "native/zero-c/src/std_source.h": { maxLines: 30, maxStrcmpCalls: 0 },
   "native/zero-c/src/target_backend.c": { maxLines: 392, maxStrcmpCalls: 1 },
-  "native/zero-c/src/target.c": { maxLines: 465, maxStrcmpCalls: 15 },
+  "native/zero-c/src/target.c": { maxLines: 517, maxStrcmpCalls: 1 },
   "native/zero-c/src/type_core.c": { maxLines: 900, maxStrcmpCalls: 8 },
   "native/zero-c/src/type_core.h": { maxLines: 150, maxStrcmpCalls: 0 },
   "native/zero-c/src/unify.c": { maxLines: 500, maxStrcmpCalls: 14 },
@@ -1061,6 +1061,16 @@ function budgetViolations(files, allLargeFunctions, stdlib, backendFormats, prog
       directTarget: backendFormats.directTarget,
     });
   }
+  if (!backendFormats.targetManifest.exactKeyMatcher ||
+      !backendFormats.targetManifest.exactListMatcher ||
+      !backendFormats.targetManifest.noAliasSubstringLookup ||
+      !backendFormats.targetManifest.noCapabilitySubstringLookup ||
+      !backendFormats.targetManifest.linkerLabelHelper) {
+    violations.push({
+      kind: "target-manifest-exact-matching",
+      targetManifest: backendFormats.targetManifest,
+    });
+  }
   if (!backendFormats.elf.sharedWriter ||
       !backendFormats.elf.x86ObjectUsesSharedWriter ||
       !backendFormats.elf.x86ExecutableUsesSharedWriter ||
@@ -1233,6 +1243,8 @@ const stdSig = texts.get("native/zero-c/src/std_sig.c") ?? "";
 const capabilityNames = texts.get("native/zero-c/src/capability_names.c") ?? "";
 const capabilitySummaryHeader = texts.get("native/zero-c/src/capability_summary.h") ?? "";
 const programGraphReport = texts.get("native/zero-c/src/program_graph_report.c") ?? "";
+const targetRaw = texts.get("native/zero-c/src/target.c") ?? "";
+const targetSource = cCodeText(targetRaw);
 const targetBackendRaw = texts.get("native/zero-c/src/target_backend.c") ?? "";
 const targetBackendSource = cCodeText(targetBackendRaw);
 const directExeBackendBody = cCodeText(cBlock(targetBackendRaw, "ZDirectBackend z_direct_exe_backend"));
@@ -1411,6 +1423,13 @@ const hasRawX64PointerMemoryBytes = (text: string) =>
   rawX64PointerMemoryReg.test(text) ||
   rawX64PointerMemoryMovzx.test(text);
 const backendFormats = {
+  targetManifest: {
+    exactKeyMatcher: /\bmanifest_key_equals\s*\(/.test(targetSource),
+    exactListMatcher: /\bmanifest_list_contains_token\s*\(/.test(targetSource),
+    noAliasSubstringLookup: !/strstr\s*\(\s*targets\s*\[\s*i\s*\]\s*\.\s*aliases/.test(targetSource),
+    noCapabilitySubstringLookup: !/strstr\s*\(\s*target\s*->\s*capabilities/.test(targetSource),
+    linkerLabelHelper: /\btarget_linker_label\s*\(/.test(targetSource),
+  },
   directTarget: {
     ruleMatrix: /\bdirect_backend_rules\[\]/.test(targetBackendSource),
     executableUsesRuleMatrix: /return\s+direct_backend_for_target\s*\(\s*target\s*,\s*true\s*\)/.test(targetBackendSource),
