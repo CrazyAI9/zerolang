@@ -3,6 +3,7 @@
 #endif
 
 #include "zero.h"
+#include "abi_report.h"
 #include "buildability.h"
 #include "c_import.h"
 #include "capability_summary.h"
@@ -1948,200 +1949,7 @@ static int abi_pointer_size(const ZTargetInfo *target) {
   return 8;
 }
 
-static int abi_type_size(const char *type, const ZTargetInfo *target) {
-  if (!type) return 0;
-  if (strcmp(type, "Bool") == 0 || strcmp(type, "u8") == 0 || strcmp(type, "i8") == 0 || strcmp(type, "char") == 0) return 1;
-  if (strcmp(type, "u16") == 0 || strcmp(type, "i16") == 0) return 2;
-  if (strcmp(type, "u32") == 0 || strcmp(type, "i32") == 0 || strcmp(type, "f32") == 0) return 4;
-  if (strcmp(type, "u64") == 0 || strcmp(type, "i64") == 0 || strcmp(type, "f64") == 0) return 8;
-  if (strcmp(type, "usize") == 0 || strcmp(type, "isize") == 0 || strncmp(type, "ref<", 4) == 0 || strncmp(type, "mutref<", 7) == 0) return abi_pointer_size(target);
-  return 0;
-}
-
-static int abi_type_align(const char *type, const ZTargetInfo *target) {
-  int size = abi_type_size(type, target);
-  int pointer = abi_pointer_size(target);
-  if (size > pointer) return pointer;
-  return size > 0 ? size : 1;
-}
-
-static int align_to_int(int value, int align) {
-  if (align <= 1) return value;
-  int remainder = value % align;
-  return remainder == 0 ? value : value + (align - remainder);
-}
-
-static void append_abi_primitives_json(ZBuf *buf, const ZTargetInfo *target) {
-  const char *types[] = {"Bool", "u8", "i8", "u16", "i16", "u32", "i32", "u64", "i64", "usize", "isize", "f32", "f64", NULL};
-  zbuf_append(buf, "[");
-  for (int i = 0; types[i]; i++) {
-    if (i > 0) zbuf_append(buf, ",");
-    zbuf_append(buf, "{\"name\":");
-    append_json_string(buf, types[i]);
-    zbuf_appendf(buf, ",\"size\":%d,\"align\":%d}", abi_type_size(types[i], target), abi_type_align(types[i], target));
-  }
-  zbuf_append(buf, "]");
-}
-
-static void append_abi_shapes_json(ZBuf *buf, const Program *program, const ZTargetInfo *target) {
-  zbuf_append(buf, "[");
-  bool wrote = false;
-  for (size_t i = 0; program && i < program->shapes.len; i++) {
-    const Shape *shape = &program->shapes.items[i];
-    if (!shape->layout || strcmp(shape->layout, "extern") != 0) continue;
-    if (wrote) zbuf_append(buf, ",");
-    wrote = true;
-    int offset = 0;
-    int max_align = 1;
-    zbuf_append(buf, "{\"name\":");
-    append_json_string(buf, shape->name);
-    zbuf_append(buf, ",\"layout\":\"extern\",\"fields\":[");
-    for (size_t field_index = 0; field_index < shape->fields.len; field_index++) {
-      const Param *field = &shape->fields.items[field_index];
-      int align = abi_type_align(field->type, target);
-      int size = abi_type_size(field->type, target);
-      offset = align_to_int(offset, align);
-      if (align > max_align) max_align = align;
-      if (field_index > 0) zbuf_append(buf, ",");
-      zbuf_append(buf, "{\"name\":");
-      append_json_string(buf, field->name);
-      zbuf_append(buf, ",\"type\":");
-      append_json_string(buf, field->type);
-      zbuf_appendf(buf, ",\"offset\":%d,\"size\":%d,\"align\":%d}", offset, size, align);
-      offset += size;
-    }
-    zbuf_appendf(buf, "],\"size\":%d,\"align\":%d}", align_to_int(offset, max_align), max_align);
-  }
-  zbuf_append(buf, "]");
-}
-
-static void append_abi_enums_json(ZBuf *buf, const Program *program) {
-  zbuf_append(buf, "[");
-  for (size_t i = 0; program && i < program->enums.len; i++) {
-    if (i > 0) zbuf_append(buf, ",");
-    zbuf_append(buf, "{\"name\":");
-    append_json_string(buf, program->enums.items[i].name);
-    zbuf_appendf(buf, ",\"size\":4,\"align\":4,\"cases\":%zu}", program->enums.items[i].cases.len);
-  }
-  zbuf_append(buf, "]");
-}
-
-static const char *c_abi_type_name(const char *zero_type) {
-  if (!zero_type || strcmp(zero_type, "Void") == 0) return "void";
-  if (strcmp(zero_type, "Bool") == 0) return "bool";
-  if (strcmp(zero_type, "u8") == 0) return "uint8_t";
-  if (strcmp(zero_type, "i8") == 0) return "int8_t";
-  if (strcmp(zero_type, "u16") == 0) return "uint16_t";
-  if (strcmp(zero_type, "i16") == 0) return "int16_t";
-  if (strcmp(zero_type, "u32") == 0) return "uint32_t";
-  if (strcmp(zero_type, "i32") == 0) return "int32_t";
-  if (strcmp(zero_type, "u64") == 0) return "uint64_t";
-  if (strcmp(zero_type, "i64") == 0) return "int64_t";
-  if (strcmp(zero_type, "usize") == 0) return "uintptr_t";
-  if (strcmp(zero_type, "isize") == 0) return "intptr_t";
-  if (strcmp(zero_type, "f32") == 0) return "float";
-  if (strcmp(zero_type, "f64") == 0) return "double";
-  return "void *";
-}
-
-static void append_c_exports_json(ZBuf *buf, const Program *program) {
-  zbuf_append(buf, "[");
-  bool wrote = false;
-  for (size_t i = 0; program && i < program->functions.len; i++) {
-    const Function *fun = &program->functions.items[i];
-    if (!fun->export_c) continue;
-    if (wrote) zbuf_append(buf, ",");
-    wrote = true;
-    zbuf_append(buf, "{\"name\":");
-    append_json_string(buf, fun->name);
-    zbuf_append(buf, ",\"returnType\":");
-    append_json_string(buf, fun->return_type ? fun->return_type : "Void");
-    zbuf_append(buf, ",\"cReturnType\":");
-    append_json_string(buf, c_abi_type_name(fun->return_type));
-    zbuf_append(buf, ",\"raises\":");
-    zbuf_append(buf, fun->raises ? "true" : "false");
-    zbuf_append(buf, ",\"params\":[");
-    for (size_t param_index = 0; param_index < fun->params.len; param_index++) {
-      const Param *param = &fun->params.items[param_index];
-      if (param_index > 0) zbuf_append(buf, ",");
-      zbuf_append(buf, "{\"name\":");
-      append_json_string(buf, param->name);
-      zbuf_append(buf, ",\"type\":");
-      append_json_string(buf, param->type);
-      zbuf_append(buf, ",\"cType\":");
-      append_json_string(buf, c_abi_type_name(param->type));
-      zbuf_append(buf, "}");
-    }
-    zbuf_append(buf, "]}");
-  }
-  zbuf_append(buf, "]");
-}
-
-static void append_c_export_header_text(ZBuf *header, const Program *program) {
-  zbuf_append(header, "#pragma once\n#include <stdbool.h>\n#include <stdint.h>\n\n");
-  for (size_t i = 0; program && i < program->functions.len; i++) {
-    const Function *fun = &program->functions.items[i];
-    if (!fun->export_c) continue;
-    zbuf_append(header, c_abi_type_name(fun->return_type));
-    zbuf_append_char(header, ' ');
-    zbuf_append(header, fun->name);
-    zbuf_append_char(header, '(');
-    if (fun->params.len == 0) {
-      zbuf_append(header, "void");
-    } else {
-      for (size_t param_index = 0; param_index < fun->params.len; param_index++) {
-        const Param *param = &fun->params.items[param_index];
-        if (param_index > 0) zbuf_append(header, ", ");
-        zbuf_append(header, c_abi_type_name(param->type));
-        zbuf_append_char(header, ' ');
-        zbuf_append(header, param->name);
-      }
-    }
-    zbuf_append(header, ");\n");
-  }
-}
-
-static void append_c_export_header_json(ZBuf *buf, const Program *program) {
-  ZBuf header;
-  zbuf_init(&header);
-  append_c_export_header_text(&header, program);
-  size_t export_count = 0;
-  for (size_t i = 0; program && i < program->functions.len; i++) {
-    if (program->functions.items[i].export_c) export_count++;
-  }
-  zbuf_appendf(buf, "{\"available\":%s,\"format\":\"c-header\",\"exportCount\":%zu,\"text\":", export_count > 0 ? "true" : "false", export_count);
-  append_json_string(buf, header.data ? header.data : "");
-  zbuf_append(buf, "}");
-  zbuf_free(&header);
-}
-
 static void append_c_imports_json(ZBuf *buf, const Program *program, const ZTargetInfo *target);
-
-static void append_abi_dump_json(ZBuf *buf, const SourceInput *input, const Program *program, const ZTargetInfo *target) {
-  zbuf_append(buf, "{\n  \"schemaVersion\": 1,\n  \"sourceFile\": ");
-  append_json_string(buf, input ? input->source_file : "");
-  zbuf_append(buf, ",\n  \"target\": ");
-  append_json_string(buf, target ? target->name : "host");
-  zbuf_append(buf, ",\n  \"pointerSize\": ");
-  zbuf_appendf(buf, "%d", abi_pointer_size(target));
-  zbuf_append(buf, ",\n  \"objectFormat\": ");
-  append_json_string(buf, target && target->object_format ? target->object_format : "unknown");
-  zbuf_append(buf, ",\n  \"callingConvention\": ");
-  append_json_string(buf, target && target->abi ? target->abi : "host");
-  zbuf_append(buf, ",\n  \"primitiveLayouts\": ");
-  append_abi_primitives_json(buf, target);
-  zbuf_append(buf, ",\n  \"externShapes\": ");
-  append_abi_shapes_json(buf, program, target);
-  zbuf_append(buf, ",\n  \"enums\": ");
-  append_abi_enums_json(buf, program);
-  zbuf_append(buf, ",\n  \"cImports\": ");
-  append_c_imports_json(buf, program, target);
-  zbuf_append(buf, ",\n  \"cExports\": ");
-  append_c_exports_json(buf, program);
-  zbuf_append(buf, ",\n  \"generatedHeader\": ");
-  append_c_export_header_json(buf, program);
-  zbuf_append(buf, "\n}\n");
-}
 
 static uint64_t fnv1a_text(const char *text) {
   uint64_t hash = 1469598103934665603ull;
@@ -2933,7 +2741,7 @@ static void append_repository_graph_default_readiness_json(ZBuf *buf, const char
   zbuf_append(buf, "{\"schemaVersion\":1,\"compilerInputReady\":");
   zbuf_append(buf, compiler_input_ready ? "true" : "false");
   zbuf_append(buf, ",\"claim\":");
-  append_json_string(buf, compiler_input_ready ? "ready-for-opted-in-repository-graph-input" : "blocked");
+  append_json_string(buf, compiler_input_ready ? "ready-for-repository-graph-input" : "blocked");
   zbuf_appendf(buf, ",\"sourceFreeCompile\":%s,\"sourceProjectionRequired\":false,\"sourceProjectionState\":", compiler_input_ready ? "true" : "false");
   append_json_string(buf, projection_state ? projection_state : "unavailable");
   zbuf_append(buf, ",\"targetReadinessOk\":");
@@ -3619,6 +3427,16 @@ static const ExplainInfo explain_infos[] = {
     "zero build --target host examples/memory-package --out .zero/out/memory-package",
   },
   {
+    "ERR001",
+    "fallibility",
+    "Fallible function must declare errors",
+    "A function body can raise errors but the function signature does not expose that fallibility.",
+    "Error flow is part of a Zero function contract, so callers and agents need it visible at the boundary.",
+    "Add `raises` or an explicit error set to the function signature, or handle the fallible expression with rescue.",
+    "pub fn save(world: World) -> Void {\n    check world.out.write(\"saved\\n\")\n}",
+    "pub fn save(world: World) -> Void raises {\n    check world.out.write(\"saved\\n\")\n}",
+  },
+  {
     "BLD003",
     "build",
     "Generated C backend removed",
@@ -3839,6 +3657,16 @@ static const ExplainInfo explain_infos[] = {
     "if item.has {\n    let byte: u8 = item.value\n}",
   },
   {
+    "FLD002",
+    "shape",
+    "Missing required field",
+    "A shape literal omitted a field that has no default value.",
+    "Shape values must be fully initialized before graph-native MIR lowering so memory layout and field reads stay deterministic.",
+    "Initialize the missing shape field or add a default to the shape declaration.",
+    "let item: Item = Item { id: 1 }",
+    "let item: Item = Item { id: 1, name: \"zero\" }",
+  },
+  {
     "BOR001",
     "borrow",
     "Active lexical borrow conflict",
@@ -3928,6 +3756,7 @@ static void print_explain_json(const ExplainInfo *info) {
   zbuf_append(&buf, ",\n  \"repair\": {\"id\": ");
   append_json_string(&buf, diag_repair_id(strcmp(info->code, "TAR001") == 0 ? 6001 :
                                          strcmp(info->code, "TAR002") == 0 ? 6002 :
+                                         strcmp(info->code, "ERR001") == 0 ? 1001 :
                                          strcmp(info->code, "BLD003") == 0 ? 2003 :
                                          strcmp(info->code, "BLD004") == 0 ? 2004 :
                                          strcmp(info->code, "TYP009") == 0 ? 3010 :
@@ -3938,6 +3767,7 @@ static void print_explain_json(const ExplainInfo *info) {
                                          strcmp(info->code, "TYP026") == 0 ? 3036 :
                                          strcmp(info->code, "TYP027") == 0 ? 3050 :
                                          strcmp(info->code, "MEM002") == 0 ? 3051 :
+                                         strcmp(info->code, "FLD002") == 0 ? 3102 :
                                          strcmp(info->code, "PUB001") == 0 ? 3037 :
                                          strcmp(info->code, "IFC001") == 0 ? 3038 :
                                          strcmp(info->code, "IFC002") == 0 ? 3039 :
@@ -3986,7 +3816,7 @@ static int explain_command(const Command *command) {
     snprintf(diag.message, sizeof(diag.message), "unknown diagnostic code '%s'", command->input ? command->input : "");
     snprintf(diag.expected, sizeof(diag.expected), "known diagnostic code");
     snprintf(diag.actual, sizeof(diag.actual), "%s", command->input ? command->input : "");
-    snprintf(diag.help, sizeof(diag.help), "try TAR002, TYP009, TYP023, ERR002, ERR003, or STD003");
+    snprintf(diag.help, sizeof(diag.help), "try TAR002, TYP009, TYP023, ERR001, ERR002, ERR003, FLD002, or STD003");
     print_command_diag(command, command->input, &diag);
     return 1;
   }
@@ -4724,21 +4554,6 @@ static bool path_has_program_graph_storage_header(const char *path) {
          z_program_graph_store_bytes_are_binary(bytes, read);
 }
 
-static bool direct_command_requires_graph_input(const char *command) {
-  return command &&
-         (strcmp(command, "check") == 0 ||
-          strcmp(command, "build") == 0 ||
-          strcmp(command, "run") == 0 ||
-          strcmp(command, "test") == 0 ||
-          strcmp(command, "size") == 0 ||
-          strcmp(command, "ship") == 0 ||
-          strcmp(command, "mem") == 0 ||
-          strcmp(command, "doc") == 0 ||
-          strcmp(command, "dev") == 0 ||
-          strcmp(command, "time") == 0 ||
-          strcmp(command, "abi") == 0);
-}
-
 static char *source_sidecar_graph_path(const char *source_path) {
   if (!is_zero_source_path(source_path)) return NULL;
   size_t len = strlen(source_path);
@@ -4763,7 +4578,7 @@ static void set_graph_input_required_diag(const char *input_path, const char *gr
 }
 
 static bool resolve_direct_source_sidecar_graph_input(Command *command, ZDiag *diag) {
-  if (!command || !direct_command_requires_graph_input(command->command) || !is_zero_source_path(command->input)) return true;
+  if (!command || !z_program_graph_manifest_command_can_use_compiler_input(command->command) || !is_zero_source_path(command->input)) return true;
   char *sidecar = source_sidecar_graph_path(command->input);
   if (!sidecar) {
     set_graph_input_required_diag(command->input, NULL, diag);
@@ -7685,9 +7500,6 @@ static void append_graph_first_manifest(ZBuf *buf, const char *name, const char 
   append_json_string(buf, main_path);
   zbuf_append(buf, ",\n      \"defaultTarget\": \"linux-musl-x64\",\n      \"devTarget\": \"host\",\n      \"releaseProfile\": \"release-small\"\n    }\n");
   zbuf_append(buf, "  },\n");
-  zbuf_append(buf, "  \"repositoryGraph\": {\n");
-  zbuf_append(buf, "    \"compilerInput\": true\n");
-  zbuf_append(buf, "  },\n");
   zbuf_append(buf, "  \"deps\": {},\n");
   zbuf_append(buf, "  \"profiles\": {\n");
   zbuf_append(buf, "    \"dev\": { \"inherits\": \"dev\" },\n");
@@ -7705,14 +7517,14 @@ static void append_graph_first_manifest_toml(ZBuf *buf, const char *name, const 
   zbuf_append(buf, "kind = \"exe\"\nmain = ");
   append_json_string(buf, main_path);
   zbuf_append(buf, "\ndefaultTarget = \"linux-musl-x64\"\ndevTarget = \"host\"\nreleaseProfile = \"release-small\"\n\n");
-  zbuf_append(buf, "[repositoryGraph]\n");
-  zbuf_append(buf, "compilerInput = true\n\n");
   zbuf_append(buf, "[deps]\n\n");
   zbuf_append(buf, "[profiles.dev]\n");
   zbuf_append(buf, "inherits = \"dev\"\n\n");
   zbuf_append(buf, "[profiles.release-small]\n");
   zbuf_append(buf, "inherits = \"release-small\"\n");
 }
+
+static bool import_new_template_graph_store(const char *root, ZDiag *diag);
 
 static bool create_cli_template(const char *root, const char *name, ZDiag *diag) {
   ZBuf manifest;
@@ -7809,8 +7621,7 @@ static bool create_package_template(const char *root, const char *name, ZDiag *d
     "    }\n"
     "}\n\n"
     "test \"package import works\" {\n"
-    "    let point: Point = Point { value: add_one(41) }\n"
-    "    expect point.value == 42\n"
+    "    expect add_one(41) == 42\n"
     "}\n",
     diag)) return false;
   if (!write_project_file(root, "README.md",
@@ -7855,6 +7666,10 @@ static int new_command(const Command *command) {
     return 1;
   }
   if (!ok) {
+    print_diag(diag.path ? diag.path : command->input, &diag);
+    return 1;
+  }
+  if (!import_new_template_graph_store(command->input, &diag)) {
     print_diag(diag.path ? diag.path : command->input, &diag);
     return 1;
   }
@@ -10731,6 +10546,42 @@ static void append_c_imports_json(ZBuf *buf, const Program *program, const ZTarg
   zbuf_append(buf, "]");
 }
 
+static int run_abi_command(const Command *command, const SourceInput *input, const Program *program, const ZTargetInfo *target) {
+  const char *mode = command && command->kind ? command->kind : "check";
+  if (strcmp(mode, "dump") == 0) {
+    if (command && command->json) {
+      ZProgramGraphReportLoad abi_graph_load = {0};
+      const ZProgramGraph *abi_graph = NULL;
+      if (z_program_graph_artifact_source_present(&command->graph_source)) {
+        abi_graph = z_program_graph_report_load_source(command->graph_source.artifact, command->repository_graph_input, &abi_graph_load);
+      }
+      ZBuf abi;
+      zbuf_init(&abi);
+      z_append_abi_dump_json(&abi, input, program, target, abi_graph, append_c_imports_json);
+      fputs(abi.data, stdout);
+      zbuf_free(&abi);
+      z_program_graph_report_load_free(&abi_graph_load);
+    } else {
+      printf("abi dump ok\n");
+    }
+    return 0;
+  }
+  if (strcmp(mode, "check") == 0) {
+    if (command && command->json) {
+      printf("{\n  \"schemaVersion\": 1,\n  \"ok\": true,\n  \"sourceFile\": ");
+      print_json_string(input ? input->source_file : "");
+      printf(",\n  \"target\": ");
+      print_json_string(target ? target->name : "host");
+      printf(",\n  \"diagnostics\": []\n}\n");
+    } else {
+      printf("abi ok\n");
+    }
+    return 0;
+  }
+  fprintf(stderr, "unknown abi mode: %s\n", mode);
+  return 1;
+}
+
 static bool json_array_has_entries(const char *json) {
   return json && strcmp(json, "[]") != 0 && strchr(json, '"') != NULL;
 }
@@ -12243,6 +12094,22 @@ static bool load_graph_from_current_source(const Command *command, const ZTarget
   if (!graph_build_from_source_program(input, program, input->canonical_text_source, graph, diag)) return false;
   if (kind) *kind = input->canonical_text_source ? GRAPH_INPUT_CANONICAL_SOURCE : GRAPH_INPUT_CURRENT_SOURCE;
   return true;
+}
+
+static bool import_new_template_graph_store(const char *root, ZDiag *diag) {
+  Command graph_command = {0};
+  graph_command.input = root;
+  SourceInput input = {0};
+  Program program = {0};
+  ZProgramGraph graph = {0};
+  ZProgramGraphStore saved = {0};
+  bool ok = load_graph_from_current_source(&graph_command, z_find_target(z_host_target()), &input, &program, &graph, NULL, diag);
+  if (ok) ok = z_program_graph_store_save_for_input_format(root, &graph, Z_PROGRAM_GRAPH_STORE_FORMAT_BINARY, &saved, diag);
+  z_program_graph_store_free(&saved);
+  z_program_graph_free(&graph);
+  z_free_program(&program);
+  z_free_source(&input);
+  return ok;
 }
 
 static bool load_graph_from_checked_current_source(const Command *command, const ZTargetInfo *target, SourceInput *input, Program *program, ZProgramGraph *graph, GraphInputKind *kind, ZDiag *diag) {
@@ -14292,7 +14159,40 @@ int main(int argc, char **argv) {
                                     graph_dev_artifact_command ||
                                     graph_time_artifact_command ||
                                     graph_abi_artifact_command;
-  if (direct_graph_manifest_command || graph_artifact_mir_command) {
+  bool graph_metadata_repository_command = command.repository_graph_input &&
+                                           (strcmp(command.command, "doc") == 0 || strcmp(command.command, "dev") == 0);
+  if (graph_metadata_repository_command) {
+    ZProgramGraphStore store;
+    if (!z_program_graph_store_load_path(command.input, &store, &diag)) {
+      if (command.json) print_command_diag_json(&command, diag.path ? diag.path : command.input, &diag);
+      else print_diag(diag.path ? diag.path : command.input, &diag);
+      free_loaded_command_state(&input, &program, &graph_prepared_ir);
+      return 1;
+    }
+    bool ok = z_program_graph_lower_to_program_with_source(&store.graph, command.input, &program, &input, &diag);
+    if (ok) {
+      z_set_check_target(target);
+      ok = z_check_program(&program, &diag);
+    }
+    if (ok && direct_graph_manifest_command) ok = z_program_graph_manifest_attach_metadata_to_input(&input, direct_graph_manifest_input, &diag);
+    if (!ok) {
+      if (command.json) print_command_diag_json(&command, diag.path ? diag.path : command.input, &diag);
+      else print_diag(diag.path ? diag.path : command.input, &diag);
+      z_program_graph_store_free(&store);
+      free_loaded_command_state(&input, &program, &graph_prepared_ir);
+      return 1;
+    }
+    input.program_graph_hash = z_strdup(store.graph.graph_hash ? store.graph.graph_hash : "");
+    input.program_graph_module_identity = z_strdup(store.graph.module_identity ? store.graph.module_identity : "");
+    command.graph_source.artifact = command.input;
+    command.graph_source.graph_hash = input.program_graph_hash;
+    command.graph_source.module_identity = input.program_graph_module_identity;
+    command.graph_source.lowering = "graph-native-check";
+    command.graph_source.source_projection_state = z_program_graph_projection_state_label(&store, target, NULL, NULL, NULL);
+    command.graph_source.canonical_source = false;
+    touch_program_graph_compiler_caches(&input, target, command.profile, command.graph_source.graph_hash);
+    z_program_graph_store_free(&store);
+  } else if (direct_graph_manifest_command || graph_artifact_mir_command) {
     ZProgramGraphArtifactSource graph_source = {0};
     long long graph_lower_started = now_ms();
     if (command.repository_graph_input && command.emit == EMIT_LLVM_IR) {
@@ -14334,7 +14234,7 @@ int main(int argc, char **argv) {
       command.command = graph_run_artifact_command ? "run" : "build";
       command.kind = NULL;
     }
-  } else if (direct_command_requires_graph_input(command.command)) {
+  } else if (z_program_graph_manifest_command_can_use_compiler_input(command.command)) {
     set_graph_input_required_diag(command.input, NULL, &diag);
     if (command.json) print_command_diag_json(&command, diag.path ? diag.path : command.input, &diag);
     else print_diag(diag.path ? diag.path : command.input, &diag);
@@ -14383,38 +14283,6 @@ int main(int argc, char **argv) {
     free_loaded_command_state(&input, &program, &graph_prepared_ir);
     return 1;
   }
-  if (!is_graph_command &&
-      !direct_graph_manifest_command &&
-      !graph_build_command &&
-      !graph_run_artifact_command &&
-      !graph_size_artifact_command &&
-      !graph_ship_artifact_command &&
-      !graph_mem_artifact_command &&
-      !graph_doc_artifact_command &&
-      !graph_dev_artifact_command &&
-      !graph_time_artifact_command &&
-      !graph_abi_artifact_command &&
-      z_program_graph_source_command_uses_graph_mir(command.command)) {
-    long long graph_lower_started = now_ms();
-    bool graph_prepared = z_program_graph_prepare_source_mir_input(
-      command.input,
-      target,
-      &program,
-      &input,
-      &graph_prepared_ir,
-      &command.graph_source,
-      &diag
-    );
-    if (!graph_prepared) {
-      if (command.json) print_command_diag_json(&command, diag.path ? diag.path : command.input, &diag);
-      else print_diag(diag.path ? diag.path : command.input, &diag);
-      free_loaded_command_state(&input, &program, &graph_prepared_ir);
-      return 1;
-    }
-    input.lower_ms = now_ms() - graph_lower_started;
-    apply_ir_metrics_to_input(&input, &graph_prepared_ir, target);
-    touch_program_graph_compiler_caches(&input, target, command.profile, command.graph_source.graph_hash);
-  }
   if (strcmp(command.command, "fix") == 0) {
     if (command.apply || command.patch) print_or_apply_fix_json(input.source_file, &input, NULL, command.apply);
     else print_fix_plan_json(input.source_file, NULL);
@@ -14460,34 +14328,9 @@ int main(int argc, char **argv) {
   }
 
   if (strcmp(command.command, "abi") == 0) {
-    const char *mode = command.kind ? command.kind : "check";
-    if (strcmp(mode, "dump") == 0) {
-      if (command.json) {
-        ZBuf abi;
-        zbuf_init(&abi);
-        append_abi_dump_json(&abi, &input, &program, target);
-        fputs(abi.data, stdout);
-        zbuf_free(&abi);
-      } else {
-        printf("abi dump ok\n");
-      }
-    } else if (strcmp(mode, "check") == 0) {
-      if (command.json) {
-        printf("{\n  \"schemaVersion\": 1,\n  \"ok\": true,\n  \"sourceFile\": ");
-        print_json_string(input.source_file);
-        printf(",\n  \"target\": ");
-        print_json_string(target->name);
-        printf(",\n  \"diagnostics\": []\n}\n");
-      } else {
-        printf("abi ok\n");
-      }
-    } else {
-      fprintf(stderr, "unknown abi mode: %s\n", mode);
-      free_loaded_command_state(&input, &program, NULL);
-      return 1;
-    }
+    int abi_rc = run_abi_command(&command, &input, &program, target);
     free_loaded_command_state(&input, &program, NULL);
-    return 0;
+    return abi_rc;
   }
 
   if (strcmp(command.command, "test") == 0) {

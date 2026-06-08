@@ -87,7 +87,7 @@ Build JSON reports `profileSemantics` and `profileBudget`. Size JSON adds `sizeB
 | `json-api-client.0` | hosted JSON API client with request-envelope writing and response-body parsing | `bin/zero check examples/json-api-client.0` |
 | `json-api-router.0` | dependency-free JSON API request parsing and response-envelope writing | `bin/zero check examples/json-api-router.0` |
 | `crm-api/` | binary graph-first CRM API router with account/contact/deal CRUD, activity, health, and search routes | `bin/zero check examples/crm-api` |
-| `binary-graph-store/` | graph-first package with opt-in binary `zero.graph` storage and a synced `.0` projection | `bin/zero status examples/binary-graph-store && bin/zero run examples/binary-graph-store` |
+| `binary-graph-store/` | graph-first package with binary `zero.graph` storage and a synced `.0` projection | `bin/zero status examples/binary-graph-store && bin/zero run examples/binary-graph-store` |
 | `std-platform.0` | `std.time`, `std.rand`, `std.proc`, and `std.crypto` capability-shaped helpers | `bin/zero check examples/std-platform.0` |
 | `cli-file.0` | `std.args`, `std.env`, byte-span file writes, stderr/stdout | `bin/zero check examples/cli-file.0` |
 | `cli-config.0` | `std.cli`, `std.env`, and JSON output checks | `bin/zero check examples/cli-config.0` |

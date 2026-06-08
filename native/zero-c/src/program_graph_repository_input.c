@@ -101,7 +101,7 @@ static const char *input_projection_state(const RepositoryGraphInputState *state
   if (state && state->store_present && state->store_valid && state->projection_checked) return state->projection_current ? "clean" : "source-stale";
   if (state && state->store_present && state->store_valid) return "store-valid";
   if (state && state->store_present) return "store-invalid";
-  return "not-enabled";
+  return "store-missing";
 }
 
 static const char *input_projection_validity_label(const RepositoryGraphInputState *state) {
@@ -122,10 +122,10 @@ static void input_append_state_json(ZBuf *buf, const RepositoryGraphInputState *
   zbuf_append(buf, ", \"storeValid\": ");
   zbuf_append(buf, state->store_valid ? "true" : "false");
   zbuf_append(buf, ", \"enabled\": ");
-  zbuf_append(buf, state->store_valid ? "true" : "false");
+  zbuf_append(buf, "true");
   zbuf_append(buf, ", \"projectionState\": ");
   input_append_json_string(buf, input_projection_state(state));
-  zbuf_append(buf, ", \"possibleProjectionStates\": [\"not-enabled\", \"store-invalid\", \"clean\", \"source-missing\", \"source-stale\", \"conflict\"], \"canonicalSourceExtension\": \".0\", \"compilerInput\": \"repository-graph\", \"semanticValidity\": ");
+  zbuf_append(buf, ", \"possibleProjectionStates\": [\"store-missing\", \"store-invalid\", \"clean\", \"source-missing\", \"source-stale\", \"conflict\"], \"canonicalSourceExtension\": \".0\", \"compilerInput\": \"repository-graph\", \"semanticValidity\": ");
   input_append_json_string(buf, state->store_valid ? "shape-valid" : "unavailable");
   zbuf_append(buf, ", \"projectionValidity\": ");
   input_append_json_string(buf, input_projection_validity_label(state));

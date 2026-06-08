@@ -21,7 +21,7 @@ zero export .
 
 `zero.graph` is the package graph store and compiler input. `.0` files are the
 human-readable projection; export them after graph checks pass. Use `zero new`
-only when the user explicitly asks for a source-text package template.
+only when the user explicitly asks for a projection-oriented starter template.
 Use `zero init --manifest toml <package>` when the user wants TOML metadata.
 
 ## Manifest
@@ -36,9 +36,6 @@ version = "0.1.0"
 [targets.cli]
 kind = "exe"
 main = "src/main.0"
-
-[repositoryGraph]
-compilerInput = false
 ```
 
 JSON is also accepted:
@@ -46,8 +43,7 @@ JSON is also accepted:
 ```json
 {
   "package": { "name": "hello", "version": "0.1.0" },
-  "targets": { "cli": { "kind": "exe", "main": "src/main.0" } },
-  "repositoryGraph": { "compilerInput": false }
+  "targets": { "cli": { "kind": "exe", "main": "src/main.0" } }
 }
 ```
 
@@ -108,13 +104,11 @@ version = "0.1.0"
 
 The resolver is declarative; it records deterministic lock facts under `.zero/package-locks/` and does not fetch remote package code.
 
-Set `repositoryGraph.compilerInput` to `true` only for packages that check in a
-valid `zero.graph` store. Normal compiler commands validate and compile from
-that store, including target and package metadata, and can operate when `.0`
-source projections are missing. Commands report projection state and never
-rewrite `.0` files. Use `zero verify-projection` when drift must fail the
-workflow, and `zero export` to regenerate projections. Leave
-the field unset or `false` for source-text packages.
+Package compiler commands validate and compile from a checked-in `zero.graph`
+store, including target and package metadata, and can operate when `.0` source
+projections are missing. Commands report projection state and never rewrite
+`.0` files. Use `zero verify-projection` when drift must fail the workflow, and
+`zero export` to regenerate projections.
 
 ## Inspect
 
@@ -147,9 +141,8 @@ zero check <package>
 zero patch <package> --op 'addMain'
 ```
 
-When `repositoryGraph.compilerInput` is true, package-level patches write
-`zero.graph`; use `zero export <package>` to materialize `.0`
-for human review and `zero import <package>` after humans edit
+Package-level patches write `zero.graph`; use `zero export <package>` to
+materialize `.0` for human review and `zero import <package>` after humans edit
 that projection. Keep derived graph artifacts out of the package source unless
 the user explicitly asks for them.
 

@@ -25,18 +25,11 @@ bool z_program_graph_manifest_compiler_input_enabled(const char *input_path, boo
 }
 
 bool z_program_graph_manifest_command_can_use_compiler_input(const char *command) {
-  return command &&
-         (strcmp(command, "check") == 0 ||
-          strcmp(command, "build") == 0 ||
-          strcmp(command, "run") == 0 ||
-          strcmp(command, "test") == 0 ||
-          strcmp(command, "size") == 0 ||
-          strcmp(command, "ship") == 0 ||
-          strcmp(command, "mem") == 0 ||
-          strcmp(command, "doc") == 0 ||
-          strcmp(command, "dev") == 0 ||
-          strcmp(command, "time") == 0 ||
-          strcmp(command, "abi") == 0);
+  static const char *const graph_commands[] = {"check", "build", "run", "test", "size", "ship", "mem", "doc", "dev", "time", "abi"};
+  for (size_t i = 0; command && i < sizeof(graph_commands) / sizeof(graph_commands[0]); i++) {
+    if (strcmp(command, graph_commands[i]) == 0) return true;
+  }
+  return false;
 }
 
 static void pgm_clear_source_package_metadata(SourceInput *input) {

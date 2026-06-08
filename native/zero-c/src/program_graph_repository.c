@@ -163,12 +163,12 @@ static const char *repo_projection_state(const RepositoryGraphState *state) {
   if (state && state->store_present && state->store_valid && state->projection_checked) return state->projection_current ? "clean" : "source-stale";
   if (state && state->store_present && state->store_valid) return "store-valid";
   if (state && state->store_present) return "store-invalid";
-  return "not-enabled";
+  return "store-missing";
 }
 
 static const char *repo_compiler_input_label(const RepositoryGraphState *state) {
   if (!state || !state->compiler_input_valid) return "invalid";
-  return state->compiler_input_enabled ? "repository-graph" : "source-text";
+  return "repository-graph";
 }
 
 static bool repo_requested_store_format(const char *format_name, ZProgramGraphStoreFormat fallback, ZProgramGraphStoreFormat *out, ZDiag *diag) {
@@ -218,7 +218,7 @@ static void repo_append_contract_json(ZBuf *buf, const RepositoryGraphState *sta
   char *from_graph = repo_command_text("zero export", state->input);
   zbuf_append(buf, "{");
   zbuf_append(buf, "\"artifact\":\"zero.graph\",\"sourceProjection\":\"checked-in .0 source text\",");
-  zbuf_append(buf, "\"optIn\":\"repository graph loader plus checked-in zero.graph at the package root\",");
+  zbuf_append(buf, "\"compilerInput\":\"manifest package plus checked-in zero.graph repository store\",");
   zbuf_append(buf, "\"commands\":{");
   zbuf_append(buf, "\"status\":{\"writes\":false,\"available\":true},");
   zbuf_append(buf, "\"verifyProjection\":{\"writes\":false,\"available\":");
@@ -254,10 +254,10 @@ static void repo_append_state_json(ZBuf *buf, const RepositoryGraphState *state,
   zbuf_append(buf, ", \"storeValid\": ");
   zbuf_append(buf, state->store_valid ? "true" : "false");
   zbuf_append(buf, ", \"enabled\": ");
-  zbuf_append(buf, state->store_valid ? "true" : "false");
+  zbuf_append(buf, state->compiler_input_valid ? "true" : "false");
   zbuf_append(buf, ", \"projectionState\": ");
   repo_append_json_string(buf, repo_projection_state(state));
-  zbuf_append(buf, ", \"possibleProjectionStates\": [\"not-enabled\", \"store-invalid\", \"clean\", \"source-missing\", \"source-stale\", \"conflict\"], \"canonicalSourceExtension\": \".0\", \"compilerInput\": ");
+  zbuf_append(buf, ", \"possibleProjectionStates\": [\"store-missing\", \"store-invalid\", \"clean\", \"source-missing\", \"source-stale\", \"conflict\"], \"canonicalSourceExtension\": \".0\", \"compilerInput\": ");
   repo_append_json_string(buf, repo_compiler_input_label(state));
   zbuf_append(buf, ", \"semanticValidity\": ");
   repo_append_json_string(buf, repo_semantic_validity_label(state));
@@ -355,7 +355,7 @@ static int repo_compiler_input_error(const RepositoryGraphState *state, bool jso
                           diag && diag->message[0] ? diag->message : "repositoryGraph.compilerInput is invalid",
                           diag && diag->expected[0] ? diag->expected : "true or false",
                           diag && diag->actual[0] ? diag->actual : "invalid repositoryGraph.compilerInput",
-                          diag && diag->help[0] ? diag->help : "set repositoryGraph.compilerInput to true only when a valid zero.graph store is checked in",
+                          diag && diag->help[0] ? diag->help : "remove repositoryGraph.compilerInput or set it to a boolean compatibility value",
                           REPO_GRAPH_REPAIR_NONE);
 }
 

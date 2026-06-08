@@ -25,11 +25,11 @@ Metadata labels:
 
 ```zero
 pub fn main(world: World) -> Void raises {
-    let input: Span<u8> = "[package]\nname = \"demo\"\n\n[repositoryGraph]\ncompilerInput = true\n"
+    let input: Span<u8> = "[package]\nname = \"demo\"\n\n[features]\ngraph = true\n"
     var name_buffer: [16]u8 = [0_u8; 16]
     let name: Maybe<Span<u8>> = std.toml.string(name_buffer, input, "package.name")
-    let compiler_input: Maybe<Bool> = std.toml.bool(input, "repositoryGraph.compilerInput")
-    if std.toml.validateBytes(input) && name.has && compiler_input.has && compiler_input.value {
+    let graph: Maybe<Bool> = std.toml.bool(input, "features.graph")
+    if std.toml.validateBytes(input) && name.has && graph.has && graph.value {
         check world.out.write("toml ok\n")
     }
 }

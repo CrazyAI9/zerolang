@@ -6,9 +6,6 @@ version = "0.1.0"
 kind = "exe"
 main = "src/main.0"
 
-[repositoryGraph]
-compilerInput = true
-
 [c.libs.hostonly]
 headers = ["hostonly.h"]
 include = ["/usr/include"]

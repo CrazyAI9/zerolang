@@ -9,22 +9,22 @@ Use this when an agent needs to run, build, cross-build, inspect artifacts, or e
 
 ## Inputs
 
-Most build commands accept one of these:
+Most build commands accept one of these graph-backed inputs:
 
-- a single `.0` file
+- a single `.0` projection with a sibling `.graph` sidecar
 - a package directory containing `zero.toml` or `zero.json`
 - a direct path to `zero.toml` or `zero.json`
 
 When both manifests are present in the same package root, Zero uses
 `zero.toml`. Prefer one checked-in manifest unless testing precedence.
 
-For packages with `repositoryGraph.compilerInput: true`, normal check, build,
-run, test, size, ship, and mem commands compile from the checked-in
-`zero.graph` store. Source projections may be clean, missing, stale, or in
-conflict; commands report that state and do not rewrite `.0` files. Use
-`zero verify-projection` when CI or review needs projection drift to fail, and
-`zero export` to regenerate projections from the store. Other
-packages compile from `.0` source text.
+For packages, normal check, build, run, test, size, ship, and mem commands
+compile from the checked-in `zero.graph` store. Source projections may be
+clean, missing, stale, or in conflict; commands report that state and do not
+rewrite `.0` files. Use `zero verify-projection` when CI or review needs
+projection drift to fail, and `zero export` to regenerate projections from the
+store. A bare `.0` file without a graph sidecar is a projection/import input,
+not a compiler input.
 
 ## Run
 
@@ -69,9 +69,9 @@ Useful JSON fields include `artifact`, `sizeBytes`, `toolchain`, `releaseTargetC
 
 ## Graph Inputs
 
-When an agent is authoring an opted-in repository graph package, patch the
-package graph and use normal build/run commands. They compile from `zero.graph`
-and do not require `.0` projections to exist:
+When an agent is authoring a repository graph package, patch the package graph
+and use normal build/run commands. They compile from `zero.graph` and do not
+require `.0` projections to exist:
 
 ```sh
 zero patch --op 'addMain'

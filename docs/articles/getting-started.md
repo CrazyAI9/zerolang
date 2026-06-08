@@ -110,9 +110,7 @@ zero run .
 zero build --target linux-musl-x64 --out .zero/out/hello .
 ```
 
-Normal compiler commands compile from `zero.graph` when
-`repositoryGraph.compilerInput: true` is set in `zero.toml`.
-They report source
+Normal compiler commands compile from `zero.graph`. They report source
 projection state, but they do not rewrite `.0` files. Export explicitly when
 the human projection needs to be refreshed.
 
@@ -165,7 +163,8 @@ zero query --fn main .
 zero query --find write .
 ```
 
-The manifest records that the graph store is the compiler input:
+The manifest records package metadata; the checked-in `zero.graph` beside it is
+the compiler input:
 
 ```toml
 [package]
@@ -176,9 +175,6 @@ license = "MIT"
 [targets.cli]
 kind = "exe"
 main = "src/main.0"
-
-[repositoryGraph]
-compilerInput = true
 ```
 
 After the first graph-backed build or run, Zero may also create

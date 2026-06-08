@@ -337,7 +337,7 @@ bool z_parse_manifest_toml(const char *manifest, ZManifest *out, ZDiag *diag) {
           snprintf(diag->message, sizeof(diag->message), "repositoryGraph.compilerInput must be a boolean");
           snprintf(diag->expected, sizeof(diag->expected), "true or false");
           snprintf(diag->actual, sizeof(diag->actual), "%s", value);
-          snprintf(diag->help, sizeof(diag->help), "set repositoryGraph.compilerInput = true only when zero.graph is checked in");
+          snprintf(diag->help, sizeof(diag->help), "remove repositoryGraph.compilerInput or set it to a boolean compatibility value");
         }
         free(full);
         free(value);

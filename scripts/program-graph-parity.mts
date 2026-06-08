@@ -517,11 +517,11 @@ async function assertResolutionFacts() {
   assert.equal(memEql.targetKind, "stdlib", "table std helper target kind");
   assert.equal(memEql.symbolId, "stdlib:std.mem.eql", "table std helper symbol");
 
-  const packageGraph = await zeroJson(["dump", "--json", "examples/direct-package-arrays/src/main.0"]);
+  const packageGraph = await zeroJson(["dump", "--json", "examples/direct-package-arrays"]);
   assert.equal(packageGraph.resolution.ok, true, "package graph resolution");
   const record = findResolutionReference(packageGraph, (item) => item.kind === "call" && item.qualifiedName === "record", "package import call should resolve");
   assert.equal(record.targetKind, "function", "package import call target kind");
-  assert.equal(record.symbolId, "symbol:arrays::value.record", "package import call target symbol");
+  assert.equal(record.symbolId, "symbol:direct-package-arrays@0.1.0/arrays::value.record", "package import call target symbol");
   assert.equal(record.viaImport, "symbol:main::import.arrays", "package import call should record import binding");
 
   const cImport = await zeroJson(["dump", "--json", "conformance/native/pass/c-import-alias-later-local.0"]);
@@ -1382,7 +1382,7 @@ try {
     "examples/std-math.0",
     "examples/systems-package",
     "examples/readall-cli",
-    "examples/direct-package-arrays/src/main.0",
+    "examples/direct-package-arrays",
     "conformance/check/pass/c-header-import.0",
     "conformance/native/pass/borrow-field-independent-assignment.0",
     "conformance/native/pass/open-ended-slices.0",

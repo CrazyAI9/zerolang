@@ -18,6 +18,8 @@ const fileBudgets = {
   "native/zero-c/include/zero.h": { maxLines: 1171, maxStrcmpCalls: 0 },
   "native/zero-c/include/zero_contracts.h": { maxLines: 20, maxStrcmpCalls: 0 },
   "native/zero-c/include/zero_runtime.h": { maxLines: 226, maxStrcmpCalls: 0 },
+  "native/zero-c/src/abi_report.c": { maxLines: 321, maxStrcmpCalls: 29 },
+  "native/zero-c/src/abi_report.h": { maxLines: 18, maxStrcmpCalls: 0 },
   "native/zero-c/src/checker.c": { maxLines: 11753, maxStrcmpCalls: 287 },
   "native/zero-c/src/main.c": { maxLines: 14842, maxStrcmpCalls: 500 },
   "native/zero-c/src/ir.c": { maxLines: 5501, maxStrcmpCalls: 271 },
@@ -920,10 +922,9 @@ function budgetViolations(files, allLargeFunctions, stdlib, backendFormats, prog
       programGraph,
     });
   }
-  if (!programGraph.sourceCommandGraphMirPrep ||
-      !programGraph.sourceCommandGraphAvoidsProgramPrep ||
-      !programGraph.sourceCommandGraphBoundedMirProbe ||
-      !programGraph.sourceCommandGraphMirPredicate) {
+  if (!programGraph.sourceCommandGraphMirFallbackRemoved ||
+      !programGraph.sourceCommandGraphProgramPrepRemoved ||
+      !programGraph.optedInRepositoryGraphClaimRemoved) {
     violations.push({
       kind: "program-graph-source-command-compiler-path",
       programGraph,
@@ -1703,11 +1704,13 @@ const programGraph = {
     cCodeText(main),
     /\bz_write_file\s*\(\s*command->out\s*,\s*graph\.data/g,
   ),
-  sourceCommandGraphMirPrep: /z_program_graph_prepare_source_mir_input\s*\(/.test(cCodeText(cBlock(main, "int main(int argc, char **argv)"))),
-  sourceCommandGraphAvoidsProgramPrep: !/z_program_graph_lower_to_program_with_source\s*\(/.test(programGraphCompileSource) &&
+  sourceCommandGraphMirFallbackRemoved: !/z_program_graph_prepare_source_mir_input\s*\(/.test(cCodeText(cBlock(main, "int main(int argc, char **argv)"))) &&
+    !/z_program_graph_prepare_source_mir_input\s*\(/.test(programGraphCompileSource) &&
+    !/z_program_graph_source_command_uses_graph_mir\s*\(/.test(programGraphCompileSource),
+  sourceCommandGraphProgramPrepRemoved: !/z_program_graph_lower_to_program_with_source\s*\(/.test(programGraphCompileSource) &&
     !/\*\s*program\s*=\s*graph_program\s*;/.test(programGraphCompileSource),
-  sourceCommandGraphBoundedMirProbe: /z_lower_program_graph_with_source\s*\(/.test(programGraphCompileSource),
-  sourceCommandGraphMirPredicate: /z_program_graph_source_command_uses_graph_mir\s*\(/.test(programGraphCompileSource),
+  optedInRepositoryGraphClaimRemoved: !/ready-for-opted-in-repository-graph-input/.test(cCodeText(main)) &&
+    !/ready-for-opted-in-repository-graph-input/.test(programGraphRepositoryRaw),
   repositoryStoreCompilerTables: /z_program_graph_store_table_counts_for_graph\s*\(/.test(programGraphStoreTablesSource) &&
     /ZProgramGraphStoreTableCounts/.test(programGraphStoreTablesSource),
   repositoryStoreMetadataSerialized: /compilerStore schemaVersion:1/.test(programGraphStoreTablesRaw) &&

@@ -20,9 +20,6 @@ license = "MIT"
 kind = "exe"
 main = "src/main.0"
 
-[repositoryGraph]
-compilerInput = true
-
 [dependencies.local-tools]
 path = "../local-tools"
 version = "0.1.0"
@@ -34,7 +31,6 @@ The equivalent JSON shape is accepted for compatibility:
 {
   "package": { "name": "hello", "version": "0.1.0", "license": "MIT" },
   "targets": { "cli": { "kind": "exe", "main": "src/main.0" } },
-  "repositoryGraph": { "compilerInput": false },
   "dependencies": {
     "local-tools": { "path": "../local-tools", "version": "0.1.0" },
     "registry-tools": "1.2.3"
@@ -56,12 +52,11 @@ Import cycles and duplicate public exports are diagnosed before build output.
 Local path dependencies are accepted by the resolver. Exact versioned registry
 references are recorded as metadata without remote fetches.
 
-`repositoryGraph.compilerInput: true` opts a package into using a checked-in
-`zero.graph` store as the compiler input for normal check, build, run, test,
-size, ship, and mem commands. Those commands read and validate the graph store
-directly, report whether source projections are clean, missing, stale,
-conflicting, or unavailable, and do not rewrite `.0` files. A graph-first
-package can be created with:
+Packages use a checked-in `zero.graph` store as the compiler input for normal
+check, build, run, test, size, ship, and mem commands. Those commands read and
+validate the graph store directly, report whether source projections are clean,
+missing, stale, conflicting, or unavailable, and do not rewrite `.0` files. A
+graph-first package can be created with:
 
 ```sh
 zero init --manifest toml app
@@ -74,7 +69,8 @@ Use `zero export` to materialize or refresh `.0` projections
 for human review. Use `zero import` after humans edit `.0` so
 the graph store reflects the reviewed source projection. Use
 `zero verify-projection` when CI or review needs the no-write projection drift
-gate. Leave the field unset or `false` for source-text packages.
+gate. A package without `zero.graph` is missing its compiler input; run
+`zero import` after reviewing the projection or create it with `zero init`.
 
 `zero inspect --json <package>` reports:
 

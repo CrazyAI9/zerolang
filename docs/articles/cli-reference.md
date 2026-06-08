@@ -173,8 +173,8 @@ interchange files.
 `zero status`, `zero verify-projection`, `zero import`, and `zero export` define the
 repository graph projection surface.
 `zero init --manifest toml <project>` creates a graph-first package with
-`repositoryGraph.compilerInput: true`, `zero.toml`, and `zero.graph`. It does
-not materialize `.0` files. Agents can patch the package with
+`zero.toml` and `zero.graph`. It does not materialize `.0` files. Agents can
+patch the package with
 `zero patch <project> --op ...`; from inside a graph-first package,
 `zero patch --op ...` defaults to the current directory. Then normal
 `zero check`, `zero run`, and `zero test` run against the graph store.
@@ -194,18 +194,15 @@ existing text or binary store, and `zero status` reports the active store
 format. Stdlib `std/*.graph` stores are binary graph stores used by the
 compiler path; sibling `std/*.0` files are human-readable projections, not the
 stdlib compile source.
-`zero export` rewrites stale `.0` source projections from that
-store, and `zero verify-projection` checks the store against checked-in source
-projection bytes without writing files. Packages can opt normal
-check, build, run, test, size, ship, and mem commands into the checked-in store
-with `repositoryGraph.compilerInput: true` in `zero.toml`.
-Normal compiler
-commands validate and compile from the graph store, including target and package
-metadata, so source-free graph packages can still be checked, built, run,
-tested, sized, shipped, and inspected. Commands report source projection state
-and do not rewrite `.0` files; run `zero verify-projection` when checked-in
-projection drift must fail the workflow. Packages without that marker
-still use checked-in `.0` source text as their compiler input.
+`zero export` rewrites stale `.0` source projections from that store, and
+`zero verify-projection` checks the store against checked-in source projection
+bytes without writing files. Normal compiler commands validate and compile from
+the graph store, including target and package metadata, so graph packages can
+still be checked, built, run, tested, sized, shipped, and inspected when `.0`
+projections are missing. Commands report source projection state and do not
+rewrite `.0` files; run `zero verify-projection` when checked-in projection
+drift must fail the workflow. Packages without `zero.graph` are missing their
+compiler input.
 `zero merge --base <base-zero.graph> --left <left-zero.graph> --right
 <right-zero.graph> <input>` combines independent repository graph store edits by
 durable node ID and node hash, writes the target `zero.graph` on success, and
@@ -217,8 +214,8 @@ In this repository, `pnpm run repository-graph:check` verifies checked-in
 
 ## ProgramGraph Patches
 
-`zero patch` applies checked edits to a graph. When the input is an
-opted-in repository graph package, the command writes `zero.graph` after loading
+`zero patch` applies checked edits to a graph. When the input is a repository
+graph package, the command writes `zero.graph` after loading
 the store, applying operations, validating graph readiness, and rechecking
 compiler input. For small edits, pass one or more operations inline:
 

@@ -178,7 +178,7 @@ function assertRepositoryGraphNativeCheck(body, sourceProjectionState = "clean",
   assert.equal(body.graphCompiler.semanticFacts.ok, true);
   const targetReady = body.targetReadiness?.ok === true;
   assert.equal(body.graphCompiler.defaultReadiness.compilerInputReady, compilerInputReady);
-  assert.equal(body.graphCompiler.defaultReadiness.claim, compilerInputReady ? "ready-for-opted-in-repository-graph-input" : "blocked");
+  assert.equal(body.graphCompiler.defaultReadiness.claim, compilerInputReady ? "ready-for-repository-graph-input" : "blocked");
   assert.equal(body.graphCompiler.defaultReadiness.sourceFreeCompile, compilerInputReady);
   assert.equal(body.graphCompiler.defaultReadiness.sourceProjectionRequired, false);
   assert.equal(body.graphCompiler.defaultReadiness.sourceProjectionState, sourceProjectionState);
@@ -3259,7 +3259,6 @@ await mkdir(programGraphSourceFreeStdStrPackage, { recursive: true });
 await writeZeroToml(programGraphSourceFreeStdStrPackage, {
   package: { name: "program-graph-source-free-std-str", version: "0.1.0" },
   targets: { cli: { kind: "exe", main: "main.0" } },
-  repositoryGraph: { compilerInput: true },
 });
 await writeFile(`${programGraphSourceFreeStdStrPackage}/main.0`, await readFile("examples/std-str.0", "utf8"));
 const programGraphSourceFreeStdStrSync = JSON.parse((await execFileAsync(zero, ["import", "--json", programGraphSourceFreeStdStrPackage])).stdout);
@@ -3510,7 +3509,6 @@ await mkdir(`${programGraphSourceFreeCImportPackage}/vendor/include`, { recursiv
 await writeZeroToml(programGraphSourceFreeCImportPackage, {
   package: { name: "program-graph-source-free-c-import", version: "0.1.0" },
   targets: { cli: { kind: "exe", main: "src/main.0" } },
-  repositoryGraph: { compilerInput: true },
   c: {
     libs: {
       ext: { headers: ["vendor/include/zero_ext.h"], include: ["vendor/include"], lib: [], link: [], mode: "static" },
@@ -3544,7 +3542,6 @@ await mkdir(programGraphIdentityMismatchPackage, { recursive: true });
 await writeZeroToml(programGraphIdentityMismatchPackage, {
   package: { name: "program-graph-wrong-package", version: "9.9.9" },
   targets: { cli: { kind: "exe", main: "hello.0" } },
-  repositoryGraph: { compilerInput: true },
 });
 await writeFile(`${programGraphIdentityMismatchPackage}/zero.graph`, programGraphSourceFixtureStoreBytes);
 const programGraphIdentityMismatchCheck = await execFileAsync(zero, ["check", "--json", programGraphIdentityMismatchPackage]).catch((error) => error);
@@ -3552,7 +3549,6 @@ const programGraphIdentityMismatchSize = await execFileAsync(zero, ["size", "--j
 await mkdir(programGraphMissingPackageNamePackage, { recursive: true });
 await writeZeroToml(programGraphMissingPackageNamePackage, {
   targets: { cli: { kind: "exe", main: "hello.0" } },
-  repositoryGraph: { compilerInput: true },
 });
 await writeFile(`${programGraphMissingPackageNamePackage}/zero.graph`, programGraphSourceFixtureStoreBytes);
 const programGraphMissingPackageNameCheck = await execFileAsync(zero, ["check", "--json", programGraphMissingPackageNamePackage]).catch((error) => error);
@@ -3572,7 +3568,6 @@ await mkdir(programGraphMissingStorePackage, { recursive: true });
 await writeZeroToml(programGraphMissingStorePackage, {
   package: { name: "program-graph-missing-store", version: "0.1.0" },
   targets: { cli: { kind: "exe", main: "main.0" } },
-  repositoryGraph: { compilerInput: true },
 });
 await writeFile(`${programGraphMissingStorePackage}/main.0`, "pub fn main() -> i32 { return 0 }\n");
 const programGraphMissingStoreCheck = await execFileAsync(zero, ["check", "--json", programGraphMissingStorePackage]).catch((error) => error);
@@ -3580,7 +3575,6 @@ await mkdir(programGraphInvalidStorePackage, { recursive: true });
 await writeZeroToml(programGraphInvalidStorePackage, {
   package: { name: "program-graph-invalid-store", version: "0.1.0" },
   targets: { cli: { kind: "exe", main: "main.0" } },
-  repositoryGraph: { compilerInput: true },
 });
 await writeFile(`${programGraphInvalidStorePackage}/main.0`, "pub fn main() -> i32 { return 0 }\n");
 await writeFile(`${programGraphInvalidStorePackage}/zero.graph`, "not a repository graph\n");
@@ -3598,7 +3592,6 @@ await writeZeroToml(programGraphTargetIncompatiblePackage, {
   package: { name: "program-graph-target-incompatible", version: "0.1.0" },
   targets: { cli: { kind: "exe", main: "src/main.0" } },
   dependencies: { "target-webbits": { path: "../program-graph-target-webbits", version: "0.1.0", targets: ["win32-x64.exe"] } },
-  repositoryGraph: { compilerInput: true },
 });
 await writeFile(`${programGraphTargetIncompatiblePackage}/src/main.0`, `pub fn main(world: World) -> Void raises {
     check world.out.write("target incompatible\\n")
@@ -3610,7 +3603,6 @@ await mkdir(programGraphTargetCapabilityPackage, { recursive: true });
 await writeZeroToml(programGraphTargetCapabilityPackage, {
   package: { name: "program-graph-target-capability", version: "0.1.0" },
   targets: { cli: { kind: "exe", main: "main.0" } },
-  repositoryGraph: { compilerInput: true },
 });
 await writeFile(`${programGraphTargetCapabilityPackage}/main.0`, `pub fn main(world: World) -> Void raises {
     let fs: Fs = std.fs.host()

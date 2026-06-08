@@ -159,7 +159,7 @@ await writeFile(
 );
 await writeFile(
   `${projectionDefaultRoot}/zero.toml`,
-  '[package]\nname = "projection-default"\nversion = "0.1.0"\n\n[targets.cli]\nkind = "exe"\nmain = "main.0"\n\n[repositoryGraph]\ncompilerInput = true\n',
+  '[package]\nname = "projection-default"\nversion = "0.1.0"\n\n[targets.cli]\nkind = "exe"\nmain = "main.0"\n',
 );
 await zeroRun(["import", projectionDefaultRoot]);
 const projectionDefaultStore = await readFile(`${projectionDefaultRoot}/zero.graph`);
