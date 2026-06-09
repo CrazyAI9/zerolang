@@ -4,7 +4,7 @@ import { execFile, spawn } from "node:child_process";
 import { createServer as createHttpServer, request as createHttpRequest } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import { connect as connectTcp, createServer as createTcpServer } from "node:net";
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { basename } from "node:path";
 import { promisify } from "node:util";
 
@@ -280,6 +280,7 @@ end
 }
 
 async function runHttpListenExample() {
+  const tempDirsBefore = new Set((await readdir("/tmp")).filter((entry) => entry.startsWith("zero-listen-")));
   let reserved3000 = null;
   let port3000Occupied = false;
   const devPortGuard = createTcpServer();
@@ -342,6 +343,10 @@ async function runHttpListenExample() {
   } finally {
     await stopZeroListener(child);
     if (reserved3000) await close(reserved3000);
+    const tempDirsAfter = (await readdir("/tmp")).filter((entry) => entry.startsWith("zero-listen-"));
+    for (const entry of tempDirsAfter) {
+      assert(tempDirsBefore.has(entry), `std.http.listen leaked temporary directory /tmp/${entry}`);
+    }
   }
 }
 

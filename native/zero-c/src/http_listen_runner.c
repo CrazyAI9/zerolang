@@ -1,8 +1,15 @@
 #ifndef _POSIX_C_SOURCE
 #define _POSIX_C_SOURCE 200809L
 #endif
+#ifndef _DEFAULT_SOURCE
+#define _DEFAULT_SOURCE
+#endif
+#ifndef _DARWIN_C_SOURCE
+#define _DARWIN_C_SOURCE
+#endif
 
 #include "http_listen_runner.h"
+#include "http_listen_temp.h"
 
 #include <errno.h>
 #include <inttypes.h>
@@ -45,6 +52,46 @@ int z_http_listen_run(const ZHttpListenRunConfig *config, ZDiag *diag) {
 #define Z_HTTP_LISTEN_RESPONSE_CAP 262144
 #define Z_HTTP_LISTEN_HANDLER_RESPONSE_CAP 4096
 #define Z_HTTP_LISTEN_CLIENT_TIMEOUT_SECONDS 2
+
+static volatile sig_atomic_t listen_stop_requested = 0;
+static volatile sig_atomic_t listen_server_fd_for_signal = -1;
+
+static void listen_diag(ZDiag *diag, const char *message, const char *expected, const char *actual, const char *help);
+
+static void listen_handle_stop_signal(int signum) {
+  (void)signum;
+  listen_stop_requested = 1;
+  sig_atomic_t fd = listen_server_fd_for_signal;
+  if (fd >= 0) {
+    listen_server_fd_for_signal = -1;
+    close((int)fd);
+  }
+}
+
+typedef struct {
+  struct sigaction old_term_action;
+  struct sigaction old_int_action;
+} ListenSignalState;
+
+static void listen_install_stop_handlers(int server_fd, ListenSignalState *state) {
+  if (!state) return;
+  struct sigaction stop_action;
+  memset(&stop_action, 0, sizeof(stop_action));
+  memset(state, 0, sizeof(*state));
+  sigemptyset(&stop_action.sa_mask);
+  stop_action.sa_handler = listen_handle_stop_signal;
+  listen_stop_requested = 0;
+  listen_server_fd_for_signal = server_fd;
+  (void)sigaction(SIGTERM, &stop_action, &state->old_term_action);
+  (void)sigaction(SIGINT, &stop_action, &state->old_int_action);
+}
+
+static void listen_restore_stop_handlers(const ListenSignalState *state) {
+  listen_server_fd_for_signal = -1;
+  if (!state) return;
+  (void)sigaction(SIGTERM, &state->old_term_action, NULL);
+  (void)sigaction(SIGINT, &state->old_int_action, NULL);
+}
 
 static void listen_diag(ZDiag *diag, const char *message, const char *expected, const char *actual, const char *help) {
   if (!diag) return;
@@ -93,20 +140,21 @@ static void argv_push(const char **argv, size_t cap, size_t *len, const char *va
   argv[*len] = NULL;
 }
 
-static bool build_handler_graph(const ZHttpListenRunConfig *config, char *handler_exe, size_t handler_exe_cap, ZDiag *diag) {
-  if (!config || !config->zero_exe || !config->input || !config->handler || !handler_exe || handler_exe_cap == 0) {
+static bool build_handler_graph(const ZHttpListenRunConfig *config, const char *temp_dir, char *handler_exe, size_t handler_exe_cap, ZDiag *diag) {
+  if (!config || !config->zero_exe || !config->input || !config->handler || !temp_dir || !handler_exe || handler_exe_cap == 0) {
     listen_diag(diag, "std.http.listen runner is missing required configuration", "zero executable, input graph, and handler", "missing configuration", NULL);
     return false;
   }
 
-  long pid = (long)getpid();
   char base_graph[PATH_MAX];
   char patch_path[PATH_MAX];
   char handler_graph[PATH_MAX];
-  snprintf(base_graph, sizeof(base_graph), "/tmp/zero-listen-%ld-base.graph", pid);
-  snprintf(patch_path, sizeof(patch_path), "/tmp/zero-listen-%ld-handler.patch", pid);
-  snprintf(handler_graph, sizeof(handler_graph), "/tmp/zero-listen-%ld-handler.graph", pid);
-  snprintf(handler_exe, handler_exe_cap, "/tmp/zero-listen-%ld-handler", pid);
+  if (!z_http_listen_temp_path(temp_dir, "base.graph", base_graph, sizeof(base_graph), diag) ||
+      !z_http_listen_temp_path(temp_dir, "handler.patch", patch_path, sizeof(patch_path), diag) ||
+      !z_http_listen_temp_path(temp_dir, "handler.graph", handler_graph, sizeof(handler_graph), diag) ||
+      !z_http_listen_temp_path(temp_dir, "handler", handler_exe, handler_exe_cap, diag)) {
+    return false;
+  }
 
   ZBuf patch;
   zbuf_init(&patch);
@@ -304,7 +352,7 @@ static bool read_http_request(int fd, char *buf, size_t cap, size_t *out_len, un
 
 static bool write_request_file(const char *path, const char *request, size_t request_len) {
   if (!path || !request) return false;
-  int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+  int fd = open(path, O_WRONLY | O_CREAT | O_EXCL, 0600);
   if (fd < 0) return false;
   size_t written = 0;
   while (written < request_len) {
@@ -347,14 +395,25 @@ static bool run_handler_capture(const char *handler_exe, const char *request_pat
 
   char *response = z_checked_malloc(Z_HTTP_LISTEN_RESPONSE_CAP + 1);
   size_t len = 0;
-  while (len < Z_HTTP_LISTEN_RESPONSE_CAP) {
-    ssize_t n = read(fds[0], response + len, Z_HTTP_LISTEN_RESPONSE_CAP - len);
+  bool overflow = false;
+  char chunk[4096];
+  while (true) {
+    ssize_t n = read(fds[0], chunk, sizeof(chunk));
     if (n < 0) {
       if (errno == EINTR) continue;
       break;
     }
     if (n == 0) break;
-    len += (size_t)n;
+    size_t count = (size_t)n;
+    if (count > Z_HTTP_LISTEN_RESPONSE_CAP - len) {
+      size_t remaining = Z_HTTP_LISTEN_RESPONSE_CAP - len;
+      if (remaining > 0) memcpy(response + len, chunk, remaining);
+      len = Z_HTTP_LISTEN_RESPONSE_CAP;
+      overflow = true;
+    } else {
+      memcpy(response + len, chunk, count);
+      len += count;
+    }
   }
   close(fds[0]);
   response[len] = '\0';
@@ -365,7 +424,7 @@ static bool run_handler_capture(const char *handler_exe, const char *request_pat
     free(response);
     return false;
   }
-  bool ok = len > 0 && ((WIFEXITED(status) && WEXITSTATUS(status) == 0) || response[0] == 'H');
+  bool ok = !overflow && len > 0 && ((WIFEXITED(status) && WEXITSTATUS(status) == 0) || response[0] == 'H');
   if (!ok) {
     free(response);
     return false;
@@ -385,24 +444,16 @@ static void send_json_error(int fd, unsigned status, const char *reason, const c
   if (len > 0) (void)send_all(fd, response, (size_t)len);
 }
 
-int z_http_listen_run(const ZHttpListenRunConfig *config, ZDiag *diag) {
-  if (!config || config->port == 0 || !config->handler || !config->handler[0]) {
-    listen_diag(diag, "std.http.listen requires a port and handler", "literal port and same-module handle function", "missing listener configuration", NULL);
-    return 1;
-  }
-
-  char handler_exe[PATH_MAX];
-  if (!build_handler_graph(config, handler_exe, sizeof(handler_exe), diag)) return 1;
-  signal(SIGPIPE, SIG_IGN);
+static int listen_open_server_socket(const ZHttpListenRunConfig *config, uint16_t *out_bound_port, ZDiag *diag) {
+  if (out_bound_port) *out_bound_port = 0;
   int server_fd = -1;
-  uint16_t bound_port = 0;
   unsigned attempts = config->auto_increment_port ? (65535u - (unsigned)config->port + 1u) : 1u;
   for (unsigned attempt = 0; attempt < attempts; attempt++) {
     uint16_t candidate = (uint16_t)((unsigned)config->port + attempt);
     server_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (server_fd < 0) {
       listen_diag(diag, "std.http.listen could not open a TCP socket", "host socket", strerror(errno), NULL);
-      return 1;
+      return -1;
     }
 
     struct sockaddr_in addr;
@@ -411,36 +462,63 @@ int z_http_listen_run(const ZHttpListenRunConfig *config, ZDiag *diag) {
     if (inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr) != 1) {
       listen_diag(diag, "std.http.listen could not configure loopback address", "127.0.0.1 address", "inet_pton failed", NULL);
       close(server_fd);
-      return 1;
+      return -1;
     }
     addr.sin_port = htons(candidate);
     if (bind(server_fd, (struct sockaddr *)&addr, sizeof(addr)) == 0) {
-      bound_port = candidate;
-      break;
+      if (listen(server_fd, 32) == 0) {
+        if (out_bound_port) *out_bound_port = candidate;
+        return server_fd;
+      }
+      listen_diag(diag, "std.http.listen could not start listening", "listening TCP socket", strerror(errno), NULL);
+      close(server_fd);
+      return -1;
     }
+
     int bind_errno = errno;
     close(server_fd);
     server_fd = -1;
     if (!config->auto_increment_port || bind_errno != EADDRINUSE) {
       listen_diag(diag, "std.http.listen could not bind the requested port", "available loopback TCP port", strerror(bind_errno), config->auto_increment_port ? "choose another start port or stop the process already using it" : "omit the port to auto-select the next free dev port, or stop the process already using it");
-      return 1;
+      return -1;
     }
   }
-  if (server_fd < 0 || bound_port == 0) {
-    listen_diag(diag, "std.http.listen could not find a free loopback port", "available loopback TCP port at or above the requested port", "all candidate ports were busy", "pass an explicit free port");
-    return 1;
-  }
-  if (listen(server_fd, 32) != 0) {
-    listen_diag(diag, "std.http.listen could not start listening", "listening TCP socket", strerror(errno), NULL);
-    close(server_fd);
+  listen_diag(diag, "std.http.listen could not find a free loopback port", "available loopback TCP port at or above the requested port", "all candidate ports were busy", "pass an explicit free port");
+  return -1;
+}
+
+int z_http_listen_run(const ZHttpListenRunConfig *config, ZDiag *diag) {
+  if (!config || config->port == 0 || !config->handler || !config->handler[0]) {
+    listen_diag(diag, "std.http.listen requires a port and handler", "literal port and same-module handle function", "missing listener configuration", NULL);
     return 1;
   }
 
+  char handler_exe[PATH_MAX];
+  char temp_dir[PATH_MAX];
+  if (!z_http_listen_create_temp_dir(temp_dir, sizeof(temp_dir), diag)) return 1;
+  if (!build_handler_graph(config, temp_dir, handler_exe, sizeof(handler_exe), diag)) {
+    z_http_listen_cleanup_temp_dir(temp_dir);
+    return 1;
+  }
+  signal(SIGPIPE, SIG_IGN);
+  uint16_t bound_port = 0;
+  int server_fd = listen_open_server_socket(config, &bound_port, diag);
+  if (server_fd < 0) {
+    z_http_listen_cleanup_temp_dir(temp_dir);
+    return 1;
+  }
+
+  ListenSignalState signal_state;
+  listen_install_stop_handlers(server_fd, &signal_state);
   fprintf(stderr, "listening on http://127.0.0.1:%u\n", (unsigned)bound_port);
   uint64_t request_id = 0;
   for (;;) {
     int client_fd = accept(server_fd, NULL, NULL);
     if (client_fd < 0) {
+      if (listen_stop_requested) {
+        server_fd = -1;
+        break;
+      }
       if (errno == EINTR) continue;
       perror("zero listen accept");
       break;
@@ -459,7 +537,13 @@ int z_http_listen_run(const ZHttpListenRunConfig *config, ZDiag *diag) {
     request[request_len] = '\0';
     char request_path[PATH_MAX];
     request_id++;
-    snprintf(request_path, sizeof(request_path), "/tmp/zero-listen-%ld-%" PRIu64 "-request.http", (long)getpid(), request_id);
+    char request_leaf[64];
+    snprintf(request_leaf, sizeof(request_leaf), "request-%" PRIu64 ".http", request_id);
+    if (!z_http_listen_temp_path(temp_dir, request_leaf, request_path, sizeof(request_path), NULL)) {
+      send_json_error(client_fd, 500, "Internal Server Error", "{\"error\":\"request_spool_failed\"}");
+      close(client_fd);
+      continue;
+    }
     if (!write_request_file(request_path, request, request_len)) {
       unlink(request_path);
       send_json_error(client_fd, 500, "Internal Server Error", "{\"error\":\"request_spool_failed\"}");
@@ -478,7 +562,9 @@ int z_http_listen_run(const ZHttpListenRunConfig *config, ZDiag *diag) {
     close(client_fd);
   }
 
-  close(server_fd);
+  listen_restore_stop_handlers(&signal_state);
+  if (server_fd >= 0) close(server_fd);
+  z_http_listen_cleanup_temp_dir(temp_dir);
   return 1;
 }
 
