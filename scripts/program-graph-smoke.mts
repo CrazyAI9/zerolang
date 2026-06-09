@@ -71,6 +71,19 @@ async function zeroRun(args: string[]) {
   return execFileAsync(zero, args, { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
 }
 
+async function zeroRunMaybe(args: string[]) {
+  try {
+    const result = await zeroRun(args);
+    return { code: 0, stdout: result.stdout, stderr: result.stderr };
+  } catch (error: any) {
+    return {
+      code: error.code ?? error.status ?? 1,
+      stdout: error.stdout ?? "",
+      stderr: error.stderr ?? "",
+    };
+  }
+}
+
 async function findCheckedInGraphStores(root: string, stores: string[] = []) {
   if (!existsSync(root)) return stores;
   for (const entry of await readdir(root, { withFileTypes: true })) {
@@ -115,6 +128,55 @@ function projectionHasGraphAuthority(path: string) {
 
 function assertBinaryGraphStore(path: string, bytes: Buffer) {
   assert.equal(bytes.subarray(0, 8).toString("binary"), "ZRGBIN1\0", `${path} should be a binary repository graph store`);
+}
+
+const BINARY_NODE_COUNT_OFFSET = 40;
+const BINARY_EDGE_COUNT_OFFSET = 48;
+const BINARY_STRING_BYTES_OFFSET = 64;
+const BINARY_MODULE_IDENTITY_REF_OFFSET = 72;
+
+function corruptBinaryStoreModuleIdentity(bytes: Buffer) {
+  const copy = Buffer.from(bytes);
+  const stringBytes = Number(copy.readBigUInt64LE(BINARY_STRING_BYTES_OFFSET));
+  const moduleIdentityOffset = Number(copy.readBigUInt64LE(BINARY_MODULE_IDENTITY_REF_OFFSET));
+  const moduleIdentityLen = Number(copy.readBigUInt64LE(BINARY_MODULE_IDENTITY_REF_OFFSET + 8));
+  assert(stringBytes <= copy.length, "binary store fixture has invalid string table size");
+  assert(moduleIdentityLen > 2, "binary store fixture module identity is too short to corrupt");
+  const stringsOffset = copy.length - stringBytes;
+  assert(moduleIdentityOffset + 1 < stringBytes, "binary store fixture module identity offset is out of range");
+  copy[stringsOffset + moduleIdentityOffset + 1] = 0;
+  return copy;
+}
+
+function corruptBinaryStoreNodeCount(bytes: Buffer) {
+  const copy = Buffer.from(bytes);
+  copy.writeBigUInt64LE(1_000_001n, BINARY_NODE_COUNT_OFFSET);
+  return copy;
+}
+
+function corruptBinaryStoreEdgeCount(bytes: Buffer) {
+  const copy = Buffer.from(bytes);
+  copy.writeBigUInt64LE(4_000_001n, BINARY_EDGE_COUNT_OFFSET);
+  return copy;
+}
+
+async function assertInvalidBinaryStoreRejected(root: string, bytes: Buffer, label: string) {
+  await rm(root, { recursive: true, force: true });
+  await mkdir(root, { recursive: true });
+  await writeFile(
+    `${root}/zero.toml`,
+    '[package]\nname = "corrupt-binary-store"\nversion = "0.1.0"\n\n[targets.cli]\nkind = "exe"\nmain = "main.0"\n',
+  );
+  await writeFile(`${root}/main.0`, "pub fn main() -> i32 { return 0 }\n");
+  await writeFile(`${root}/zero.graph`, bytes);
+  const status = await zeroRunMaybe(["status", "--json", root]);
+  assert.notEqual(status.code, 0, `${label}: corrupt binary store status should fail`);
+  const body = JSON.parse(status.stdout);
+  assert.equal(body.repositoryGraph.storePresent, true);
+  assert.equal(body.repositoryGraph.storeValid, false);
+  assert.equal(body.repositoryGraph.projectionState, "store-invalid");
+  assert.equal(body.diagnostics[0].code, "RGP003");
+  assert.match(body.diagnostics[0].message, /repository graph store is invalid|invalid repository graph store|invalid binary repository graph store/);
 }
 
 const checkedInStores = [
@@ -184,6 +246,21 @@ assert.equal(binaryStore.subarray(0, 8).toString("binary"), "ZRGBIN1\0");
 await zeroRun(["patch", binaryRoot, "--op", "addMain", "--op", 'addCheckWrite fn="main" text="hello binary\\n"']);
 binaryStore = await readFile(`${binaryRoot}/zero.graph`);
 assert.equal(binaryStore.subarray(0, 8).toString("binary"), "ZRGBIN1\0");
+await assertInvalidBinaryStoreRejected(
+  `/tmp/zero-program-graph-binary-corrupt-nul-${process.pid}`,
+  corruptBinaryStoreModuleIdentity(binaryStore),
+  "embedded nul",
+);
+await assertInvalidBinaryStoreRejected(
+  `/tmp/zero-program-graph-binary-corrupt-count-${process.pid}`,
+  corruptBinaryStoreNodeCount(binaryStore),
+  "node count",
+);
+await assertInvalidBinaryStoreRejected(
+  `/tmp/zero-program-graph-binary-corrupt-edge-count-${process.pid}`,
+  corruptBinaryStoreEdgeCount(binaryStore),
+  "edge count",
+);
 
 const binaryStatus = JSON.parse((await zeroRun(["status", "--json", binaryRoot])).stdout);
 assert.equal(binaryStatus.store.encoding, "binary");

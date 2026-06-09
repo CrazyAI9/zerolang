@@ -162,7 +162,7 @@ const fileBudgets = {
   "native/zero-c/src/program_graph_repository_merge.h": { maxLines: 35, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_repository_repair.c": { maxLines: 75, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_repository_repair.h": { maxLines: 20, maxStrcmpCalls: 0 },
-  "native/zero-c/src/program_graph_store_binary.c": { maxLines: 706, maxStrcmpCalls: 3 },
+  "native/zero-c/src/program_graph_store_binary.c": { maxLines: 730, maxStrcmpCalls: 3 },
   "native/zero-c/src/program_graph_store_binary.h": { maxLines: 10, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_store.c": { maxLines: 1300, maxStrcmpCalls: 6 },
   "native/zero-c/src/program_graph_store_prune.c": { maxLines: 168, maxStrcmpCalls: 1 },
@@ -997,6 +997,7 @@ function budgetViolations(files, allLargeFunctions, stdlib, backendFormats, prog
       !programGraph.repositoryStoreMetadataSerialized ||
       !programGraph.repositoryStoreMetadataValidated ||
       !programGraph.repositoryStoreReadHardening ||
+      !programGraph.repositoryBinaryStoreReadHardening ||
       !programGraph.graphPatchFileReadHardening ||
       !programGraph.repositoryStatusCompilerStoreFacts ||
       !programGraph.repositoryStatusProjectionValidity) {
@@ -1466,6 +1467,7 @@ const programGraphCommandRaw = texts.get("native/zero-c/src/program_graph_comman
 const programGraphCommandHeaderRaw = texts.get("native/zero-c/src/program_graph_command.h") ?? "";
 const programGraphStoreRaw = texts.get("native/zero-c/src/program_graph_store.c") ?? "";
 const programGraphStoreHeaderRaw = texts.get("native/zero-c/src/program_graph_store.h") ?? "";
+const programGraphStoreBinaryRaw = texts.get("native/zero-c/src/program_graph_store_binary.c") ?? "";
 const programGraphStoreTablesRaw = texts.get("native/zero-c/src/program_graph_store_tables.c") ?? "";
 const programGraphStoreReadBody = cCodeText(cBlock(programGraphStoreRaw, "static bool store_read_file_bytes"));
 const programGraphPatchRaw = texts.get("native/zero-c/src/program_graph_patch.c") ?? "";
@@ -1478,6 +1480,7 @@ const programGraphTestRaw = texts.get("native/zero-c/src/program_graph_test.c") 
 const programGraphCommandSource = cCodeText(programGraphCommandRaw);
 const programGraphTestSource = cCodeText(programGraphTestRaw);
 const programGraphStoreSource = cCodeText(programGraphStoreRaw);
+const programGraphStoreBinarySource = cCodeText(programGraphStoreBinaryRaw);
 const programGraphStoreTablesSource = cCodeText(programGraphStoreTablesRaw);
 const programGraphRepositorySource = cCodeText(programGraphRepositoryRaw);
 const programGraphRepositoryInputSource = cCodeText(programGraphRepositoryInputRaw);
@@ -2042,6 +2045,14 @@ const programGraph = {
     /fread\s*\(\s*data\s*,\s*1\s*,\s*\(size_t\)\s*size\s*,\s*file\s*\)\s*!=\s*\(size_t\)\s*size/.test(programGraphStoreReadBody) &&
     /fclose\s*\(\s*file\s*\)\s*!=\s*0/.test(programGraphStoreReadBody) &&
     !/\brewind\s*\(\s*file\s*\)\s*;/.test(programGraphStoreReadBody),
+  repositoryBinaryStoreReadHardening: /STORE_BINARY_MAX_SOURCE_COUNT/.test(programGraphStoreBinaryRaw) &&
+    /STORE_BINARY_MAX_PROJECTION_COUNT/.test(programGraphStoreBinaryRaw) &&
+    /STORE_BINARY_MAX_NODE_COUNT/.test(programGraphStoreBinaryRaw) &&
+    /STORE_BINARY_MAX_EDGE_COUNT/.test(programGraphStoreBinaryRaw) &&
+    /STORE_BINARY_MAX_STRING_BYTES/.test(programGraphStoreBinaryRaw) &&
+    /memchr\s*\(\s*start\s*,\s*0\s*,\s*len\s*\)\s*!=\s*NULL/.test(programGraphStoreBinarySource) &&
+    /binary_header_counts_are_reasonable\s*\(/.test(programGraphStoreBinarySource) &&
+    /binary_header_counts_are_reasonable\s*\(\s*header\s*\)\s*&&\s*binary_header_records_fit/.test(programGraphStoreBinarySource),
   graphPatchFileReadHardening: /#include\s+<errno\.h>/.test(programGraphPatchRaw) &&
     /#include\s+<stdint\.h>/.test(programGraphPatchRaw) &&
     /fseek\s*\(\s*file\s*,\s*0\s*,\s*SEEK_END\s*\)\s*!=\s*0/.test(programGraphPatchReadBody) &&
