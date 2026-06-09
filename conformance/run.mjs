@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import { access, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { createAggregateAssert, describeFailure, finishAggregateAssert } from "../scripts/aggregate-assert.mjs";
 
@@ -1025,6 +1025,18 @@ assert.equal(compilerMetricsBody.files["native/zero-c/src/main.c"].shellCalls, 0
 for (const [path, metrics] of Object.entries(compilerMetricsBody.files)) {
   assert.equal(metrics.shellCalls, 0, `${path} should not introduce shell execution calls`);
 }
+
+const relativeToolDir = `${outDir}/relative-tools`;
+await mkdir(relativeToolDir, { recursive: true });
+await writeFile(`${relativeToolDir}/cc`, "#!/bin/sh\nprintf 'fake relative cc\\n'\n");
+await chmod(`${relativeToolDir}/cc`, 0o755);
+const relativePathDoctor = await execFileAsync(zero, ["doctor", "--json"], { env: { ...process.env, PATH: relativeToolDir } }).catch((error) => error);
+assert.notEqual(relativePathDoctor.code, 0);
+const relativePathDoctorBody = JSON.parse(relativePathDoctor.stdout);
+const relativePathNativeCompiler = relativePathDoctorBody.checks.find((check) => check.name === "native-c-compiler");
+assert.equal(relativePathNativeCompiler.status, "error");
+assert.match(relativePathNativeCompiler.message, /no native C compiler found/);
+
 assert(Array.isArray(compilerMetricsBody.largeFunctions));
 assert(compilerMetricsBody.stdlib.mainHelperCount > 0);
 assert.equal(compilerMetricsBody.stdlib.mainHelperCount, compilerMetricsBody.stdlib.checkerReturnCount);

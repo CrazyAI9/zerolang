@@ -11,10 +11,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
-#if !defined(_WIN32)
-#include <sys/wait.h>
-#include <unistd.h>
-#endif
 
 static void z_allocation_fatal(const char *operation) {
   fprintf(stderr, "zero: fatal: out of memory while %s\n", operation ? operation : "allocating memory");
@@ -1144,36 +1140,8 @@ static bool command_name_safe(const char *command) {
   return true;
 }
 
-static bool command_path_executable(const char *path) {
-  struct stat st;
-#if defined(_WIN32)
-  return path && path[0] && stat(path, &st) == 0 && S_ISREG(st.st_mode);
-#else
-  return path && path[0] && stat(path, &st) == 0 && S_ISREG(st.st_mode) && access(path, X_OK) == 0;
-#endif
-}
-
 static bool command_exists(const char *command) {
-  if (!command_name_safe(command)) return false;
-  const char *path = getenv("PATH");
-  if (!path || !path[0]) return false;
-  const char *cursor = path;
-  while (true) {
-    const char *end = strchr(cursor, ':');
-    size_t dir_len = end ? (size_t)(end - cursor) : strlen(cursor);
-    ZBuf candidate;
-    zbuf_init(&candidate);
-    if (dir_len == 0) zbuf_append(&candidate, ".");
-    else for (size_t i = 0; i < dir_len; i++) zbuf_append_char(&candidate, cursor[i]);
-    if (candidate.len > 0 && candidate.data[candidate.len - 1] != '/' && candidate.data[candidate.len - 1] != '\\') zbuf_append_char(&candidate, '/');
-    zbuf_append(&candidate, command);
-    bool ok = command_path_executable(candidate.data);
-    zbuf_free(&candidate);
-    if (ok) return true;
-    if (!end) break;
-    cursor = end + 1;
-  }
-  return false;
+  return z_process_command_available(command);
 }
 
 bool z_toolchain_compiler_override_safe(const char *compiler) {
@@ -1187,26 +1155,12 @@ bool z_toolchain_compiler_override_safe(const char *compiler) {
 
 static bool run_tool_silent(const char *tool, const char *arg) {
   if (!command_name_safe(tool) || !arg || !arg[0]) return false;
-#if defined(_WIN32)
-  (void)tool;
-  (void)arg;
-  return false;
-#else
-  pid_t pid = fork();
-  if (pid < 0) return false;
-  if (pid == 0) {
-    FILE *null_out = freopen("/dev/null", "w", stdout);
-    FILE *null_err = freopen("/dev/null", "w", stderr);
-    (void)null_out;
-    (void)null_err;
-    char *const argv[] = {(char *)tool, (char *)arg, NULL};
-    execvp(tool, argv);
-    _exit(127);
-  }
-  int status = 0;
-  while (waitpid(pid, &status, 0) < 0) if (errno != EINTR) return false;
-  return WIFEXITED(status) && WEXITSTATUS(status) == 0;
-#endif
+  ZProcessArgv argv;
+  z_process_argv_init(&argv);
+  bool ok = z_process_argv_push(&argv, tool) && z_process_argv_push(&argv, arg);
+  if (ok) ok = z_process_run_argv(&argv, true, true, false);
+  z_process_argv_free(&argv);
+  return ok;
 }
 
 static bool remove_existing_tool_output(const char *path) {

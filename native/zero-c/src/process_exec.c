@@ -3,6 +3,7 @@
 #endif
 
 #include "process_exec.h"
+#include "process_path.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -93,14 +94,21 @@ bool z_process_ensure_dir(const char *path) {
 
 bool z_process_run_argv(const ZProcessArgv *argv, bool suppress_stdout, bool suppress_stderr, bool uses_zig_env) {
   if (!argv || argv->len == 0 || !argv->items || !argv->items[0]) return false;
+  char *executable = z_process_resolve_executable(argv->items[0]);
+  if (!executable) return false;
 #if defined(_WIN32)
   (void)suppress_stdout;
   (void)suppress_stderr;
   (void)uses_zig_env;
-  return _spawnvp(_P_WAIT, argv->items[0], (const char *const *)argv->items) == 0;
+  int rc = _spawnv(_P_WAIT, executable, (const char *const *)argv->items);
+  free(executable);
+  return rc == 0;
 #else
   pid_t pid = fork();
-  if (pid < 0) return false;
+  if (pid < 0) {
+    free(executable);
+    return false;
+  }
   if (pid == 0) {
     if (uses_zig_env) {
       setenv("ZIG_GLOBAL_CACHE_DIR", ".zero/zig-global-cache", 1);
@@ -114,79 +122,40 @@ bool z_process_run_argv(const ZProcessArgv *argv, bool suppress_stdout, bool sup
       FILE *null_err = freopen("/dev/null", "w", stderr);
       (void)null_err;
     }
-    execvp(argv->items[0], argv->items);
+    execv(executable, argv->items);
     _exit(127);
   }
   int status = 0;
-  while (waitpid(pid, &status, 0) < 0) if (errno != EINTR) return false;
+  while (waitpid(pid, &status, 0) < 0) {
+    if (errno != EINTR) {
+      free(executable);
+      return false;
+    }
+  }
+  free(executable);
   return WIFEXITED(status) && WEXITSTATUS(status) == 0;
 #endif
 }
 
-static bool process_command_name_safe(const char *name) {
-  if (!name || !name[0]) return false;
-  for (size_t i = 0; name[i]; i++) {
-    unsigned char ch = (unsigned char)name[i];
-    if (!(isalnum(ch) || ch == '_' || ch == '-' || ch == '.' || ch == '+')) return false;
-  }
-  return true;
-}
-
-static bool process_path_executable(const char *path) {
-  struct stat st;
-#if defined(_WIN32)
-  return path && path[0] && stat(path, &st) == 0 && S_ISREG(st.st_mode);
-#else
-  return path && path[0] && stat(path, &st) == 0 && S_ISREG(st.st_mode) && access(path, X_OK) == 0;
-#endif
-}
-
-bool z_process_command_available(const char *name) {
-  if (!process_command_name_safe(name)) return false;
-  const char *path = getenv("PATH");
-  if (!path || !path[0]) return false;
-#if defined(_WIN32)
-  const char delimiter = ';';
-#else
-  const char delimiter = ':';
-#endif
-  const char *cursor = path;
-  while (true) {
-    const char *end = strchr(cursor, delimiter);
-    size_t dir_len = end ? (size_t)(end - cursor) : strlen(cursor);
-    ZBuf candidate;
-    zbuf_init(&candidate);
-    if (dir_len == 0) zbuf_append(&candidate, ".");
-    else for (size_t i = 0; i < dir_len; i++) zbuf_append_char(&candidate, cursor[i]);
-    if (candidate.len > 0 && candidate.data[candidate.len - 1] != '/' && candidate.data[candidate.len - 1] != '\\') zbuf_append_char(&candidate, '/');
-    zbuf_append(&candidate, name);
-    bool ok = process_path_executable(candidate.data);
-#if defined(_WIN32)
-    if (!ok) {
-      zbuf_append(&candidate, ".exe");
-      ok = process_path_executable(candidate.data);
-    }
-#endif
-    zbuf_free(&candidate);
-    if (ok) return true;
-    if (!end) break;
-    cursor = end + 1;
-  }
-  return false;
-}
-
 char *z_process_first_stdout_line(const char *const *argv, bool suppress_stderr) {
-  if (!argv || !argv[0] || !process_command_name_safe(argv[0])) return z_strdup("");
+  if (!argv || !argv[0]) return z_strdup("");
+  char *executable = z_process_resolve_executable(argv[0]);
+  if (!executable) return z_strdup("");
 #if defined(_WIN32)
   (void)suppress_stderr;
+  free(executable);
   return z_strdup("");
 #else
   int pipe_fd[2];
-  if (pipe(pipe_fd) != 0) return z_strdup("");
+  if (pipe(pipe_fd) != 0) {
+    free(executable);
+    return z_strdup("");
+  }
   pid_t pid = fork();
   if (pid < 0) {
     close(pipe_fd[0]);
     close(pipe_fd[1]);
+    free(executable);
     return z_strdup("");
   }
   if (pid == 0) {
@@ -197,17 +166,29 @@ char *z_process_first_stdout_line(const char *const *argv, bool suppress_stderr)
       FILE *null_err = freopen("/dev/null", "w", stderr);
       (void)null_err;
     }
-    execvp(argv[0], (char *const *)argv);
+    execv(executable, (char *const *)argv);
     _exit(127);
   }
+  free(executable);
   close(pipe_fd[1]);
   ZBuf line;
   zbuf_init(&line);
-  char ch = 0;
-  while (read(pipe_fd[0], &ch, 1) == 1) {
-    if (ch == '\n' || ch == '\r') break;
-    zbuf_append_char(&line, ch);
-    if (line.len >= 255) break;
+  bool capturing = true;
+  char bytes[256];
+  while (true) {
+    ssize_t n = read(pipe_fd[0], bytes, sizeof(bytes));
+    if (n < 0) {
+      if (errno == EINTR) continue;
+      break;
+    }
+    if (n == 0) break;
+    for (ssize_t i = 0; capturing && i < n; i++) {
+      if (bytes[i] == '\n' || bytes[i] == '\r') {
+        capturing = false;
+      } else if (line.len < 255) {
+        zbuf_append_char(&line, bytes[i]);
+      }
+    }
   }
   close(pipe_fd[0]);
   int status = 0;
