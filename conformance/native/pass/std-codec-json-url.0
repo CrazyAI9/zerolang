@@ -297,6 +297,17 @@ pub fn main(world: World) -> Void raises {
     if !object_string.has || !std.mem.eql(object_string.value, "{\"name\":\"zero\"}") || !object_u32.has || !std.mem.eql(object_u32.value, "{\"count\":42}") || !object_bool.has || !std.mem.eql(object_bool.value, "{\"ok\":true}") || !raw_user_field.has || !raw_tags_field.has || !object_raw.has || !std.mem.eql(object_raw.value, "{\"user\":{\"name\":\"zero\"},\"tags\":[\"api\",true]}") || !name_field.has || !role_field.has || !object_strings.has || !std.mem.eql(object_strings.value, "{\"name\":\"zero\\nlang\",\"role\":\"agent\"}") || !object_strings_direct.has || !std.mem.eql(object_strings_direct.value, "{\"name\":\"zero\\nlang\",\"role\":\"agent\"}") || !name_plain_field.has || !count_json_field.has || !ok_field.has || !object_string_u32.has || !std.mem.eql(object_string_u32.value, "{\"name\":\"zero\",\"count\":42}") || !object_string_u32_direct.has || !std.mem.eql(object_string_u32_direct.value, "{\"name\":\"zero\",\"count\":42}") || !object_string_bool.has || !std.mem.eql(object_string_bool.value, "{\"name\":\"zero\",\"ok\":true}") || !object_string_bool_direct.has || !std.mem.eql(object_string_bool_direct.value, "{\"name\":\"zero\",\"ok\":true}") || !object_u32_bool.has || !std.mem.eql(object_u32_bool.value, "{\"count\":42,\"ok\":true}") || !object_u32_bool_direct.has || !std.mem.eql(object_u32_bool_direct.value, "{\"count\":42,\"ok\":true}") || !object_bool_u32_direct.has || !std.mem.eql(object_bool_u32_direct.value, "{\"ok\":true,\"count\":42}") || object_bad_raw.has || object_small.has || object2_direct_small.has {
         ok = false
     }
+    var array_strings_buf: [32]u8 = [0_u8; 32]
+    let array_strings: Maybe<Span<u8>> = std.json.writeArray2Strings(array_strings_buf, "zero\nlang", "agent")
+    var array_u32_buf: [16]u8 = [0_u8; 16]
+    let array_u32: Maybe<Span<u8>> = std.json.writeArray2U32(array_u32_buf, 7_u32, 42_u32)
+    var array_bools_buf: [16]u8 = [0_u8; 16]
+    let array_bools: Maybe<Span<u8>> = std.json.writeArray2Bools(array_bools_buf, true, false)
+    var array_small_buf: [4]u8 = [0_u8; 4]
+    let array_small: Maybe<Span<u8>> = std.json.writeArray2Strings(array_small_buf, "zero", "agent")
+    if !array_strings.has || !std.mem.eql(array_strings.value, "[\"zero\\nlang\",\"agent\"]") || !array_u32.has || !std.mem.eql(array_u32.value, "[7,42]") || !array_bools.has || !std.mem.eql(array_bools.value, "[true,false]") || array_small.has {
+        ok = false
+    }
     if object_raw.has && std.json.validateError(object_raw.value) != std.json.errorNone() {
         ok = false
     }

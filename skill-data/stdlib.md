@@ -536,6 +536,9 @@ writeObject2Fields(arg0: MutSpan<u8>, arg1: Span<u8>, arg2: Span<u8>) -> Maybe<S
 writeObject2StringField(arg0: MutSpan<u8>, arg1: Span<u8>, arg2: Span<u8>, arg3: Span<u8>) -> Maybe<Span<u8>>
 writeObject2U32Field(arg0: MutSpan<u8>, arg1: Span<u8>, arg2: u32, arg3: Span<u8>) -> Maybe<Span<u8>>
 writeObject2BoolField(arg0: MutSpan<u8>, arg1: Span<u8>, arg2: Bool, arg3: Span<u8>) -> Maybe<Span<u8>>
+writeArray2Strings(arg0: MutSpan<u8>, arg1: Span<u8>, arg2: Span<u8>) -> Maybe<Span<u8>>
+writeArray2U32(arg0: MutSpan<u8>, arg1: u32, arg2: u32) -> Maybe<Span<u8>>
+writeArray2Bools(arg0: MutSpan<u8>, arg1: Bool, arg2: Bool) -> Maybe<Span<u8>>
 ```
 
 ### std.toml
