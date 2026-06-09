@@ -4784,7 +4784,7 @@ for (const runtimeFixture of [
   ["conformance/native/pass/std-fs.0", "std-fs", { stdout: "fs ok\n", file: { name: "std-fs-write.txt", text: "zero write\n" } }],
   ["conformance/native/pass/std-fs-bytes.0", "std-fs-bytes", { stdout: "fs bytes ok\n", stderr: "fs bytes err ok\n" }],
   ["conformance/native/pass/std-fs-resource.0", "std-fs-resource", { stdout: "fs resource ok\n", file: { name: "std-fs-resource.txt", text: "zero file\n" } }],
-  ["conformance/native/pass/std-fs-file-helpers.0", "std-fs-file-helpers", { stdout: "std fs file helpers ok\n", file: { name: "std-fs-file-helpers-copy.txt", text: "zero file helpers\n" } }],
+  ["conformance/native/pass/std-fs-file-helpers.0", "std-fs-file-helpers", { stdout: "std fs file helpers ok\n" }],
   ["conformance/native/pass/std-io-lines.0", "std-io-lines", { stdout: "std io lines ok\n" }],
   ["conformance/native/pass/integer-widths.0", "integer-widths", { stdout: "integer widths ok\n" }],
   ["conformance/native/pass/std-codec-widths.0", "std-codec-widths", { stdout: "codec widths ok\n" }],

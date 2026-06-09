@@ -269,6 +269,11 @@ toUpper(arg0: u8) -> u8
 
 ```text
 argEquals(arg0: usize, arg1: String) -> Bool
+command() -> Maybe<String>
+commandOr(arg0: String) -> String
+commandEquals(arg0: String) -> Bool
+argOr(arg0: usize, arg1: String) -> String
+argU32Or(arg0: usize, arg1: u32) -> u32
 hasFlag(arg0: String) -> Bool
 optionValue(arg0: String) -> Maybe<String>
 optionValueOr(arg0: String, arg1: String) -> String
@@ -435,6 +440,7 @@ writeRequest(arg0: MutSpan<u8>, arg1: Span<u8>, arg2: Span<u8>) -> Maybe<Span<u8
 writeJsonRequest(arg0: MutSpan<u8>, arg1: Span<u8>, arg2: Span<u8>) -> Maybe<Span<u8>>
 writeResponse(arg0: MutSpan<u8>, arg1: u16, arg2: Span<u8>) -> Maybe<Span<u8>>
 writeJsonResponse(arg0: MutSpan<u8>, arg1: u16, arg2: Span<u8>) -> Maybe<Span<u8>>
+writeJsonError(arg0: MutSpan<u8>, arg1: u16, arg2: Span<u8>) -> Maybe<Span<u8>>
 writeCorsPreflight(arg0: MutSpan<u8>, arg1: Span<u8>, arg2: Span<u8>, arg3: Span<u8>) -> Maybe<Span<u8>>
 writeCorsJsonResponse(arg0: MutSpan<u8>, arg1: Span<u8>, arg2: Span<u8>, arg3: Span<u8>) -> Maybe<Span<u8>>
 writeJsonOk(arg0: MutSpan<u8>, arg1: Span<u8>) -> Maybe<Span<u8>>
@@ -831,15 +837,17 @@ pub fn main(world: World) -> Void raises {
 }
 ```
 
-Use the CLI helpers for exact flag and option conventions before writing a
-custom argument loop:
+Use the CLI helpers for command, fallback, exact flag, and option conventions
+before writing a custom argument loop:
 
 ```zero
 pub fn main(world: World) -> Void raises {
-    let name: String = std.cli.optionValueOr("--name", "zero")
-    let count: Maybe<u32> = std.cli.optionU32("--count")
-    if std.cli.hasFlag("--json") && count.has {
+    let command: String = std.cli.commandOr("help")
+    let name: String = std.cli.argOr(2, "world")
+    if std.mem.eql(command, "hello") {
+        check world.out.write("hello ")
         check world.out.write(name)
+        check world.out.write("\n")
     }
 }
 ```
@@ -873,7 +881,11 @@ For API-style handlers, parse the request envelope with route helpers such as
 `std.http.requestHasJsonContentType`, and `std.http.requestJsonBodyWithin`.
 Use path segment helpers for resource routes such as `/users/7`; they borrow
 zero-based, non-empty segments and ignore leading, trailing, or repeated `/`.
-Prefer the status-specific JSON writers for common responses:
+Prefer the status-specific JSON writers for common success responses and
+`std.http.writeJsonError(response, status, code)` for conventional
+`{"error":"code"}` failures. `writeJsonError` validates the code before writing
+JSON, so agents do not need to hand-build simple error bodies. The full custom
+body writers remain available:
 `std.http.writeJsonOk`, `std.http.writeJsonCreated`,
 `std.http.writeJsonBadRequest`, `std.http.writeJsonUnauthorized`,
 `std.http.writeJsonForbidden`, `std.http.writeJsonNotFound`,
@@ -907,7 +919,7 @@ fn handle(request: Span<u8>, response: MutSpan<u8>) -> Maybe<Span<u8>> {
     if std.http.requestIsGet(request, "/ping") {
         return std.http.writeJsonOk(response, "{\"message\":\"pong\"}")
     }
-    return std.http.writeJsonNotFound(response, "{\"error\":\"not_found\"}")
+    return std.http.writeJsonError(response, 404, "not_found")
 }
 ```
 

@@ -53,6 +53,7 @@ Runnable today:
 | `std.http.writeJsonRequest(buffer, startLine, body)` | `Maybe<Span<u8>>` | Writes a JSON request envelope with `content-type` and `content-length`. |
 | `std.http.writeResponse(buffer, status, body)` | `Maybe<Span<u8>>` | Writes an HTTP/1.1 response envelope into caller storage. |
 | `std.http.writeJsonResponse(buffer, status, body)` | `Maybe<Span<u8>>` | Writes a JSON HTTP/1.1 response envelope into caller storage. |
+| `std.http.writeJsonError(buffer, status, code)` | `Maybe<Span<u8>>` | Writes `{"error":"code"}` after validating the code is JSON-safe lower-case ASCII, digits, `_`, or `-`. |
 | `std.http.writeCorsPreflight(buffer, allowOrigin, allowMethods, allowHeaders)` | `Maybe<Span<u8>>` | Writes a 204 CORS preflight response with caller-provided allow headers. |
 | `std.http.writeCorsJsonResponse(buffer, statusLine, body, allowOrigin)` | `Maybe<Span<u8>>` | Writes a JSON response with `access-control-allow-origin`; `statusLine` is a fragment such as `"200 OK"`. |
 | `std.http.writeJsonOk(buffer, body)` | `Maybe<Span<u8>>` | Writes a 200 JSON response envelope into caller storage. |
@@ -195,7 +196,7 @@ pub fn main(world: World) -> Void raises {
             return
         }
     }
-    let failed: Maybe<Span<u8>> = std.http.writeJsonBadRequest(response, "{\"error\":\"bad_request\"}")
+    let failed: Maybe<Span<u8>> = std.http.writeJsonError(response, 400, "bad_request")
     if failed.has {
         check world.err.write("http route failed\n")
     }
@@ -274,7 +275,7 @@ fn handle(request: Span<u8>, response: MutSpan<u8>) -> Maybe<Span<u8>> {
     if std.http.requestIsGet(request, "/ping") {
         return std.http.writeJsonOk(response, "{\"message\":\"pong\"}")
     }
-    return std.http.writeJsonNotFound(response, "{\"error\":\"not_found\"}")
+    return std.http.writeJsonError(response, 404, "not_found")
 }
 ```
 

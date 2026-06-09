@@ -180,6 +180,20 @@ export c fn main() -> i32 {
     if !internal_response.has || !std.str.contains(internal_response.value, "500 Internal Server Error") {
         return 56
     }
+    var error_buf: [160]u8 = [0_u8; 160]
+    let error_response: Maybe<Span<u8>> = std.http.writeJsonError(error_buf, 422_u16, "bad_request")
+    if !error_response.has || !std.str.contains(error_response.value, "422 Unprocessable Content") {
+        return 57
+    }
+    let error_body: Maybe<Span<u8>> = std.http.responseBodyBytes(error_response.value)
+    if !error_body.has || !std.mem.eql(error_body.value, "{\"error\":\"bad_request\"}") {
+        return 58
+    }
+    var unsafe_error_buf: [160]u8 = [0_u8; 160]
+    let unsafe_error_response: Maybe<Span<u8>> = std.http.writeJsonError(unsafe_error_buf, 400_u16, "Bad Request")
+    if unsafe_error_response.has {
+        return 59
+    }
     var plain_response_buf: [128]u8 = [0_u8; 128]
     let plain_response: Maybe<Span<u8>> = std.http.writeNoContent(plain_response_buf)
     if !plain_response.has || !std.str.contains(plain_response.value, "204 No Content") {
