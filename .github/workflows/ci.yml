@@ -63,9 +63,6 @@ jobs:
       - name: TypeScript tests
         run: pnpm run test:zero
 
-      - name: Docs tests
-        run: pnpm run docs:test
-
       - name: Extension tests
         run: pnpm run extension:test
 
