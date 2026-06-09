@@ -76,6 +76,8 @@ function graphBuildStdlibMergeFacts(body: any) {
     modulesMerged: merge.modulesMerged ?? null,
     nodesMerged: merge.nodesMerged ?? null,
     edgesMerged: merge.edgesMerged ?? null,
+    cacheHit: merge.cacheHit ?? null,
+    cacheStored: merge.cacheStored ?? null,
   };
 }
 

@@ -870,6 +870,7 @@ typedef struct {
   long long graph_stdlib_node_merge_ms, graph_stdlib_edge_merge_ms, graph_stdlib_finalize_ms;
   long long graph_mir_cache_load_ms, graph_mir_lower_ms, graph_mir_cache_write_ms, graph_mir_cache_reload_ms;
   size_t graph_stdlib_modules_merged, graph_stdlib_nodes_merged, graph_stdlib_edges_merged;
+  bool graph_stdlib_merge_cache_hit, graph_stdlib_merge_cache_stored;
   size_t lowered_ir_bytes;
   char *mapped_mir_cache_path;
   size_t mapped_mir_cache_bytes;

@@ -18,6 +18,61 @@ static bool std_merge_text_eq(const char *left, const char *right) {
 
 static char *std_merge_strdup(const char *text) { return text ? z_strdup(text) : NULL; }
 
+typedef struct {
+  bool present;
+  uint64_t stdlib_fingerprint;
+  char *input_graph_hash;
+  char *merged_graph_hash;
+  ZProgramGraph graph;
+  size_t modules_merged;
+  size_t nodes_merged;
+  size_t edges_merged;
+} ZStdMergeCache;
+
+static ZStdMergeCache std_merge_cache;
+
+static bool std_merge_cache_hash_matches(const char *hash) {
+  if (!hash || !hash[0] || !std_merge_cache.present) return false;
+  return std_merge_text_eq(hash, std_merge_cache.input_graph_hash) ||
+         std_merge_text_eq(hash, std_merge_cache.merged_graph_hash);
+}
+
+static bool std_merge_cache_try_load(ZProgramGraph *graph, SourceInput *profile) {
+  if (!graph || !std_merge_cache_hash_matches(graph->graph_hash)) return false;
+  if (std_merge_cache.stdlib_fingerprint != z_std_source_graph_fingerprint()) return false;
+  ZProgramGraph clone = {0};
+  if (!z_program_graph_clone(&std_merge_cache.graph, &clone)) return false;
+  z_program_graph_free(graph);
+  *graph = clone;
+  if (profile) {
+    profile->graph_stdlib_merge_cache_hit = true;
+    profile->graph_stdlib_modules_merged = std_merge_cache.modules_merged;
+    profile->graph_stdlib_nodes_merged = std_merge_cache.nodes_merged;
+    profile->graph_stdlib_edges_merged = std_merge_cache.edges_merged;
+  }
+  return true;
+}
+
+static bool std_merge_cache_store(const char *input_graph_hash, const ZProgramGraph *graph, const SourceInput *profile) {
+  if (!input_graph_hash || !input_graph_hash[0] || !graph) return false;
+  ZProgramGraph clone = {0};
+  if (!z_program_graph_clone(graph, &clone)) return false;
+  free(std_merge_cache.input_graph_hash);
+  free(std_merge_cache.merged_graph_hash);
+  z_program_graph_free(&std_merge_cache.graph);
+  std_merge_cache = (ZStdMergeCache){
+    .present = true,
+    .stdlib_fingerprint = z_std_source_graph_fingerprint(),
+    .input_graph_hash = std_merge_strdup(input_graph_hash),
+    .merged_graph_hash = std_merge_strdup(graph->graph_hash),
+    .graph = clone,
+    .modules_merged = profile ? profile->graph_stdlib_modules_merged : 0,
+    .nodes_merged = profile ? profile->graph_stdlib_nodes_merged : 0,
+    .edges_merged = profile ? profile->graph_stdlib_edges_merged : 0,
+  };
+  return true;
+}
+
 static const char *std_merge_basename(const char *path) {
   const char *slash = path ? strrchr(path, '/') : NULL;
   return slash ? slash + 1 : (path ? path : "");
@@ -353,6 +408,17 @@ static bool std_merge_module_name_seen(char **items, size_t len, const char *mod
 }
 
 static bool std_merge_embedded_std_graph_modules_impl(ZProgramGraph *graph, const SourceInput *input, SourceInput *profile, ZDiag *diag) {
+  char *input_graph_hash = std_merge_strdup(graph ? graph->graph_hash : NULL);
+  if (std_merge_cache_try_load(graph, profile)) {
+    free(input_graph_hash);
+    return true;
+  }
+  SourceInput profile_start = {0};
+  if (profile) {
+    profile_start.graph_stdlib_modules_merged = profile->graph_stdlib_modules_merged;
+    profile_start.graph_stdlib_nodes_merged = profile->graph_stdlib_nodes_merged;
+    profile_start.graph_stdlib_edges_merged = profile->graph_stdlib_edges_merged;
+  }
   bool merged = false;
   char **merged_modules = z_checked_calloc(z_std_source_module_count() ? z_std_source_module_count() : 1, sizeof(char *));
   size_t merged_module_len = 0;
@@ -384,6 +450,7 @@ static bool std_merge_embedded_std_graph_modules_impl(ZProgramGraph *graph, cons
         if (diag && !diag->path) diag->path = module->path;
         for (size_t j = 0; j < merged_module_len; j++) free(merged_modules[j]);
         free(merged_modules);
+        free(input_graph_hash);
         return false;
       }
       std_merge_canonicalize_module_root(&module_graph, module);
@@ -399,7 +466,16 @@ static bool std_merge_embedded_std_graph_modules_impl(ZProgramGraph *graph, cons
     long long finalize_started = std_merge_now_ms();
     z_program_graph_finalize_identities(graph);
     if (profile) profile->graph_stdlib_finalize_ms += std_merge_now_ms() - finalize_started;
+    SourceInput cache_profile = {0};
+    if (profile) {
+      cache_profile.graph_stdlib_modules_merged = profile->graph_stdlib_modules_merged - profile_start.graph_stdlib_modules_merged;
+      cache_profile.graph_stdlib_nodes_merged = profile->graph_stdlib_nodes_merged - profile_start.graph_stdlib_nodes_merged;
+      cache_profile.graph_stdlib_edges_merged = profile->graph_stdlib_edges_merged - profile_start.graph_stdlib_edges_merged;
+    }
+    bool stored = std_merge_cache_store(input_graph_hash, graph, profile ? &cache_profile : NULL);
+    if (profile) profile->graph_stdlib_merge_cache_stored = stored;
   }
+  free(input_graph_hash);
   return true;
 }
 

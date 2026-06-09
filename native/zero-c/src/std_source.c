@@ -43,6 +43,24 @@ static const ZStdSourceModule std_source_modules[] = {
   {"std.url", "std/url.0", zero_embedded_stdlib_graph_std_url_graph_bytes, sizeof(zero_embedded_stdlib_graph_std_url_graph_bytes)},
 };
 
+typedef struct {
+  const ZStdSourceModule *module;
+  bool present;
+  ZProgramGraph graph;
+} ZStdSourceGraphCacheEntry;
+
+static ZStdSourceGraphCacheEntry std_source_graph_cache[sizeof(std_source_modules) / sizeof(std_source_modules[0])];
+
+static ZStdSourceGraphCacheEntry *std_source_graph_cache_entry(const ZStdSourceModule *module) {
+  for (size_t i = 0; module && i < sizeof(std_source_graph_cache) / sizeof(std_source_graph_cache[0]); i++) {
+    if (!std_source_graph_cache[i].module || std_source_graph_cache[i].module == module) {
+      std_source_graph_cache[i].module = module;
+      return &std_source_graph_cache[i];
+    }
+  }
+  return NULL;
+}
+
 static const ZStdSourceCall std_source_calls[] = {
   {"std.codec.base64EncodedLen", "__zero_std_codec_base64_encoded_len", "std.codec"},
   {"std.codec.base64Encode", "__zero_std_codec_base64_encode", "std.codec"},
@@ -302,6 +320,8 @@ bool z_std_source_module_load_graph(const ZStdSourceModule *module, ZProgramGrap
     }
     return false;
   }
+  ZStdSourceGraphCacheEntry *cache = std_source_graph_cache_entry(module);
+  if (cache && cache->present) return out ? z_program_graph_clone(&cache->graph, out) : true;
   if (!z_program_graph_store_bytes_are_binary(module->graph_bytes, module->graph_len)) {
     char *text = z_checked_malloc(module->graph_len + 1);
     memcpy(text, module->graph_bytes, module->graph_len);
@@ -327,6 +347,10 @@ bool z_std_source_module_load_graph(const ZStdSourceModule *module, ZProgramGrap
     if (!ok) {
       if (diag && !diag->path) diag->path = module->path;
       if (out) z_program_graph_free(out);
+    } else if (cache && out) {
+      z_program_graph_free(&cache->graph);
+      z_program_graph_clone(out, &cache->graph);
+      cache->present = true;
     }
     return ok;
   }
@@ -339,5 +363,10 @@ bool z_std_source_module_load_graph(const ZStdSourceModule *module, ZProgramGrap
   }
   z_program_graph_store_free(&store);
   if (!ok && diag && !diag->path) diag->path = module->path;
+  if (ok && cache && out) {
+    z_program_graph_free(&cache->graph);
+    z_program_graph_clone(out, &cache->graph);
+    cache->present = true;
+  }
   return ok;
 }

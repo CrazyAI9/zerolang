@@ -2242,10 +2242,12 @@ static void append_graph_build_timing_facts_json(ZBuf *buf, const SourceInput *i
   zbuf_appendf(buf, ",\"objectMs\":%lld", input ? input->object_ms : 0);
   zbuf_appendf(buf, ",\"linkMs\":%lld", input ? input->link_ms : 0);
   zbuf_append(buf, "}");
-  zbuf_appendf(buf, ",\"stdlibMerge\":{\"modulesMerged\":%zu,\"nodesMerged\":%zu,\"edgesMerged\":%zu}",
+  zbuf_appendf(buf, ",\"stdlibMerge\":{\"modulesMerged\":%zu,\"nodesMerged\":%zu,\"edgesMerged\":%zu,\"cacheHit\":%s,\"cacheStored\":%s}",
                input ? input->graph_stdlib_modules_merged : 0,
                input ? input->graph_stdlib_nodes_merged : 0,
-               input ? input->graph_stdlib_edges_merged : 0);
+               input ? input->graph_stdlib_edges_merged : 0,
+               input && input->graph_stdlib_merge_cache_hit ? "true" : "false",
+               input && input->graph_stdlib_merge_cache_stored ? "true" : "false");
   if (input && input->mapped_mir_cache_path) {
     zbuf_append(buf, ",\"mappedFinalMir\":{\"path\":");
     append_json_string(buf, input->mapped_mir_cache_path);
