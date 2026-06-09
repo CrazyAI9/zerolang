@@ -144,7 +144,7 @@ const fileBudgets = {
   "native/zero-c/src/program_graph_patch_ops.c": { maxLines: 1740, maxStrcmpCalls: 13 },
   "native/zero-c/src/program_graph_patch.c": { maxLines: 860, maxStrcmpCalls: 46 },
   "native/zero-c/src/program_graph_patch.h": { maxLines: 69, maxStrcmpCalls: 0 },
-  "native/zero-c/src/program_graph_projection.c": { maxLines: 465, maxStrcmpCalls: 1 },
+  "native/zero-c/src/program_graph_projection.c": { maxLines: 585, maxStrcmpCalls: 1 },
   "native/zero-c/src/program_graph_projection.h": { maxLines: 25, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_projection_validate.c": { maxLines: 465, maxStrcmpCalls: 1 },
   "native/zero-c/src/program_graph_reconcile.c": { maxLines: 400, maxStrcmpCalls: 1 },
@@ -1051,6 +1051,7 @@ function budgetViolations(files, allLargeFunctions, stdlib, backendFormats, prog
       !programGraph.repositoryCompilerInputProjectionStatus ||
       !programGraph.repositoryGraphSourceLocationsNotSemanticMatch ||
       !programGraph.repositoryProjectionValidationIgnoresSourceLocation ||
+      !programGraph.repositoryProjectionTempExclusiveWrite ||
       !programGraph.repositoryArtifactProjectionState) {
     violations.push({
       kind: "program-graph-repository-source-free-input",
@@ -1430,6 +1431,7 @@ const programGraphStoreRaw = texts.get("native/zero-c/src/program_graph_store.c"
 const programGraphStoreTablesRaw = texts.get("native/zero-c/src/program_graph_store_tables.c") ?? "";
 const programGraphRepositoryRaw = texts.get("native/zero-c/src/program_graph_repository.c") ?? "";
 const programGraphRepositoryInputRaw = texts.get("native/zero-c/src/program_graph_repository_input.c") ?? "";
+const programGraphProjectionRaw = texts.get("native/zero-c/src/program_graph_projection.c") ?? "";
 const programGraphProjectionValidateRaw = texts.get("native/zero-c/src/program_graph_projection_validate.c") ?? "";
 const programGraphTestRaw = texts.get("native/zero-c/src/program_graph_test.c") ?? "";
 const programGraphCommandSource = cCodeText(programGraphCommandRaw);
@@ -1438,6 +1440,7 @@ const programGraphStoreSource = cCodeText(programGraphStoreRaw);
 const programGraphStoreTablesSource = cCodeText(programGraphStoreTablesRaw);
 const programGraphRepositorySource = cCodeText(programGraphRepositoryRaw);
 const programGraphRepositoryInputSource = cCodeText(programGraphRepositoryInputRaw);
+const programGraphProjectionSource = cCodeText(programGraphProjectionRaw);
 const programGraphProjectionValidateSource = cCodeText(programGraphProjectionValidateRaw);
 const artifactGraphCheckBody = cCodeText(cBlock(main, "static int run_graph_check_command"));
 const artifactGraphCheckJsonRawBody = cBlock(main, "static void append_graph_check_json");
@@ -2047,6 +2050,13 @@ const programGraph = {
   repositoryGraphSourceLocationsNotSemanticMatch: !/store_source_locations_match_graph\s*\(/.test(programGraphStoreSource) &&
     /store_source_paths_match_graph\s*\(/.test(programGraphStoreSource),
   repositoryProjectionValidationIgnoresSourceLocation: !/expected->line\s*!=\s*actual->line|expected->column\s*!=\s*actual->column|actual->line\s*==\s*expected->line|actual->column\s*==\s*expected->column/.test(programGraphProjectionValidateSource),
+  repositoryProjectionTempExclusiveWrite: /projection_write_temp_exclusive\s*\(/.test(programGraphProjectionSource) &&
+    /projection_ensure_parent_dirs\s*\(\s*path/.test(programGraphProjectionSource) &&
+    /O_WRONLY\s*\|\s*O_CREAT\s*\|\s*O_EXCL/.test(programGraphProjectionRaw) &&
+    /O_NOFOLLOW/.test(programGraphProjectionRaw) &&
+    /PROJECTION_TEMP_WRITE_EXISTS/.test(programGraphProjectionRaw) &&
+    !/projection_assign_temp_path\s*\(/.test(programGraphProjectionSource) &&
+    !/z_write_file\s*\(\s*write->temp_path/.test(programGraphProjectionSource),
   repositoryArtifactProjectionState: /sourceProjectionState/.test(main) &&
     /source_projection_state/.test(programGraphMirRaw),
 };
