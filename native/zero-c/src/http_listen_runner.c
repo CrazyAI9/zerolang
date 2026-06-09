@@ -361,7 +361,7 @@ static void send_json_error(int fd, unsigned status, const char *reason, const c
   char response[512];
   size_t body_len = strlen(body ? body : "");
   int len = snprintf(response, sizeof(response),
-                     "HTTP/1.1 %u %s\r\ncontent-type: application/json\r\ncontent-length: %zu\r\n\r\n%s",
+                     "HTTP/1.1 %u %s\r\ncontent-type: application/json\r\nconnection: close\r\ncontent-length: %zu\r\n\r\n%s",
                      status, reason ? reason : "Error", body_len, body ? body : "");
   if (len > 0) (void)send_all(fd, response, (size_t)len);
 }
@@ -374,9 +374,6 @@ int z_http_listen_run(const ZHttpListenRunConfig *config, ZDiag *diag) {
 
   char handler_exe[PATH_MAX];
   if (!build_handler_graph(config, handler_exe, sizeof(handler_exe), diag)) return 1;
-  char request_path[PATH_MAX];
-  snprintf(request_path, sizeof(request_path), "/tmp/zero-listen-%ld-request.http", (long)getpid());
-
   signal(SIGPIPE, SIG_IGN);
   int server_fd = -1;
   uint16_t bound_port = 0;
@@ -421,6 +418,7 @@ int z_http_listen_run(const ZHttpListenRunConfig *config, ZDiag *diag) {
   }
 
   fprintf(stderr, "listening on http://127.0.0.1:%u\n", (unsigned)bound_port);
+  uint64_t request_id = 0;
   for (;;) {
     int client_fd = accept(server_fd, NULL, NULL);
     if (client_fd < 0) {
@@ -428,7 +426,6 @@ int z_http_listen_run(const ZHttpListenRunConfig *config, ZDiag *diag) {
       perror("zero listen accept");
       break;
     }
-
     char request[Z_HTTP_LISTEN_REQUEST_CAP];
     size_t request_len = 0;
     if (!read_http_request(client_fd, request, sizeof(request), &request_len)) {
@@ -437,12 +434,15 @@ int z_http_listen_run(const ZHttpListenRunConfig *config, ZDiag *diag) {
       continue;
     }
     request[request_len] = '\0';
+    char request_path[PATH_MAX];
+    request_id++;
+    snprintf(request_path, sizeof(request_path), "/tmp/zero-listen-%ld-%" PRIu64 "-request.http", (long)getpid(), request_id);
     if (!write_request_file(request_path, request, request_len)) {
+      unlink(request_path);
       send_json_error(client_fd, 500, "Internal Server Error", "{\"error\":\"request_spool_failed\"}");
       close(client_fd);
       continue;
     }
-
     char *response = NULL;
     size_t response_len = 0;
     if (run_handler_capture(handler_exe, request_path, &response, &response_len)) {
@@ -451,11 +451,11 @@ int z_http_listen_run(const ZHttpListenRunConfig *config, ZDiag *diag) {
     } else {
       send_json_error(client_fd, 500, "Internal Server Error", "{\"error\":\"handler_failed\"}");
     }
+    unlink(request_path);
     close(client_fd);
   }
 
   close(server_fd);
-  unlink(request_path);
   return 1;
 }
 

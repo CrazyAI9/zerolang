@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
 import { createServer as createHttpServer, request as createHttpRequest } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
-import { createServer as createTcpServer } from "node:net";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { connect as connectTcp, createServer as createTcpServer } from "node:net";
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { basename } from "node:path";
 import { promisify } from "node:util";
 
@@ -124,6 +124,22 @@ function listen(server) {
   });
 }
 
+function listenOn(server, port) {
+  return new Promise<void>((resolve, reject) => {
+    const onError = (error) => {
+      server.off("listening", onListening);
+      reject(error);
+    };
+    const onListening = () => {
+      server.off("error", onError);
+      resolve();
+    };
+    server.once("error", onError);
+    server.once("listening", onListening);
+    server.listen(port, "127.0.0.1");
+  });
+}
+
 function close(server) {
   return new Promise<void>((resolve, reject) => {
     server.close((error) => error ? reject(error) : resolve());
@@ -212,12 +228,85 @@ function requestZeroListener(port, method, path, body = "", headers = {}) {
   });
 }
 
+function rawZeroListenerRequest(port, payload) {
+  return new Promise<string>((resolve, reject) => {
+    const chunks = [];
+    let settled = false;
+    const socket = connectTcp({ host: "127.0.0.1", port }, () => {
+      socket.end(payload);
+    });
+    const timeout = setTimeout(() => {
+      finish(new Error("raw HTTP request timed out"));
+    }, 5000);
+    function finish(error = null) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      socket.destroy();
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve(Buffer.concat(chunks).toString("utf8"));
+    }
+    socket.on("data", (chunk) => chunks.push(chunk));
+    socket.on("end", () => finish());
+    socket.on("close", () => {
+      if (!settled && chunks.length > 0) finish();
+    });
+    socket.on("error", finish);
+  });
+}
+
+async function assertExplicitPortConflict() {
+  const dir = await mkdtemp("/tmp/zero-http-listen-explicit-");
+  const packageDir = `${dir}/ping-pong-api`;
+  const patchPath = `${dir}/explicit-port.patch`;
+  try {
+    await cp("examples/ping-pong-api", packageDir, { recursive: true });
+    await writeFile(patchPath, `zero-program-graph-patch v1
+replaceFunctionBody main
+  check std.http.listen(world, 3000_u16)
+end
+`);
+    await execFileAsync(zero, ["patch", packageDir, patchPath], { timeout: zeroRunTimeoutMs });
+    const result = await execFileAsync(zero, ["run", packageDir], { timeout: zeroRunTimeoutMs }).catch((error) => error);
+    assert.notEqual(result.code, 0);
+    assert.match(`${result.stdout ?? ""}\n${result.stderr ?? ""}`, /std\.http\.listen could not bind the requested port|Address already in use/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
 async function runHttpListenExample() {
+  let reserved3000 = null;
+  let port3000Occupied = false;
+  const devPortGuard = createTcpServer();
+  try {
+    await listenOn(devPortGuard, 3000);
+    reserved3000 = devPortGuard;
+    port3000Occupied = true;
+  } catch (error) {
+    try {
+      devPortGuard.close();
+    } catch {
+      // The guard may never have started if another local service owns 3000.
+    }
+    if (error && error.code === "EADDRINUSE") {
+      port3000Occupied = true;
+    } else {
+      throw error;
+    }
+  }
+
   const child = spawn(zero, ["run", "examples/ping-pong-api"], {
     stdio: ["ignore", "pipe", "pipe"],
   });
   try {
     const { port } = await waitForZeroListener(child);
+    if (port3000Occupied) {
+      assert.notEqual(port, 3000);
+    }
     assert.deepEqual(await requestZeroListener(port, "GET", "/ping"), {
       status: 200,
       body: "{\"message\":\"pong\"}",
@@ -238,8 +327,14 @@ async function runHttpListenExample() {
       status: 400,
       body: "{\"error\":\"bad_request\"}",
     });
+    const badRequest = await rawZeroListenerRequest(port, "POST /echo\r\ncontent-length: nope\r\n\r\nx");
+    assert.match(badRequest, /^HTTP\/1\.1 400 Bad Request/);
+    assert.match(badRequest, /\r\nconnection: close\r\n/i);
+    assert.match(badRequest, /\{"error":"bad_request"\}/);
+    if (port3000Occupied) await assertExplicitPortConflict();
   } finally {
     await stopZeroListener(child);
+    if (reserved3000) await close(reserved3000);
   }
 }
 
