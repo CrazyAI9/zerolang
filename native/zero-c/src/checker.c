@@ -11053,7 +11053,7 @@ static bool check_function_frame_limit(const Program *program, const Function *f
   return set_diag_detail(diag, 3052, "stack frame locals exceed the supported limit",
                          frame_over ? frame_over->line : fun->line, frame_over ? frame_over->column : fun->column,
                          expected_text, actual_text,
-                         "allocate large buffers with std.mem.pageAlloc and std.mem.allocBytes, or split them into smaller buffers in helper functions");
+                         "split the buffer into smaller buffers in helper functions so each frame stays within the limit, or process the data in fixed-size chunks");
 }
 
 static bool check_function_has_required_return(const Function *fun, ZDiag *diag) {

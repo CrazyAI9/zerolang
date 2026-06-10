@@ -730,6 +730,8 @@ const passCheckFixtures = [
   "conformance/native/pass/std-fs-bytes.0",
   "conformance/native/pass/frame-large-locals.0",
   "conformance/native/pass/frame-limit-boundary.0",
+  "conformance/native/pass/frame-split-helpers.0",
+  "conformance/native/pass/fixed-buf-alloc-local.0",
   "conformance/native/pass/std-fs-resource.0",
   "conformance/native/pass/std-fs-readall.0",
   "conformance/native/pass/std-fs-polish.0",
@@ -4835,6 +4837,8 @@ for (const runtimeFixture of [
   ["conformance/native/pass/std-fs-bytes.0", "std-fs-bytes", { stdout: "fs bytes ok\n", stderr: "fs bytes err ok\n" }],
   ["conformance/native/pass/frame-large-locals.0", "frame-large-locals", { stdout: "frame large locals ok alpha\n", args: ["alpha"] }],
   ["conformance/native/pass/frame-limit-boundary.0", "frame-limit-boundary", { stdout: "frame limit boundary ok\n" }],
+  ["conformance/native/pass/frame-split-helpers.0", "frame-split-helpers", { stdout: "frame split helpers ok\n" }],
+  ["conformance/native/pass/fixed-buf-alloc-local.0", "fixed-buf-alloc-local", { stdout: "fixed buf alloc local ok\n" }],
   ["conformance/native/pass/std-fs-resource.0", "std-fs-resource", { stdout: "fs resource ok\n", file: { name: "std-fs-resource.txt", text: "zero file\n" } }],
   ["conformance/native/pass/std-fs-file-helpers.0", "std-fs-file-helpers", { stdout: "std fs file helpers ok\n" }],
   ["conformance/native/pass/std-io-lines.0", "std-io-lines", { stdout: "std io lines ok\n" }],
@@ -4906,6 +4910,8 @@ await assertDirectRuntimeRequired("conformance/native/pass/generic-static-forwar
 await assertDirectRuntimeRequired("conformance/native/pass/explicit-cast-narrow-direct.0", "explicit-cast-narrow-direct-required", { stdout: "explicit cast narrow direct ok\n" });
 await assertDirectRuntimeRequired("conformance/native/pass/frame-large-locals.0", "frame-large-locals-required", { stdout: "frame large locals ok alpha\n", args: ["alpha"] });
 await assertDirectRuntimeRequired("conformance/native/pass/frame-limit-boundary.0", "frame-limit-boundary-required", { stdout: "frame limit boundary ok\n" });
+await assertDirectRuntimeRequired("conformance/native/pass/frame-split-helpers.0", "frame-split-helpers-required", { stdout: "frame split helpers ok\n" });
+await assertDirectRuntimeRequired("conformance/native/pass/fixed-buf-alloc-local.0", "fixed-buf-alloc-local-required", { stdout: "fixed buf alloc local ok\n" });
 
 const frameLimitOverFixture = `${outDir}/frame-limit-over.0`;
 const frameLimitOverBody = await writeImportFailureFixture(frameLimitOverFixture, `pub fn main(world: World) -> Void raises {
@@ -4917,7 +4923,25 @@ const frameLimitOverBody = await writeImportFailureFixture(frameLimitOverFixture
 assert.equal(frameLimitOverBody.diagnostics[0].code, "MEM003");
 assert.match(frameLimitOverBody.diagnostics[0].expected, /131072 bytes of locals/);
 assert.match(frameLimitOverBody.diagnostics[0].actual, /262144 bytes of locals/);
-assert.match(frameLimitOverBody.diagnostics[0].help, /pageAlloc/);
+assert.match(frameLimitOverBody.diagnostics[0].help, /smaller buffers in helper functions/);
+
+const pageAllocLocalFixture = `${outDir}/page-alloc-local.0`;
+await writeGraphFixture(pageAllocLocalFixture, `pub fn main(world: World) -> Void raises {
+    let page: PageAlloc = std.mem.pageAlloc()
+    let bytes: Maybe<MutSpan<u8>> = std.mem.allocBytes(page, 4096)
+    if bytes.has {
+        check world.out.write("unreachable\\n")
+    }
+}
+`);
+const pageAllocLocalBuild = await execFileAsync(zero, ["build", "--json", "--emit", "exe", "--target", runnableDirectTarget ?? "linux-musl-x64", pageAllocLocalFixture, "--out", `${outDir}/page-alloc-local`]).catch((error) => error);
+assert.notEqual(pageAllocLocalBuild.code, 0);
+const pageAllocLocalBody = JSON.parse(pageAllocLocalBuild.stdout);
+assert.equal(pageAllocLocalBody.diagnostics[0].code, "BLD004");
+assert.match(pageAllocLocalBody.diagnostics[0].message, /allocator local requires FixedBufAlloc/);
+assert.equal(pageAllocLocalBody.diagnostics[0].actual, "PageAlloc");
+assert.match(pageAllocLocalBody.diagnostics[0].help, /std\.mem\.fixedBufAlloc/);
+assert.match(pageAllocLocalBody.diagnostics[0].help, /do not lower to direct backends yet/);
 
 const abiDump = await execFileAsync(zero, ["abi", "dump", "--json", "conformance/native/pass/const-layout.0"]);
 const abiDumpBody = JSON.parse(abiDump.stdout);

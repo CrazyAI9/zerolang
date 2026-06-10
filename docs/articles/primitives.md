@@ -73,8 +73,11 @@ write into caller-owned storage so allocation behavior remains visible.
 
 Fixed-size locals live in one stack frame per function, and a single function
 may declare at most 131072 bytes of locals. `zero check` reports `MEM003` when
-a frame exceeds that limit; allocate larger buffers with `std.mem.pageAlloc`
-and `std.mem.allocBytes`, or split the work across helper functions.
+a frame exceeds that limit; split the buffer into smaller buffers in helper
+functions so each frame stays within the limit, or process the data in
+fixed-size chunks. `PageAlloc` and `GeneralAlloc` handles type-check but do
+not lower to the direct backends yet, so they cannot replace frame-sized
+buffers today.
 
 ## Ownership
 

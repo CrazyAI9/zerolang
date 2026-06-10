@@ -1252,7 +1252,12 @@ static bool ir_graph_collect_let_local(IrProgram *ir, IrFunction *fun, const ZPr
     return true;
   }
   if (!ir_type_is_direct_local(type)) {
-    ir_graph_mark_unsupported(ir, stmt, "typed graph MIR local type is unsupported", type_text ? type_text : "inferred unknown");
+    if (ir_text_eq(type_text, "PageAlloc") || ir_text_eq(type_text, "GeneralAlloc") || ir_text_eq(type_text, "NullAlloc")) {
+      ir_graph_mark_unsupported(ir, stmt, "typed graph MIR allocator local requires FixedBufAlloc", type_text);
+      snprintf(ir->mir_help, sizeof(ir->mir_help), "allocate from a fixed array with std.mem.fixedBufAlloc, or split large buffers across helper functions with smaller frames; PageAlloc, GeneralAlloc, and NullAlloc locals do not lower to direct backends yet");
+    } else {
+      ir_graph_mark_unsupported(ir, stmt, "typed graph MIR local type is unsupported", type_text ? type_text : "inferred unknown");
+    }
     free(type_text_owned);
     return false;
   }

@@ -3311,7 +3311,7 @@ static const char *diag_repair_summary(int code) {
     case 3036: return "Make the alias name unique and point it at a non-cyclic concrete type.";
     case 3050: return "Call recursively with the same generic type parameters or use a concrete helper.";
     case 3051: return "Prove the Maybe is present with `.has`, or use `check`/`rescue` so absence is handled explicitly.";
-    case 3052: return "Allocate large buffers with std.mem.pageAlloc and std.mem.allocBytes, or split them into smaller buffers in helper functions.";
+    case 3052: return "Split the buffer into smaller buffers in helper functions so each frame stays within the limit, or process the data in fixed-size chunks.";
     case 3037: return "Add an explicit public type annotation so graph and docs metadata stay stable.";
     case 3038: return "Declare the referenced interface or pass a concrete shape that satisfies the constraint.";
     case 3039: return "Add the required static method to the concrete shape.";
@@ -3644,7 +3644,7 @@ static const ExplainInfo explain_infos[] = {
     "Stack frame locals exceed the supported limit",
     "One function declares more fixed-size local storage than the per-function stack frame limit of 131072 bytes.",
     "Direct backends place fixed arrays and scalar locals in one stack frame, so a documented limit keeps frames safely inside thread stacks on every target.",
-    "Allocate large buffers with std.mem.pageAlloc and std.mem.allocBytes, or split them into smaller buffers in helper functions.",
+    "Split the buffer into smaller buffers in helper functions so each frame stays within the limit, or process the data in fixed-size chunks.",
     "var buffer: [262144]u8 = [0; 262144]",
     "var buffer: [65536]u8 = [0; 65536]",
   },

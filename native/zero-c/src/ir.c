@@ -4939,6 +4939,11 @@ static bool ir_collect_stmt_locals(const Program *program, IrProgram *ir, IrFunc
         continue;
       }
       if (!ir_type_is_direct_local(type)) {
+        if (stmt_type && (strcmp(stmt_type, "PageAlloc") == 0 || strcmp(stmt_type, "GeneralAlloc") == 0 || strcmp(stmt_type, "NullAlloc") == 0)) {
+          ir_mark_unsupported(ir, "direct backend allocator local requires FixedBufAlloc", stmt->line, stmt->column, stmt_type);
+          snprintf(ir->mir_help, sizeof(ir->mir_help), "allocate from a fixed array with std.mem.fixedBufAlloc, or split large buffers across helper functions with smaller frames; PageAlloc, GeneralAlloc, and NullAlloc locals do not lower to direct backends yet");
+          return false;
+        }
         ir_mark_unsupported(ir, "direct backend local type is unsupported", stmt->line, stmt->column, stmt_type ? stmt_type : "inferred unknown");
         return false;
       }
