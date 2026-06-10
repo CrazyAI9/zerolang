@@ -612,7 +612,7 @@ int z_repository_graph_import_export_command(const char *input, const ZTargetInf
                               identity_error ? diag.message : "repository graph store could not be saved",
                               module_identity_error ? diag.expected : (identity_error ? "unambiguous graph identity match between zero.graph and edited source" : "byte-stable zero.graph repository graph store"),
                               diag.actual[0] ? diag.actual : (diag.message[0] ? diag.message : "save failed"),
-                              module_identity_error ? "import from the original source path, or recreate zero.graph after reviewing the module rename or package identity change" : (identity_error ? "split the source edit or make it through zero patch so node identity is explicit" : "run zero status to inspect repository graph state"),
+                              module_identity_error ? "import from the original source path, or recreate zero.graph after reviewing the module rename or package identity change" : (identity_error ? (diag.help[0] ? diag.help : "split the source edit or make it through zero patch so node identity is explicit") : "run zero status to inspect repository graph state"),
                               identity_error ? REPO_GRAPH_REPAIR_NONE : REPO_GRAPH_REPAIR_STATUS);
     repo_graph_state_free(&state);
     return rc;
@@ -646,7 +646,7 @@ int z_repository_graph_refresh_compiler_store(const char *input, const ZTargetIn
                               identity_error ? diag.message : "repository graph store could not be refreshed from the edited source projection",
                               module_identity_error ? diag.expected : (identity_error ? "unambiguous graph identity match between zero.graph and edited source" : "byte-stable zero.graph repository graph store"),
                               diag.actual[0] ? diag.actual : (diag.message[0] ? diag.message : "save failed"),
-                              module_identity_error ? "import from the original source path, or recreate zero.graph after reviewing the module rename or package identity change" : (identity_error ? "split the source edit or make it through zero patch so node identity is explicit" : "run zero status to inspect repository graph state"),
+                              module_identity_error ? "import from the original source path, or recreate zero.graph after reviewing the module rename or package identity change" : (identity_error ? (diag.help[0] ? diag.help : "split the source edit or make it through zero patch so node identity is explicit") : "run zero status to inspect repository graph state"),
                               identity_error ? REPO_GRAPH_REPAIR_NONE : REPO_GRAPH_REPAIR_STATUS);
     repo_graph_state_free(&state);
     return rc;

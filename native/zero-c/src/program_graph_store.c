@@ -765,7 +765,19 @@ static bool store_identity_reconcile_diag(const char *path, const ZProgramGraphI
     diag->length = 1;
     snprintf(diag->message, sizeof(diag->message), "%s", message);
     snprintf(diag->expected, sizeof(diag->expected), "%s", expected);
-    snprintf(diag->actual, sizeof(diag->actual), "%s", actual);
+    if (!module_identity_changed && identity && identity->node_range[0] && identity->candidate_range[0]) {
+      snprintf(diag->actual,
+               sizeof(diag->actual),
+               "%s at %s matches %zu edited candidate%s at %s",
+               identity->node_id[0] ? identity->node_id : "ambiguous source identity",
+               identity->node_range,
+               identity->candidate_count,
+               identity->candidate_count == 1 ? "" : "s",
+               identity->candidate_range);
+    } else {
+      snprintf(diag->actual, sizeof(diag->actual), "%s", actual);
+    }
+    if (!module_identity_changed && identity && identity->hint[0]) snprintf(diag->help, sizeof(diag->help), "%s", identity->hint);
   }
   return false;
 }
