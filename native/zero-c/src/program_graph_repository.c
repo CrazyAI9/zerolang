@@ -64,7 +64,7 @@ static RepositoryGraphState repo_graph_state(const char *input, const ZTargetInf
   state.store_path = z_program_graph_store_path_for_root(state.root);
   state.store_present = z_program_graph_store_path_exists(state.store_path);
   ZDiag compiler_input_diag = {0};
-  state.compiler_input_valid = z_program_graph_manifest_compiler_input_enabled(state.input, &state.compiler_input_enabled, &compiler_input_diag);
+  state.compiler_input_valid = z_program_graph_manifest_compiler_input_enabled(state.root, &state.compiler_input_enabled, &compiler_input_diag);
   if (!state.compiler_input_valid) state.compiler_input_diag = compiler_input_diag;
   if (state.store_present) {
     ZProgramGraphStore store;
@@ -80,7 +80,7 @@ static RepositoryGraphState repo_graph_state(const char *input, const ZTargetInf
       state.compiler_store_available = true;
       char *expected_identity = NULL;
       ZDiag identity_diag = {0};
-      if (z_program_graph_manifest_module_identity(state.input, &expected_identity, &identity_diag)) {
+      if (z_program_graph_manifest_module_identity(state.root, &expected_identity, &identity_diag)) {
         state.expected_module_identity = z_strdup(expected_identity ? expected_identity : "");
         if (expected_identity && strcmp(expected_identity, store.graph.module_identity ? store.graph.module_identity : "") != 0) {
           state.module_identity_error = z_strdup("repository graph store module identity does not match package manifest");
@@ -90,7 +90,7 @@ static RepositoryGraphState repo_graph_state(const char *input, const ZTargetInf
       free((char *)identity_diag.path);
       char *expected_main_path = NULL;
       ZDiag main_path_diag = {0};
-      if (z_program_graph_manifest_main_path(state.input, &expected_main_path, &main_path_diag)) {
+      if (z_program_graph_manifest_main_path(state.root, &expected_main_path, &main_path_diag)) {
         if (expected_main_path && expected_main_path[0] && !repo_store_has_source_path(&store, expected_main_path)) {
           state.expected_main_path = z_strdup(expected_main_path);
           state.target_main_error = z_strdup("repository graph store target main does not match package manifest");
@@ -383,8 +383,8 @@ static int repo_module_identity_error(const RepositoryGraphState *state, bool js
                           state->module_identity_error,
                           state->expected_module_identity && state->expected_module_identity[0] ? state->expected_module_identity : "zero.toml or zero.json package identity",
                           state->module_identity && state->module_identity[0] ? state->module_identity : "missing module identity",
-                          "check in the zero.graph generated for this package, or update the package manifest after reviewing the package identity",
-                          REPO_GRAPH_REPAIR_STATUS);
+                          "run zero import to refresh zero.graph from the package source projection, or update the package manifest after reviewing the package identity",
+                          REPO_GRAPH_REPAIR_FROM_SOURCE);
 }
 
 static int repo_target_main_error(const RepositoryGraphState *state, bool json, const char *mode) {
@@ -594,11 +594,6 @@ int z_repository_graph_import_export_command(const char *input, const ZTargetInf
     repo_graph_state_free(&state);
     return rc;
   }
-  int identity_rc = repo_module_identity_error(&state, json, "import");
-  if (identity_rc != 0) {
-    repo_graph_state_free(&state);
-    return identity_rc;
-  }
   ZProgramGraphStore saved;
   ZDiag diag = {0};
   ZProgramGraphStoreFormat requested_format = state.store_valid ? state.store_format : Z_PROGRAM_GRAPH_STORE_FORMAT_BINARY;
@@ -617,7 +612,7 @@ int z_repository_graph_import_export_command(const char *input, const ZTargetInf
                               identity_error ? diag.message : "repository graph store could not be saved",
                               module_identity_error ? diag.expected : (identity_error ? "unambiguous graph identity match between zero.graph and edited source" : "byte-stable zero.graph repository graph store"),
                               diag.actual[0] ? diag.actual : (diag.message[0] ? diag.message : "save failed"),
-                              module_identity_error ? "import from the original source path, or recreate zero.graph after reviewing the module rename" : (identity_error ? "split the source edit or make it through zero patch so node identity is explicit" : "run zero status to inspect repository graph state"),
+                              module_identity_error ? "import from the original source path, or recreate zero.graph after reviewing the module rename or package identity change" : (identity_error ? "split the source edit or make it through zero patch so node identity is explicit" : "run zero status to inspect repository graph state"),
                               identity_error ? REPO_GRAPH_REPAIR_NONE : REPO_GRAPH_REPAIR_STATUS);
     repo_graph_state_free(&state);
     return rc;
@@ -854,7 +849,7 @@ int z_repository_graph_maybe_command(const char *kind, const char *input, const 
       return 0;
     }
     if (has_out) {
-      int rc = repo_graph_error(&state, json, kind, "RGP002", "repository graph import/export writes fixed repository paths and does not support --out", "zero import <package> or zero export <package>", is_export ? "zero export --out" : "zero import --out", "omit --out; import writes zero.graph and export writes checked-in .0 projections", REPO_GRAPH_REPAIR_NONE);
+      int rc = repo_graph_error(&state, json, kind, "RGP002", "repository graph import/export writes fixed repository paths and does not support --out", "zero import <package> or zero export <package>", is_export ? "zero export --out" : "zero import --out", "omit --out; zero import refreshes the package zero.graph store and zero export writes checked-in .0 projections", is_export ? REPO_GRAPH_REPAIR_FROM_GRAPH : REPO_GRAPH_REPAIR_FROM_SOURCE);
       repo_graph_state_free(&state);
       return rc;
     }

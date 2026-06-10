@@ -13174,21 +13174,36 @@ static int run_graph_subcommand_dispatch(Command *command, const ZTargetInfo *ta
   bool repo_graph_command = false;
   SourceInput repo_graph_input = {0}; Program repo_graph_program = {0}; ZProgramGraph repo_source_graph = {0};
   bool repo_wants_source_graph = z_repository_graph_needs_source_graph(command->kind, command->input, target, command->graph_export_from_graph, command->graph_import_from_source);
+  char *repo_package_input = NULL;
+  if (repo_wants_source_graph && !command->out && command->input && is_zero_source_path(command->input) && direct_file_exists(command->input)) {
+    char *repo_package_root = z_program_graph_store_root_for_input(command->input);
+    char *repo_package_manifest = repo_package_root ? z_manifest_path_for_root(repo_package_root) : NULL;
+    if (repo_package_manifest) {
+      repo_package_input = repo_package_root;
+      repo_package_root = NULL;
+    }
+    free(repo_package_manifest);
+    free(repo_package_root);
+  }
+  Command repo_graph_load_command = *command;
+  if (repo_package_input) repo_graph_load_command.input = repo_package_input;
   ZDiag repo_source_graph_diag = {0};
   bool repo_has_source_graph = false;
   if (repo_wants_source_graph) {
-    repo_has_source_graph = repository_graph_command_loads_checked_source(command)
-      ? load_graph_from_checked_current_source(command, target, &repo_graph_input, &repo_graph_program, &repo_source_graph, NULL, &repo_source_graph_diag)
-      : load_graph_from_current_source(command, target, &repo_graph_input, &repo_graph_program, &repo_source_graph, NULL, &repo_source_graph_diag);
+    repo_has_source_graph = repository_graph_command_loads_checked_source(&repo_graph_load_command)
+      ? load_graph_from_checked_current_source(&repo_graph_load_command, target, &repo_graph_input, &repo_graph_program, &repo_source_graph, NULL, &repo_source_graph_diag)
+      : load_graph_from_current_source(&repo_graph_load_command, target, &repo_graph_input, &repo_graph_program, &repo_source_graph, NULL, &repo_source_graph_diag);
   }
   if (repo_wants_source_graph && !repo_has_source_graph) {
     if (command->json) print_command_diag_json(command, repo_source_graph_diag.path ? repo_source_graph_diag.path : command->input, &repo_source_graph_diag); else print_diag(repo_source_graph_diag.path ? repo_source_graph_diag.path : command->input, &repo_source_graph_diag);
     z_program_graph_free(&repo_source_graph); z_free_program(&repo_graph_program); z_free_source(&repo_graph_input);
+    free(repo_package_input);
     return 1;
   }
-  RepositoryGraphSourceGraphLoader repo_graph_loader = {.command = command, .target = target};
-  int repo_graph_rc = z_repository_graph_maybe_command(command->kind, command->input, target, command->json, command->graph_export_from_graph, command->graph_import_from_source, command->merge_base, command->merge_left, command->merge_right, command->store_format, command->out, repo_has_source_graph ? &repo_source_graph : NULL, command->graph_export_from_graph ? load_repository_graph_checked_source_graph : NULL, &repo_graph_loader, &repo_graph_command);
+  RepositoryGraphSourceGraphLoader repo_graph_loader = {.command = &repo_graph_load_command, .target = target};
+  int repo_graph_rc = z_repository_graph_maybe_command(command->kind, repo_graph_load_command.input, target, command->json, command->graph_export_from_graph, command->graph_import_from_source, command->merge_base, command->merge_left, command->merge_right, command->store_format, command->out, repo_has_source_graph ? &repo_source_graph : NULL, command->graph_export_from_graph ? load_repository_graph_checked_source_graph : NULL, &repo_graph_loader, &repo_graph_command);
   z_program_graph_free(&repo_source_graph); z_free_program(&repo_graph_program); z_free_source(&repo_graph_input);
+  free(repo_package_input);
   if (repo_graph_command) return repo_graph_rc;
   if (graph_check_text_eq(command->kind, "validate")) return run_graph_validate_command(command, target, diag);
   if (graph_check_text_eq(command->kind, "dump")) return run_graph_dump_input_command(command, target, diag, false);

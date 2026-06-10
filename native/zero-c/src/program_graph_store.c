@@ -2,6 +2,7 @@
 
 #include "program_graph_compare.h"
 #include "program_graph_format.h"
+#include "program_graph_reconcile.h"
 #include "program_graph_reconcile_apply.h"
 #include "program_graph_store_binary.h"
 #include "program_graph_store_prune.h"
@@ -770,6 +771,10 @@ static bool store_preserve_existing_source_identities(const char *path, ZProgram
   ZProgramGraphStore existing;
   ZDiag load_diag = {0};
   if (!z_program_graph_store_load_path(path, &existing, &load_diag)) return true;
+  if (z_program_graph_identity_refresh_compatible(existing.graph.module_identity, normalized->module_identity)) {
+    free(existing.graph.module_identity);
+    existing.graph.module_identity = z_strdup(normalized->module_identity);
+  }
   ZProgramGraphIdentityReconcile identity = {0};
   bool ok = z_program_graph_preserve_source_node_ids(&existing.graph, normalized, &identity);
   z_program_graph_store_free(&existing);

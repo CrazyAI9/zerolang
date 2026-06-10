@@ -195,8 +195,8 @@ static int input_manifest_identity_error(const RepositoryGraphInputState *state,
                          "repository graph store module identity does not match package manifest",
                          expected,
                          state && state->module_identity ? state->module_identity : "missing module identity",
-                         "check in the zero.graph generated for this package, or update the package manifest after reviewing the package identity",
-                         REPO_GRAPH_REPAIR_STATUS);
+                         "run zero import to refresh zero.graph from the package source projection, or update the package manifest after reviewing the package identity",
+                         REPO_GRAPH_REPAIR_FROM_SOURCE);
     free(expected);
     return rc;
   }

@@ -15,6 +15,16 @@ static bool reconcile_module_identity_changed(const ZProgramGraph *base, const Z
   return !reconcile_text_eq(base ? base->module_identity : NULL, edited ? edited->module_identity : NULL);
 }
 
+bool z_program_graph_identity_refresh_compatible(const char *store_identity, const char *source_identity) {
+  if (!store_identity || !source_identity || strncmp(source_identity, "package:", 8) != 0) return false;
+  if (strncmp(store_identity, "module:", 7) == 0) return true;
+  if (strncmp(store_identity, "package:", 8) != 0) return false;
+  const char *left = store_identity + 8;
+  const char *right = source_identity + 8;
+  while (*left && *right && *left != '@' && *right != '@' && *left == *right) { left++; right++; }
+  return (*left == 0 || *left == '@') && (*right == 0 || *right == '@');
+}
+
 static void reconcile_json_string(ZBuf *buf, const char *value) {
   zbuf_append_char(buf, '"');
   for (const unsigned char *cursor = (const unsigned char *)(value ? value : ""); *cursor; cursor++) {
