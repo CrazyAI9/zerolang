@@ -1091,6 +1091,8 @@ void z_free_program(Z_INOUT Program *program);
 
 bool z_check_program(Z_IN const Program *program, Z_OUT ZDiag *diag);
 bool z_check_program_library(Z_IN const Program *program, Z_OUT ZDiag *diag);
+#define Z_DIRECT_FRAME_LOCAL_LIMIT_BYTES 131072u
+bool z_function_frame_locals_within_limit(Z_IN const Program *program, Z_IN const Function *fun, size_t limit, Z_OUT size_t *out_total, Z_OUT const Stmt **out_over);
 void z_append_call_resolution_facts_json(Z_INOUT ZBuf *buf, Z_IN const SourceInput *input, Z_IN const Program *program);
 void z_set_check_target(Z_OPTIONAL Z_IN const ZTargetInfo *target);
 ZMetaCacheStats z_meta_cache_stats(void);

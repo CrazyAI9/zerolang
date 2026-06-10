@@ -503,12 +503,12 @@ static bool macho_emit_byte_view_len_at(ZBuf *text, const IrFunction *fun, const
   if (!view) return macho_diag_at(diag, "direct AArch64 Mach-O byte view is missing", 1, 1, "missing byte view");
   unsigned const_len = 0;
   if (view->kind == IR_VALUE_BYTE_SLICE && macho_byte_view_const_len(view, &const_len)) {
-    if (const_len > 65535) return macho_diag_at(diag, "direct AArch64 Mach-O byte-view length is too large for the current MVP", view->line, view->column, "large byte view");
+    if (const_len > Z_DIRECT_FRAME_LOCAL_LIMIT_BYTES) return macho_diag_at(diag, "direct AArch64 Mach-O byte-view length is too large for the current MVP", view->line, view->column, "large byte view");
     z_aarch64_emit_movz_w(text, reg, const_len);
     return true;
   }
   if (view->kind == IR_VALUE_STRING_LITERAL || view->kind == IR_VALUE_ARRAY_BYTE_VIEW) {
-    if (view->data_len > 65535) return macho_diag_at(diag, "direct AArch64 Mach-O byte-view length is too large for the current MVP", view->line, view->column, "large byte view");
+    if (view->data_len > Z_DIRECT_FRAME_LOCAL_LIMIT_BYTES) return macho_diag_at(diag, "direct AArch64 Mach-O byte-view length is too large for the current MVP", view->line, view->column, "large byte view");
     z_aarch64_emit_movz_w(text, reg, view->data_len);
     return true;
   }

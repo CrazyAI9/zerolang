@@ -209,6 +209,7 @@ static const char *diag_code(int code) {
     case 3036: return "TYP026";
     case 3050: return "TYP027";
     case 3051: return "MEM002";
+    case 3052: return "MEM003";
     case 3037: return "PUB001";
     case 3038: return "IFC001";
     case 3039: return "IFC002";
@@ -3251,6 +3252,7 @@ static const char *diag_repair_id(int code) {
     case 3036: return "fix-type-alias-declaration";
     case 3050: return "keep-recursive-generic-arguments-stable";
     case 3051: return "guard-maybe-payload";
+    case 3052: return "move-large-locals-off-stack";
     case 3037: return "add-public-api-type";
     case 3038: return "declare-or-use-static-interface";
     case 3039: return "add-required-interface-method";
@@ -3306,6 +3308,7 @@ static const char *diag_repair_summary(int code) {
     case 3036: return "Make the alias name unique and point it at a non-cyclic concrete type.";
     case 3050: return "Call recursively with the same generic type parameters or use a concrete helper.";
     case 3051: return "Prove the Maybe is present with `.has`, or use `check`/`rescue` so absence is handled explicitly.";
+    case 3052: return "Allocate large buffers with std.mem.pageAlloc and std.mem.allocBytes, or split them into smaller buffers in helper functions.";
     case 3037: return "Add an explicit public type annotation so graph and docs metadata stay stable.";
     case 3038: return "Declare the referenced interface or pass a concrete shape that satisfies the constraint.";
     case 3039: return "Add the required static method to the concrete shape.";
@@ -3633,6 +3636,16 @@ static const ExplainInfo explain_infos[] = {
     "if item.has {\n    let byte: u8 = item.value\n}",
   },
   {
+    "MEM003",
+    "memory",
+    "Stack frame locals exceed the supported limit",
+    "One function declares more fixed-size local storage than the per-function stack frame limit of 131072 bytes.",
+    "Direct backends place fixed arrays and scalar locals in one stack frame, so a documented limit keeps frames safely inside thread stacks on every target.",
+    "Allocate large buffers with std.mem.pageAlloc and std.mem.allocBytes, or split them into smaller buffers in helper functions.",
+    "var buffer: [262144]u8 = [0; 262144]",
+    "var buffer: [65536]u8 = [0; 65536]",
+  },
+  {
     "FLD002",
     "shape",
     "Missing required field",
@@ -3743,6 +3756,7 @@ static void print_explain_json(const ExplainInfo *info) {
                                          strcmp(info->code, "TYP026") == 0 ? 3036 :
                                          strcmp(info->code, "TYP027") == 0 ? 3050 :
                                          strcmp(info->code, "MEM002") == 0 ? 3051 :
+                                         strcmp(info->code, "MEM003") == 0 ? 3052 :
                                          strcmp(info->code, "FLD002") == 0 ? 3102 :
                                          strcmp(info->code, "PUB001") == 0 ? 3037 :
                                          strcmp(info->code, "IFC001") == 0 ? 3038 :

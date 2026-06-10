@@ -4940,6 +4940,62 @@ static bool ir_collect_stmt_locals(const Program *program, IrProgram *ir, IrFunc
   return true;
 }
 
+static size_t ir_estimate_local_bytes(const Program *program, const char *type_text, unsigned *out_align) {
+  unsigned array_len = 0;
+  IrTypeKind element_type = IR_TYPE_UNSUPPORTED;
+  if (out_align) *out_align = 8;
+  if (ir_parse_fixed_array_type_for_program(program, type_text, &array_len, &element_type)) {
+    if (out_align) *out_align = ir_type_alignment(element_type);
+    return (size_t)ir_type_byte_size(element_type) * (size_t)array_len;
+  }
+  unsigned record_size = 0;
+  unsigned record_align = 0;
+  if (ir_shape_layout(program, type_text, &record_size, &record_align)) {
+    if (out_align) *out_align = record_align ? record_align : 8;
+    return record_size;
+  }
+  IrTypeKind kind = ir_type_kind_for_program(program, type_text);
+  if (kind == IR_TYPE_BYTE_VIEW || kind == IR_TYPE_ALLOC || kind == IR_TYPE_VEC || kind == IR_TYPE_MAYBE_SCALAR) return 16;
+  if (kind == IR_TYPE_MAYBE_BYTE_VIEW) return 24;
+  return 8;
+}
+
+static size_t ir_estimate_stmt_frame_bytes(const Program *program, const StmtVec *body, size_t offset, size_t limit, const Stmt **out_over) {
+  for (size_t i = 0; body && i < body->len; i++) {
+    const Stmt *stmt = body->items[i];
+    if (stmt->kind == STMT_LET) {
+      unsigned align = 8;
+      size_t byte_size = ir_estimate_local_bytes(program, stmt->resolved_type ? stmt->resolved_type : stmt->type, &align);
+      offset = ir_align_to(offset, align) + byte_size;
+      if (offset > limit && out_over && !*out_over) *out_over = stmt;
+    } else if (stmt->kind == STMT_IF) {
+      offset = ir_estimate_stmt_frame_bytes(program, &stmt->then_body, offset, limit, out_over);
+      offset = ir_estimate_stmt_frame_bytes(program, &stmt->else_body, offset, limit, out_over);
+    } else if (stmt->kind == STMT_WHILE) {
+      offset = ir_estimate_stmt_frame_bytes(program, &stmt->then_body, offset, limit, out_over);
+    }
+  }
+  return offset;
+}
+
+bool z_function_frame_locals_within_limit(const Program *program, const Function *fun, size_t limit, size_t *out_total, const Stmt **out_over) {
+  if (out_total) *out_total = 0;
+  if (out_over) *out_over = NULL;
+  if (!fun || fun->type_params.len > 0) return true;
+  size_t offset = 0;
+  for (size_t i = 0; i < fun->params.len; i++) {
+    const Param *param = &fun->params.items[i];
+    if (param->type && strcmp(param->type, "World") == 0) continue;
+    unsigned align = 8;
+    size_t byte_size = ir_estimate_local_bytes(program, param->type, &align);
+    offset = ir_align_to(offset, align) + byte_size;
+  }
+  offset = ir_estimate_stmt_frame_bytes(program, &fun->body, offset, limit, out_over);
+  size_t total = ir_align_to(offset, 16);
+  if (out_total) *out_total = total;
+  return total <= limit;
+}
+
 static bool ir_lower_function_body(const Program *program, IrProgram *ir, IrFunction *mir_fun, const Function *source) {
   if (source->type_params.len > 0 || source->is_test) {
     ir_mark_unsupported(ir, "direct backend MVP does not support generics or tests", source->line, source->column, source->name);

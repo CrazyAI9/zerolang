@@ -11042,6 +11042,20 @@ static bool stmt_vec_guarantees_exit(const StmtVec *body, bool function_raises) 
   return false;
 }
 
+static bool check_function_frame_limit(const Program *program, const Function *fun, ZDiag *diag) {
+  size_t frame_total = 0;
+  const Stmt *frame_over = NULL;
+  if (z_function_frame_locals_within_limit(program, fun, Z_DIRECT_FRAME_LOCAL_LIMIT_BYTES, &frame_total, &frame_over)) return true;
+  char expected_text[96];
+  char actual_text[192];
+  snprintf(expected_text, sizeof(expected_text), "at most %u bytes of locals per function frame", (unsigned)Z_DIRECT_FRAME_LOCAL_LIMIT_BYTES);
+  snprintf(actual_text, sizeof(actual_text), "function '%s' declares %zu bytes of locals", fun->name ? fun->name : "<function>", frame_total);
+  return set_diag_detail(diag, 3052, "stack frame locals exceed the supported limit",
+                         frame_over ? frame_over->line : fun->line, frame_over ? frame_over->column : fun->column,
+                         expected_text, actual_text,
+                         "allocate large buffers with std.mem.pageAlloc and std.mem.allocBytes, or split them into smaller buffers in helper functions");
+}
+
 static bool check_function_has_required_return(const Function *fun, ZDiag *diag) {
   if (!fun || !fun->return_type || strcmp(fun->return_type, "Void") == 0) return true;
   if (stmt_vec_guarantees_exit(&fun->body, fun->raises)) return true;
@@ -11785,6 +11799,7 @@ static bool check_program_internal(const Program *program, bool require_entrypoi
     ctx->return_provenance_expr_binding_len = 0;
     bool ok = check_stmt_vec(ctx, program, fun, &fun->body, &scope, diag);
     if (ok) ok = check_function_has_required_return(fun, diag);
+    if (ok) ok = check_function_frame_limit(program, fun, diag);
     ctx->function = NULL;
     scope_free(&scope);
     if (!ok) return false;

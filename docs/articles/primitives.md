@@ -71,6 +71,11 @@ let copied: usize = std.mem.copy(scratch, bytes)
 These types are central to Zero's size and memory model. Helpers generally
 write into caller-owned storage so allocation behavior remains visible.
 
+Fixed-size locals live in one stack frame per function, and a single function
+may declare at most 131072 bytes of locals. `zero check` reports `MEM003` when
+a frame exceeds that limit; allocate larger buffers with `std.mem.pageAlloc`
+and `std.mem.allocBytes`, or split the work across helper functions.
+
 ## Ownership
 
 Owned values use explicit ownership forms:

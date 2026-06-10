@@ -150,14 +150,14 @@ static bool build_check_macho_byte_view_ptr(const ZBuildability *ctx, const IrFu
 bool z_build_check_macho_byte_view_len(const ZBuildability *ctx, const IrFunction *fun, const IrValue *view, ZDiag *diag) {
   unsigned len = 0;
   if (build_byte_view_const_len(view, &len)) {
-    if (len > 65535u) {
+    if (len > Z_DIRECT_FRAME_LOCAL_LIMIT_BYTES) {
       return z_build_diag(ctx, diag, "direct AArch64 Mach-O byte-view length is too large for the this backend", view->line, view->column, "large byte view");
     }
     return true;
   }
   if (!view) return z_build_diag(ctx, diag, "direct AArch64 Mach-O byte view is missing", 1, 1, "missing byte view");
   if (view->kind == IR_VALUE_STRING_LITERAL || view->kind == IR_VALUE_ARRAY_BYTE_VIEW) {
-    if (view->data_len > 65535u) {
+    if (view->data_len > Z_DIRECT_FRAME_LOCAL_LIMIT_BYTES) {
       return z_build_diag(ctx, diag, "direct AArch64 Mach-O byte-view length is too large for the this backend", view->line, view->column, "large byte view");
     }
     return true;
