@@ -1277,12 +1277,6 @@ static bool run_tool_silent(const char *tool, const char *arg) {
   return ok;
 }
 
-static bool remove_existing_tool_output(const char *path) {
-  if (!path || !path[0]) return false;
-  if (remove(path) == 0) return true;
-  return errno == ENOENT;
-}
-
 static bool zargv_append_toolchain_driver(ZProcessArgv *argv, const ZToolchainPlan *plan, bool *uses_zig_env) {
   if (!argv || !plan) return false;
   if (uses_zig_env) *uses_zig_env = false;
@@ -1409,7 +1403,7 @@ static bool profile_should_strip_artifact(const char *profile) {
 bool z_toolchain_compile_c_object(const ZToolchainPlan *plan, const char *profile, const ZTargetInfo *target, const char *c_file, const char *object_file, const char *include_dir, const char *extra_c_flags) {
   if (!validate_toolchain_plan(plan, target)) return false;
   if (!c_file || !object_file || strcmp(c_file, object_file) == 0) return false;
-  if (!remove_existing_tool_output(object_file)) return false;
+  if (!z_process_prepare_output_file(object_file)) return false;
 
   ZProcessArgv argv;
   z_process_argv_init(&argv);
@@ -1420,7 +1414,7 @@ bool z_toolchain_compile_c_object(const ZToolchainPlan *plan, const char *profil
             z_process_argv_append_flag_text(&argv, extra_c_flags, &suppress_stderr);
   if (ok && include_dir && include_dir[0]) ok = z_process_argv_push(&argv, "-I") && z_process_argv_push(&argv, include_dir);
   if (ok) ok = z_process_argv_push(&argv, "-c") && z_process_argv_push(&argv, c_file) && z_process_argv_push(&argv, "-o") && z_process_argv_push(&argv, object_file);
-  if (ok) ok = z_process_run_argv(&argv, false, suppress_stderr, uses_zig_env) && path_exists_for_cc(object_file, false);
+  if (ok) ok = z_process_run_argv(&argv, false, suppress_stderr, uses_zig_env) && z_process_output_file_ready(object_file);
   z_process_argv_free(&argv);
   return ok;
 }
@@ -1431,7 +1425,7 @@ bool z_toolchain_link_objects(const ZToolchainPlan *plan, const ZTargetInfo *tar
   for (size_t i = 0; i < object_count; i++) {
     if (object_files[i] && strcmp(object_files[i], exe_file) == 0) return false;
   }
-  if (!remove_existing_tool_output(exe_file)) return false;
+  if (!z_process_prepare_output_file(exe_file)) return false;
 
   ZProcessArgv argv;
   z_process_argv_init(&argv);
@@ -1443,7 +1437,7 @@ bool z_toolchain_link_objects(const ZToolchainPlan *plan, const ZTargetInfo *tar
     if (ok && object_files[i] && object_files[i][0]) ok = z_process_argv_push(&argv, object_files[i]);
   }
   if (ok) ok = z_process_argv_push(&argv, "-o") && z_process_argv_push(&argv, exe_file) && z_process_argv_append_flag_text(&argv, post_object_flags, &suppress_stderr);
-  if (ok) ok = z_process_run_argv(&argv, false, suppress_stderr, uses_zig_env) && path_exists_for_cc(exe_file, false);
+  if (ok) ok = z_process_run_argv(&argv, false, suppress_stderr, uses_zig_env) && z_process_output_file_ready(exe_file);
   z_process_argv_free(&argv);
   return ok;
 }
@@ -1452,7 +1446,7 @@ bool z_run_cc(const char *c_file, const char *exe_file, const char *cc, const ch
   ZToolchainPlan plan = z_plan_toolchain(cc, profile, target);
   if (!validate_toolchain_plan(&plan, target)) return false;
   if (!c_file || !exe_file || strcmp(c_file, exe_file) == 0) return false;
-  if (!remove_existing_tool_output(exe_file)) return false;
+  if (!z_process_prepare_output_file(exe_file)) return false;
 
   ZProcessArgv argv;
   z_process_argv_init(&argv);
@@ -1463,7 +1457,7 @@ bool z_run_cc(const char *c_file, const char *exe_file, const char *cc, const ch
             z_process_argv_push(&argv, c_file) &&
             z_process_argv_push(&argv, "-o") &&
             z_process_argv_push(&argv, exe_file);
-  if (ok) ok = z_process_run_argv(&argv, false, suppress_stderr, uses_zig_env) && path_exists_for_cc(exe_file, false);
+  if (ok) ok = z_process_run_argv(&argv, false, suppress_stderr, uses_zig_env) && z_process_output_file_ready(exe_file);
   z_process_argv_free(&argv);
   if (!ok) {
     fprintf(

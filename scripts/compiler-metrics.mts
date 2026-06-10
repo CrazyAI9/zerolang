@@ -12,6 +12,7 @@ const sourceFileDirs = [
 const auditFiles = [
   "native/zero-c/runtime/zero_runtime.c",
   "native/zero-c/tests/http_listen_runner_smoke.c",
+  "native/zero-c/tests/process_exec_smoke.c",
   "scripts/fs-runtime-smoke.mts",
   "scripts/test-native.sh",
 ];
@@ -99,7 +100,7 @@ const fileBudgets: Record<string, FileBudget> = {
   "native/zero-c/src/emit_coff_aarch64.c": { maxLines: 490, maxStrcmpCalls: 0 },
   "native/zero-c/src/fs.c": { maxLines: 1525, maxStrcmpCalls: 36, maxShellCalls: 0 },
   "native/zero-c/src/fs_read.c": { maxLines: 130, maxStrcmpCalls: 0, maxShellCalls: 0 },
-  "native/zero-c/src/process_exec.c": { maxLines: 225, maxStrcmpCalls: 1, maxShellCalls: 0 },
+  "native/zero-c/src/process_exec.c": { maxLines: 300, maxStrcmpCalls: 1, maxShellCalls: 0 },
   "native/zero-c/src/process_exec.h": { maxLines: 25, maxStrcmpCalls: 0, maxShellCalls: 0 },
   "native/zero-c/src/process_path.c": { maxLines: 110, maxStrcmpCalls: 0, maxShellCalls: 0 },
   "native/zero-c/src/process_path.h": { maxLines: 10, maxStrcmpCalls: 0, maxShellCalls: 0 },
@@ -1492,6 +1493,7 @@ const directWriteFopenFiles = [...texts.entries()]
   .map(([path]) => path)
   .sort((a, b) => a.localeCompare(b));
 const processExecRaw = texts.get("native/zero-c/src/process_exec.c") ?? "";
+const processExecSmokeRaw = auditTexts.get("native/zero-c/tests/process_exec_smoke.c") ?? "";
 const nativeTestRaw = auditTexts.get("scripts/test-native.sh") ?? "";
 const fsRuntimeSmokeRaw = auditTexts.get("scripts/fs-runtime-smoke.mts") ?? "";
 const runtimeRaw = auditTexts.get("native/zero-c/runtime/zero_runtime.c") ?? "";
@@ -1552,10 +1554,13 @@ const directFileExistsBody = cCodeText(cBlock(main, "static bool direct_file_exi
 const zbufAppendfBody = cCodeText(cBlock(fsRaw, "void zbuf_appendf"));
 const processExistingDirBody = cCodeText(cBlock(processExecRaw, "static bool z_process_existing_dir"));
 const processEnsureDirBody = cCodeText(cBlock(processExecRaw, "bool z_process_ensure_dir"));
+const processFlagParserBody = cCodeText(cBlock(processExecRaw, "bool z_process_argv_append_flag_text"));
 const processSuppressStreamBody = cCodeText(cBlock(processExecRaw, "static bool z_process_suppress_stream"));
 const processWaitSuccessBody = cCodeText(cBlock(processExecRaw, "static bool z_process_wait_success"));
 const processRunArgvBody = cCodeText(cBlock(processExecRaw, "bool z_process_run_argv"));
 const processFirstStdoutLineBody = cCodeText(cBlock(processExecRaw, "char *z_process_first_stdout_line"));
+const processPrepareOutputBody = cCodeText(cBlock(processExecRaw, "bool z_process_prepare_output_file"));
+const processOutputReadyBody = cCodeText(cBlock(processExecRaw, "bool z_process_output_file_ready"));
 const checkedChildSetenvCount = (processRunArgvBody.match(/setenv\s*\([^;]*\)\s*!=\s*0\)\s*_exit\s*\(\s*127\s*\)/g) ?? []).length;
 const checkedChildSuppressCount = ((processRunArgvBody + processFirstStdoutLineBody).match(/!\s*z_process_suppress_stream\s*\([^)]*\)\)\s*_exit\s*\(\s*127\s*\)/g) ?? []).length;
 const processExecHardening = {
@@ -1574,7 +1579,29 @@ const processExecHardening = {
     /read_ok\s*=\s*false\s*;/.test(processFirstStdoutLineBody) &&
     /bool\s+child_ok\s*=\s*z_process_wait_success\s*\(\s*pid\s*\)\s*;/.test(processFirstStdoutLineBody) &&
     /read_ok\s*&&\s*child_ok\s*&&\s*line\.data/.test(processFirstStdoutLineBody),
-  nativeSmokeWired: /process_exec_smoke\.c/.test(nativeTestRaw) && /process-exec-smoke/.test(nativeTestRaw),
+  flagParserRejectsMalformedQuote: /bool\s+closed\s*=\s*false/.test(processFlagParserBody) &&
+    /if\s*\(\s*!\s*closed\s*\)\s*\{\s*zbuf_free\s*\(\s*&token\s*\)\s*;\s*return\s+false\s*;/.test(processFlagParserBody) &&
+    /unterminated quotes/.test(processExecSmokeRaw),
+  outputPreparationStrict: /z_process_output_parent_ready\s*\(\s*path\s*\)/.test(processPrepareOutputBody) &&
+    /z_process_lstat_output\s*\(\s*path\s*,\s*&st\s*\)/.test(processPrepareOutputBody) &&
+    /z_process_output_is_symlink\s*\(\s*&st\s*\)/.test(processPrepareOutputBody) &&
+    /!\s*z_process_output_is_regular\s*\(\s*&st\s*\)/.test(processPrepareOutputBody) &&
+    /remove\s*\(\s*path\s*\)\s*==\s*0/.test(processPrepareOutputBody),
+  outputReadyStrict: /z_process_lstat_output\s*\(\s*path\s*,\s*&st\s*\)/.test(processOutputReadyBody) &&
+    /z_process_output_is_symlink\s*\(\s*&st\s*\)/.test(processOutputReadyBody) &&
+    /!\s*z_process_output_is_regular\s*\(\s*&st\s*\)/.test(processOutputReadyBody) &&
+    /st\.st_size\s*>\s*0/.test(processOutputReadyBody),
+  toolchainUsesOutputContract: /z_process_prepare_output_file\s*\(\s*object_file\s*\)/.test(fsRaw) &&
+    /z_process_prepare_output_file\s*\(\s*exe_file\s*\)/.test(fsRaw) &&
+    /z_process_output_file_ready\s*\(\s*object_file\s*\)/.test(fsRaw) &&
+    /z_process_output_file_ready\s*\(\s*exe_file\s*\)/.test(fsRaw) &&
+    !/remove_existing_tool_output/.test(fsRaw),
+  nativeSmokeWired: /process_exec_smoke\.c/.test(nativeTestRaw) &&
+    /process-exec-smoke/.test(nativeTestRaw) &&
+    /test_output_file_contract/.test(processExecSmokeRaw) &&
+    /missing parent directory/.test(processExecSmokeRaw) &&
+    /z_process_prepare_output_file/.test(processExecSmokeRaw) &&
+    /z_process_output_file_ready/.test(processExecSmokeRaw),
   noIgnoredNullStreams: !/FILE\s+\*null_/.test(processRunArgvBody) && !/FILE\s+\*null_/.test(processFirstStdoutLineBody),
 };
 const processExecChildSetupChecked = Object.values(processExecHardening).every(Boolean);
