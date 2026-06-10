@@ -662,7 +662,7 @@ static bool patch_parse_text(char *text, ZProgramGraphPatchResult *result) {
     if (!*trimmed || *trimmed == '#') continue;
     if (!saw_header) {
       if (strcmp(trimmed, "zero-program-graph-patch v1") != 0) {
-        patch_result_fail(result, "GPH001", "unknown program graph patch schema", "zero-program-graph-patch v1", trimmed);
+        patch_result_fail(result, "GPH001", "unknown program graph patch schema; patch files start with the `zero-program-graph-patch v1` header line, see `zero patch --op help` for working examples", "zero-program-graph-patch v1", trimmed);
         return false;
       }
       saw_header = true;
@@ -712,7 +712,7 @@ static bool patch_parse_text(char *text, ZProgramGraphPatchResult *result) {
     } else if (strncmp(trimmed, "replaceBlockBody", strlen("replaceBlockBody")) == 0 && isspace((unsigned char)trimmed[strlen("replaceBlockBody")])) {
       if (!patch_parse_replace_body_rows(trimmed, &line_number, &cursor, true, result)) return false;
     } else {
-      patch_result_fail(result, "GPH001", "unknown program graph patch operation", "expect, set, insert, insertEdge, replace, delete, rename, addFunction, addMain, addParam, addReturnBinary, addLetLiteral, addLetBinary, addReturnValue, addCheckWriteValue, addCheckWrite, addTest, replaceFunctionBody, or replaceBlockBody", trimmed);
+      patch_result_fail(result, "GPH001", "unknown program graph patch operation; run `zero patch --op help` for working examples of every operation", "expect, set, insert, insertEdge, replace, delete, rename, addFunction, addMain, addParam, addReturnBinary, addLetLiteral, addLetBinary, addReturnValue, addCheckWriteValue, addCheckWrite, addTest, replaceFunctionBody, or replaceBlockBody", trimmed);
       return false;
     }
   }

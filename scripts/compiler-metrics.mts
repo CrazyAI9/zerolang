@@ -123,7 +123,8 @@ const fileBudgets: Record<string, FileBudget> = {
   "native/zero-c/src/program_graph_compile.c": { maxLines: 124, maxStrcmpCalls: 1 },
   "native/zero-c/src/program_graph_contracts.c": { maxLines: 280, maxStrcmpCalls: 1 },
   "native/zero-c/src/program_graph_contracts.h": { maxLines: 13, maxStrcmpCalls: 0 },
-  "native/zero-c/src/program_graph_effect_contracts.c": { maxLines: 220, maxStrcmpCalls: 1 },
+  // Effect contracts instantiate stdlib generic templates so patch revalidation matches check semantics.
+  "native/zero-c/src/program_graph_effect_contracts.c": { maxLines: 400, maxStrcmpCalls: 2 },
   "native/zero-c/src/program_graph_memory_contracts.c": { maxLines: 190, maxStrcmpCalls: 1 },
   "native/zero-c/src/program_graph_borrow_contracts.c": { maxLines: 220, maxStrcmpCalls: 1 },
   "native/zero-c/src/program_graph_compare.c": { maxLines: 570, maxStrcmpCalls: 1 },
@@ -157,7 +158,8 @@ const fileBudgets: Record<string, FileBudget> = {
   "native/zero-c/src/program_graph_validate.c": { maxLines: 680, maxStrcmpCalls: 5 },
   "native/zero-c/src/program_graph_patch_builders.c": { maxLines: 375, maxStrcmpCalls: 1 },
   "native/zero-c/src/program_graph_patch_builders.h": { maxLines: 15, maxStrcmpCalls: 0 },
-  "native/zero-c/src/program_graph_patch_body.c": { maxLines: 800, maxStrcmpCalls: 20 },
+  // Body rows accept zero view output verbatim before falling back to the legacy row grammar.
+  "native/zero-c/src/program_graph_patch_body.c": { maxLines: 880, maxStrcmpCalls: 20 },
   "native/zero-c/src/program_graph_patch_body.h": { maxLines: 10, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_patch_examples.c": { maxLines: 35, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_patch_ops.c": { maxLines: 1740, maxStrcmpCalls: 13 },

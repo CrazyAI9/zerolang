@@ -2967,6 +2967,106 @@ const repositoryInvalidBodyPatch = json(["patch", "--json", graphRepositoryPatch
 assert.notEqual(repositoryInvalidBodyPatch.code, 0);
 assert.equal(repositoryInvalidBodyPatch.body.diagnostics[0].code, "ERR003");
 assert.equal(json(["query", "--json", graphRepositoryPatchPackageDir]).body.graphHash, repositorySyncedQueryJson.graphHash);
+const genericPatchRoot = join(outDir, "repository-graph-generic-patch");
+rmSync(genericPatchRoot, { recursive: true, force: true });
+mkdirSync(join(genericPatchRoot, "src"), { recursive: true });
+writeZeroTomlSync(genericPatchRoot, { package: { name: "generic-patch", version: "0.1.0" }, targets: { cli: { kind: "exe", main: "src/main.0" } } });
+writeFileSync(join(genericPatchRoot, "src", "main.0"), [
+  "fn tail(data: Span<u8>, offset: usize) -> Span<u8> {",
+  "    return std.mem.dropPrefix(data, offset)",
+  "}",
+  "",
+  "fn pick(data: Span<u8>, limit: usize) -> usize {",
+  "    var i: usize = 0",
+  "    var total: usize = 0",
+  "    while i < limit {",
+  "        total = total + std.mem.len(tail(data, i))",
+  "        i = i + 1_usize",
+  "    }",
+  "    return total",
+  "}",
+  "",
+  "pub fn main(world: World) -> Void raises {",
+  "    let bytes: Span<u8> = \"abc\"",
+  "    if pick(bytes, 2) > 0 {",
+  "        check world.out.write(\"generic patch ok\\n\")",
+  "    }",
+  "}",
+  "",
+].join("\n"));
+assert.equal(json(["import", "--format", "text", "--json", genericPatchRoot]).code, 0);
+assert.equal(zero(["check", genericPatchRoot]).stdout, "ok\n");
+const genericPatchDump = zero(["dump", genericPatchRoot]).stdout;
+const genericComparisonNode = genericPatchDump.match(/node (#\S+) Call name:"<"/);
+assert(genericComparisonNode, "expected a comparison Call node in the generic-bearing package dump");
+const genericOperatorFlip = json(["patch", "--json", genericPatchRoot, "--op", `set node="${genericComparisonNode[1]}" field="name" expect="<" value="<="`]).body;
+assert.equal(genericOperatorFlip.ok, true);
+assert.equal(genericOperatorFlip.operations[0].ok, true);
+assert.equal(zero(["check", genericPatchRoot]).stdout, "ok\n");
+assert.match(zero(["view", genericPatchRoot]).stdout, /while i <= limit/);
+assert.equal(zero(["run", genericPatchRoot]).stdout, "generic patch ok\n");
+const genericViewBodyQuery = json(["query", "--json", genericPatchRoot]).body;
+const genericViewSource = zero(["view", genericPatchRoot]).stdout.split("\n");
+const genericPickStart = genericViewSource.findIndex((line) => line.startsWith("fn pick("));
+assert(genericPickStart >= 0, "expected zero view to print fn pick");
+const genericPickBody: string[] = [];
+let genericPickDepth = 0;
+for (const line of genericViewSource.slice(genericPickStart)) {
+  genericPickDepth += (line.match(/\{/g) ?? []).length - (line.match(/\}/g) ?? []).length;
+  genericPickBody.push(line);
+  if (genericPickDepth === 0 && genericPickBody.length > 1) break;
+}
+const genericVerbatimPatchPath = join(outDir, "repository-graph-generic-verbatim.patch");
+writeFileSync(genericVerbatimPatchPath, [
+  "zero-program-graph-patch v1",
+  `expect graphHash "${genericViewBodyQuery.graphHash}"`,
+  "replaceFunctionBody pick",
+  ...genericPickBody.slice(1, -1).map((line) => `  ${line}`),
+  "end",
+  "",
+].join("\n"));
+const genericVerbatimPatch = json(["patch", "--json", genericPatchRoot, genericVerbatimPatchPath]).body;
+assert.equal(genericVerbatimPatch.ok, true);
+assert.equal(genericVerbatimPatch.operations[0].op, "replaceFunctionBody");
+assert.equal(zero(["check", genericPatchRoot]).stdout, "ok\n");
+assert.equal(zero(["run", genericPatchRoot]).stdout, "generic patch ok\n");
+const genericTypedRowsQuery = json(["query", "--json", genericPatchRoot]).body;
+const genericTypedRowsPatchPath = join(outDir, "repository-graph-generic-typed-rows.patch");
+writeFileSync(genericTypedRowsPatchPath, [
+  "zero-program-graph-patch v1",
+  `expect graphHash "${genericTypedRowsQuery.graphHash}"`,
+  "replaceFunctionBody pick",
+  "  let n: usize = std.mem.len(tail(data, 0))",
+  "  var total: usize = 0",
+  "  if n > 0 && limit > 0 {",
+  "      total = n + limit",
+  "  } else {",
+  "      total = limit",
+  "  }",
+  "  return total",
+  "end",
+  "",
+].join("\n"));
+const genericTypedRowsPatch = json(["patch", "--json", genericPatchRoot, genericTypedRowsPatchPath]).body;
+assert.equal(genericTypedRowsPatch.ok, true);
+assert.equal(genericTypedRowsPatch.operations[0].op, "replaceFunctionBody");
+const genericTypedRowsView = zero(["view", genericPatchRoot]).stdout;
+assert.match(genericTypedRowsView, /let n: usize = std\.mem\.len\(tail\(data, 0\)\)/);
+assert.match(genericTypedRowsView, /if n > 0 && limit > 0/);
+assert.equal(zero(["check", genericPatchRoot]).stdout, "ok\n");
+const genericUnknownOpPatchPath = join(outDir, "repository-graph-generic-unknown-op.patch");
+writeFileSync(genericUnknownOpPatchPath, [
+  "zero-program-graph-patch v1",
+  'setNodeField node="#missing" value="oops"',
+  "",
+].join("\n"));
+const genericUnknownOp = json(["patch", "--json", "--check-only", genericPatchRoot, genericUnknownOpPatchPath], { allowFailure: true });
+assert.notEqual(genericUnknownOp.code, 0);
+assert.equal(genericUnknownOp.body.diagnostic.code, "GPH001");
+assert.match(genericUnknownOp.body.diagnostic.message, /unknown program graph patch operation/);
+assert.match(genericUnknownOp.body.diagnostic.message, /zero patch --op help/);
+assert.match(genericUnknownOp.body.diagnostic.expected, /set, insert, insertEdge, replace, delete, rename/);
+assert.match(genericUnknownOp.body.diagnostic.expected, /replaceFunctionBody/);
 const checkedInGraphCallsJson = json(["query", "--json", "--fn", "main", "--calls", "write", checkedInGraphPackageDir]).body;
 assert.equal(checkedInGraphCallsJson.ok, true);
 assert.equal(checkedInGraphCallsJson.query.function, "main");
