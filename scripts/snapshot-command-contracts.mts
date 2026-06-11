@@ -924,7 +924,7 @@ for (const [command, expected] of [
   [["parse", "--help"], /Usage: zero parse/],
   [["query", "--help"], /Usage: zero query \[--json\] \[--fn <name>\] \[--find <text>\] \[--refs <name>\] \[--calls <name>\] \[--node <id>\] \[--depth <n>\] \[--full\] \[graph-input\|name\]/],
   [["inspect", "--help"], /Usage: zero init \[--template cli\|lib\|package\] \[project-path\]; zero query\|view\|diff\|dump\|inspect\|validate\|source-map\|roundtrip \[--json\] \[graph-input\]/],
-  [["diff", "--help"], /Diff textconv usage: zero diff \[graph-input\]/],
+  [["diff", "--help"], /Usage: zero diff \[--fn <name>\] \[graph-input\]/],
   [["size", "--help"], /Usage: zero size/],
   [["explain", "--help"], /Usage: zero explain/],
   [["fix", "--help"], /Usage: zero fix/],
@@ -975,7 +975,7 @@ for (const [code, goodExample, stalePattern] of [
 const graphHelp = zero(["inspect", "--help"]).stdout;
 assert.match(graphHelp, /zero dump\|validate\|roundtrip \[--json\] \[--format text\|binary\] --out <program-graph-artifact> \[graph-input\]; zero import \[--json\] \[--format text\|binary\] --out <program-graph-artifact> \[project\|zero\.toml\|zero\.json\|file\.0\]/);
 assert.match(graphHelp, /zero view \[--json\] \[--fn <name>\] \[--out <file\.0>\] \[graph-input\]/);
-assert.match(graphHelp, /zero diff \[graph-input\]/);
+assert.match(graphHelp, /zero diff \[--fn <name>\] \[graph-input\]/);
 assert.match(graphHelp, /zero source-map \[--json\] \[graph-input\]/);
 assert.match(graphHelp, /zero query \[--json\] \[--fn <name>\] \[--find <text>\] \[--refs <name>\] \[--calls <name>\] \[--node <id>\] \[--depth <n>\] \[--full\] \[graph-input\|name\]/);
 assert.match(graphHelp, /zero reconcile \[--json\] <base-graph-input> --source <edited-file\.0\|project\|zero\.toml\|zero\.json>/);
@@ -1010,7 +1010,7 @@ assert.match(rootHelp, /zero fix --plan --json \[graph-input\]/);
 assert.match(rootHelp, /zero patch \[--json\] \[--check-only\|--dry-run\] \[--format text\|binary\] \[--out <program-graph-artifact>\] \[graph-input\] \(<patch-file>\|--op <operation>\|--replace-fn <name> --body-file <file>\)/);
 assert.match(rootHelp, /zero dump\|validate\|roundtrip \[--json\] \[--format text\|binary\] \[--out <program-graph-artifact>\] \[graph-input\]/);
 assert.match(rootHelp, /zero view \[--json\] \[--fn <name>\] \[--out <file\.0>\] \[graph-input\]/);
-assert.match(rootHelp, /zero diff \[graph-input\]/);
+assert.match(rootHelp, /zero diff \[--fn <name>\] \[graph-input\]/);
 assert.match(rootHelp, /zero source-map \[--json\] \[graph-input\]/);
 assert.match(rootHelp, /zero query \[--json\] \[--fn <name>\] \[--find <text>\] \[--refs <name>\] \[--calls <name>\] \[--node <id>\] \[--depth <n>\] \[--full\] \[graph-input\|name\]/);
 assert.match(rootHelp, /zero reconcile \[--json\] <base-graph-input> --source <edited-file\.0\|project\|zero\.toml\|zero\.json>/);
@@ -1151,6 +1151,15 @@ const viewFunctionMissOutput = `${viewFunctionMiss.stdout}${viewFunctionMiss.std
 assert.match(viewFunctionMissOutput, /function 'dealsTotle' not found in graph view/);
 assert.match(viewFunctionMissOutput, /close matches: dealsTotal/);
 assert.match(viewFunctionMissOutput, /zero query --find dealsTotle/);
+const diffFunction = zero(["diff", "--fn", "dealsTotal", queryScopeRoot]).stdout;
+assert.equal(diffFunction, viewFunction);
+const diffFunctionMiss = zero(["diff", "--fn", "dealsTotle", queryScopeRoot], { allowFailure: true });
+assert.notEqual(diffFunctionMiss.code, 0);
+assert.match(`${diffFunctionMiss.stdout}${diffFunctionMiss.stderr}`, /close matches: dealsTotal/);
+const diffHelp = zero(["diff", "--help"]).stdout;
+assert.match(diffHelp, /Usage: zero diff \[--fn <name>\] \[graph-input\]/);
+assert.match(diffHelp, /zero diff --fn handleLine \./);
+assert.doesNotMatch(diffHelp, /Patch usage:/);
 const queryHelp = zero(["query", "--help"]).stdout;
 assert.match(queryHelp, /Usage: zero query .*\[--node <id>\] \[--depth <n>\] \[--full\] \[graph-input\|name\]/);
 assert.match(queryHelp, /zero query userTotals/);
@@ -3866,7 +3875,7 @@ assert.equal(existsSync(graphViewParentFileOutPath), false);
 const graphDiffOutJson = json(["diff", "--json", "--out", graphViewPath, graphDumpPath], { allowFailure: true });
 assert.notEqual(graphDiffOutJson.code, 0);
 assert.equal(graphDiffOutJson.body.diagnostics[0].message, "diff textconv output does not support --out");
-assert.equal(graphDiffOutJson.body.diagnostics[0].expected, "zero diff [graph-input]");
+assert.equal(graphDiffOutJson.body.diagnostics[0].expected, "zero diff [--fn <name>] [graph-input]");
 assert.equal(zero(["check", graphDumpPath]).stdout, "ok\n");
 const graphCheckJson = json(["check", "--json", graphDumpPath]).body;
 assert.equal(graphCheckJson.ok, true);

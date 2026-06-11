@@ -152,6 +152,6 @@ zero reconcile .zero/agent/app.before.program-graph --source <projection-or-pack
 
 `zero reconcile` reports unchanged, edited, inserted, deleted, ambiguous, and identity-changed nodes; ambiguous matches fail instead of assigning stale handles.
 
-For readable Git diffs of `.graph` files, mark them with `*.graph diff=zero-graph` in `.gitattributes` and set `git config diff.zero-graph.textconv 'zero diff'` (`bin/zero diff` inside a Zero checkout). `zero diff` prints canonical review text for textconv only; keep using `zero query`, `zero inspect`, and `zero patch` for graph work.
+For readable Git diffs of `.graph` files, mark them with `*.graph diff=zero-graph` in `.gitattributes` and set `git config diff.zero-graph.textconv 'zero diff'` (`bin/zero diff` inside a Zero checkout). `zero diff` prints canonical review text for textconv, and `zero diff --fn <name>` scopes it to one function; keep using `zero query`, `zero inspect`, and `zero patch` for graph work.
 
 `zero merge --base <base-zero.graph> --left <left-zero.graph> --right <right-zero.graph> <package>` combines independent node-hash edits and writes only the target store; run `export` separately if a human needs the refreshed projection. Build and run commands may also write a derived final-MIR cache under `.zero/cache/native/`; agents should not patch `.zmir` files.

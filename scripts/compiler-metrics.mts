@@ -36,7 +36,7 @@ const fileBudgets: Record<string, FileBudget> = {
   "native/zero-c/src/abi_report.c": { maxLines: 360, maxStrcmpCalls: 2 },
   "native/zero-c/src/abi_report.h": { maxLines: 18, maxStrcmpCalls: 0 },
   "native/zero-c/src/checker.c": { maxLines: 12010, maxStrcmpCalls: 289 },
-  "native/zero-c/src/cli_help.c": { maxLines: 150, maxStrcmpCalls: 1 },
+  "native/zero-c/src/cli_help.c": { maxLines: 152, maxStrcmpCalls: 1 },
   "native/zero-c/src/cli_help.h": { maxLines: 8, maxStrcmpCalls: 0 },
   "native/zero-c/src/http_listen_runner.c": { maxLines: 600, maxStrcmpCalls: 0 },
   "native/zero-c/src/http_listen_runner.h": { maxLines: 22, maxStrcmpCalls: 0 },

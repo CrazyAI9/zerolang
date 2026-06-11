@@ -4135,7 +4135,7 @@ static bool parse_graph_query_option(int argc, char **argv, int *index, Command 
   const bool full_selector = cli_arg_is(arg, "--full");
   if (!function_selector && !find_selector && !node_selector && !refs_selector && !calls_selector && !depth_selector && !full_selector) return false;
   const bool query_command = command_is_program_graph_command(command) && cli_arg_is(command->kind, "query");
-  const bool view_command = command_is_program_graph_command(command) && cli_arg_is(command->kind, "view");
+  const bool view_command = command_is_program_graph_command(command) && (cli_arg_is(command->kind, "view") || cli_arg_is(command->kind, "diff"));
   if (function_selector && view_command) {
     if (*index + 1 >= argc) {
       command->unknown_flag = arg;
