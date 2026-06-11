@@ -205,6 +205,7 @@ expected_output() {
     conformance/native/pass/std-regex.graph) printf "std regex ok" ;;
     conformance/native/pass/std-unicode.graph) printf "std unicode ok" ;;
     conformance/native/pass/std-inet.graph) printf "std inet ok" ;;
+    conformance/native/pass/std-time-rfc3339.graph) printf "std time rfc3339 ok" ;;
     conformance/native/pass/std-io-lines.graph) printf "std io lines ok" ;;
     conformance/native/pass/std-path-io-breadth.graph) printf "std path io breadth ok" ;;
     conformance/native/pass/std-fs-file-helpers.graph) printf "std fs file helpers ok" ;;
@@ -254,6 +255,7 @@ examples=(
   conformance/native/pass/std-regex.graph
   conformance/native/pass/std-unicode.graph
   conformance/native/pass/std-inet.graph
+  conformance/native/pass/std-time-rfc3339.graph
   conformance/native/pass/std-io-lines.graph
   conformance/native/pass/std-path-io-breadth.graph
   conformance/native/pass/std-fs-file-helpers.graph

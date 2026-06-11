@@ -40,7 +40,7 @@ Call functions with their module path, such as `std.mem.len(value)`.
 - `std.parse`: byte scanners and integer/bool parsers returning `Maybe<T>`.
 - `std.regex`: compile-once regular expression matching for a documented ECMA-262-leaning subset (literals, classes, anchors, word boundaries, greedy quantifiers, alternation, groups); unsupported constructs fail with structured status codes.
 - `std.inet`: target-neutral IPv4/IPv6/hostname literal validation and parsing; no network capability needed.
-- `std.time`: duration construction, conversion, comparison, elapsed-window helpers, and target-gated clock helpers.
+- `std.time`: duration construction, conversion, comparison, elapsed-window helpers, RFC 3339 date/time validation and epoch parsing, and target-gated clock helpers.
 - `std.rand`: explicit deterministic random sources, random bits, target entropy helpers, and caller-buffer entropy IDs.
 - `std.crypto`: small hash, fixed-width hash text, byte-oriented crypto helpers, and caller-buffer IDs.
 - `std.json`: explicit-buffer JSON validation, structured status codes, shallow field lookup, typed scalar decode, parsing, and string/object writing helpers.
@@ -860,7 +860,22 @@ isZero(arg0: Duration) -> Bool
 abs(arg0: Duration) -> Duration
 between(arg0: Duration, arg1: Duration) -> Duration
 hasElapsed(arg0: Duration, arg1: Duration, arg2: Duration) -> Bool
+isRfc3339Date(text: Span<u8>) -> Bool
+isRfc3339Time(text: Span<u8>) -> Bool
+isRfc3339DateTime(text: Span<u8>) -> Bool
+parseRfc3339DateTimeOr(text: Span<u8>, fallback: i64) -> i64
+isLeapYear(year: u32) -> Bool
+daysInMonth(year: u32, month: u32) -> u32
 ```
+
+The RFC 3339 helpers are target-neutral and validate calendar dates (leap
+years, days-in-month), times with fractional seconds and numeric offsets, and
+date-times joined by `T` or `t`. The leap-second rule is exact: seconds `60`
+is valid only when the time normalized by its offset equals `23:59:60` UTC,
+wrapping modulo 24 hours (`00:29:60+00:30` is valid; `23:59:60-01:00` is not).
+`parseRfc3339DateTimeOr` returns UTC epoch seconds, truncating fractions and
+mapping a valid leap second to the same epoch second as `:59`; it returns the
+fallback for invalid text.
 
 ### std.unicode
 
