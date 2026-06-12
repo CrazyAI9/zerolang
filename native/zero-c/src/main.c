@@ -10691,13 +10691,15 @@ static bool validate_c_libraries_for_target(const SourceInput *input, const ZTar
   char manifest_path[512];
   manifest_path_for_input(input, manifest_path, sizeof(manifest_path));
   ZDiag read_diag = {0}; char *manifest = z_read_file(manifest_path, &read_diag);
+  free((char *)read_diag.path); read_diag.path = NULL;
   if (!manifest && !require_link_plan) return true;
   if (!manifest) {
     set_c_import_link_plan_diag(diag, manifest_path, "extern C calls require C link metadata", "zero.toml or zero.json was not found");
     return false;
   }
   ZManifest parsed_manifest = {0};
-  if (!z_parse_manifest_json(manifest, &parsed_manifest, &read_diag)) { free(manifest); return true; }
+  if (!z_parse_manifest_json(manifest, &parsed_manifest, &read_diag)) { free((char *)read_diag.path); free(manifest); return true; }
+  free((char *)read_diag.path); read_diag.path = NULL;
   bool *direct_import_has_link_inputs = NULL;
   if (require_link_plan) direct_import_has_link_inputs = z_checked_calloc(input->direct_c_import_header_count ? input->direct_c_import_header_count : 1, sizeof(bool));
   if (require_link_plan && input->direct_c_import_header_count == 0) { set_c_import_link_plan_diag(diag, manifest_path, "extern C calls require C link metadata", "no direct C import headers were recorded"); ok = false; goto done; }
@@ -11062,11 +11064,14 @@ static void append_target_readiness_from_ir_json(ZBuf *buf, SourceInput *input, 
       ready = false;
     }
   }
+  bool mapped = false;
   if (!ready && input) {
-    if (diag.code != 8003 && diag.code != 8005) z_map_source_diag(input, &diag);
+    if (diag.code != 8003 && diag.code != 8005) mapped = z_map_source_diag(input, &diag);
     if (!diag.path) diag.path = input->source_file;
   }
   append_target_readiness_result_json(buf, input, program, target, command, ir, &diag, ready);
+  /* source mapping replaces the path with a fresh copy it owns */
+  if (mapped) free((char *)diag.path);
 }
 
 static void append_target_readiness_json(ZBuf *buf, SourceInput *input, const Program *program, const ZTargetInfo *target, const Command *command) {
@@ -11092,13 +11097,16 @@ static void append_target_readiness_json(ZBuf *buf, SourceInput *input, const Pr
       ready = false;
     }
   }
+  bool mapped = false;
   if (!ready && input) {
     /* C library validation points at the package manifest; source mapping would erase that. */
-    if (diag.code != 8003 && diag.code != 8005) z_map_source_diag(input, &diag);
+    if (diag.code != 8003 && diag.code != 8005) mapped = z_map_source_diag(input, &diag);
     if (!diag.path) diag.path = input->source_file;
   }
 
   append_target_readiness_result_json(buf, input, program, target, command, &ir, &diag, ready);
+  /* source mapping replaces the path with a fresh copy it owns */
+  if (mapped) free((char *)diag.path);
   z_free_ir_program(&ir);
 }
 

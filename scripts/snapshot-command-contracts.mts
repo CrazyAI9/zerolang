@@ -1821,10 +1821,13 @@ mkdirSync(join(oraclePreRoot, "src"), { recursive: true });
 writeFileSync(join(oraclePreRoot, "zero.toml"), '[package]\nname = "oracle-preexisting"\nversion = "0.1.0"\n\n[targets.cli]\nkind = "exe"\nmain = "src/main.0"\n');
 writeFileSync(join(oraclePreRoot, "src", "main.0"), 'pub fn main(world: World) -> Void raises {\n    let a1: Maybe<String> = std.args.get(1)\n    if a1.has {\n        check world.out.write(a1.value)\n    }\n    check world.out.write("done\\n")\n}\n');
 assert.equal(json(["import", "--json", oraclePreRoot]).body.ok, true);
-const oraclePreCheck = json(["check", "--json", "--target", "linux-x64", oraclePreRoot], { allowFailure: true });
+// win32-x64.exe is a direct-backend cross target on every CI host, so the
+// Args-capability gap is host-independent (linux-x64 resolves to the hosted
+// backend on linux runners and reports nothing).
+const oraclePreCheck = json(["check", "--json", "--target", "win32-x64.exe", oraclePreRoot], { allowFailure: true });
 assert.notEqual(oraclePreCheck.code, 0);
 assert.equal(oraclePreCheck.body.diagnostics[0].code, "TAR002");
-const oraclePrePatch = zeroWithStderr(["patch", "--target", "linux-x64", oraclePreRoot, "--op", 'addLetLiteral fn="main" name="probe" type="u32" value="1"']);
+const oraclePrePatch = zeroWithStderr(["patch", "--target", "win32-x64.exe", oraclePreRoot, "--op", 'addLetLiteral fn="main" name="probe" type="u32" value="1"']);
 assert.equal(oraclePrePatch.code, 0);
 assert.match(oraclePrePatch.stdout, /program graph patch ok/);
 assert.match(oraclePrePatch.stderr, /pre-existing diagnostic predates this patch and did not block it/);
