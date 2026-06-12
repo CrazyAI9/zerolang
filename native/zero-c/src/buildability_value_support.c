@@ -178,7 +178,8 @@ static bool build_value_supported_generic(const ZBuildability *ctx, const IrValu
     case IR_VALUE_HTTP_REQUEST_BODY_WITHIN:
     case IR_VALUE_HTTP_STATUS_CLASS:
       return build_backend_is_native_graph_runtime(ctx->backend) ||
-             ((value->kind == IR_VALUE_HTTP_REQUEST_METHOD_NAME || value->kind == IR_VALUE_HTTP_REQUEST_PATH) &&
+             ((value->kind == IR_VALUE_HTTP_REQUEST_METHOD_NAME || value->kind == IR_VALUE_HTTP_REQUEST_PATH ||
+               value->kind == IR_VALUE_HTTP_REQUEST_BODY_WITHIN) &&
               ctx->backend == Z_DIRECT_BACKEND_COFF_X64 && !ctx->executable);
   }
   return false;
