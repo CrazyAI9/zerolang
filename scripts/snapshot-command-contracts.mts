@@ -881,11 +881,12 @@ function directExeEmitterForTarget(target: string) {
 
 const generatedCBytesBeforeReadOnlyCommands = json(["size", "--json", "examples/memory-package"]).body.generatedCBytes;
 
-assert.equal(zero(["--version"]).stdout, "zero 0.3.1\n");
+assert.match(zero(["--version"]).stdout, /^zero 0\.3\.1 \(build (?:[0-9a-f]{7,40}|unknown)\)\n$/);
 
 const version = json(["--version", "--json"]).body;
 assert.equal(version.schemaVersion, 1);
 assert.equal(version.version, "0.3.1");
+assert.match(version.commit, /^(?:[0-9a-f]{7,40}|unknown)$/);
 assert.equal(version.backend, "zero-c");
 assert.equal(typeof version.host, "string");
 assert(version.targets.includes("darwin-arm64"));

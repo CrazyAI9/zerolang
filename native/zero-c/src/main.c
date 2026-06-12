@@ -634,7 +634,7 @@ static void append_parse_json(ZBuf *buf, const char *source_file, const Program 
 
 static const char *zero_commit(void) {
   const char *commit = getenv("ZERO_COMMIT");
-  return commit && commit[0] ? commit : "unknown";
+  return commit && commit[0] ? commit : ZERO_BUILD_HASH;
 }
 
 static bool command_available(const char *name) {
@@ -7153,7 +7153,7 @@ static char *command_default_out_path(const Command *command, const SourceInput 
 
 static int print_version_command(bool json) {
   if (!json) {
-    printf("zero %s\n", ZERO_VERSION);
+    printf("zero %s (build %s)\n", ZERO_VERSION, ZERO_BUILD_HASH);
     return 0;
   }
 

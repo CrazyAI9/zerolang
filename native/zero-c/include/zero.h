@@ -8,6 +8,10 @@
 
 #define ZERO_VERSION "0.3.1"
 
+#ifndef ZERO_BUILD_HASH
+#define ZERO_BUILD_HASH "unknown"
+#endif
+
 typedef struct ZTargetInfo ZTargetInfo;
 typedef struct ZProgramGraph ZProgramGraph;
 

@@ -30,7 +30,7 @@ type FileBudget = {
 };
 
 const fileBudgets: Record<string, FileBudget> = {
-  "native/zero-c/include/zero.h": { maxLines: 1216, maxStrcmpCalls: 0 },
+  "native/zero-c/include/zero.h": { maxLines: 1220, maxStrcmpCalls: 0 },
   "native/zero-c/include/zero_contracts.h": { maxLines: 20, maxStrcmpCalls: 0 },
   "native/zero-c/include/zero_runtime.h": { maxLines: 230, maxStrcmpCalls: 0 },
   "native/zero-c/src/abi_report.c": { maxLines: 360, maxStrcmpCalls: 2 },
