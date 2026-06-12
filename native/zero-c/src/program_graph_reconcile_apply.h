@@ -17,6 +17,7 @@ typedef struct {
   char node_range[96];
   char candidate_range[96];
   size_t candidate_count;
+  size_t auto_resolved;
   char hint[224];
 } ZProgramGraphIdentityReconcile;
 

@@ -2431,6 +2431,8 @@ mkdirSync(ambiguousRunRepoGraphRoot, { recursive: true });
 writeFileSync(ambiguousRunRepoGraphSource, insertRunRepoGraphOriginal);
 json(["import", "--format", "text", "--json", ambiguousRunRepoGraphSource]);
 const ambiguousRunRepoGraphStoreBefore = readFileSync(ambiguousRunRepoGraphStore, "utf8");
+const ambiguousRunRepoGraphWhileId = ambiguousRunRepoGraphStoreBefore.match(/^node (#[^ ]+) While/m)?.[1];
+assert(ambiguousRunRepoGraphWhileId);
 writeFileSync(
   ambiguousRunRepoGraphSource,
   insertRunRepoGraphOriginal.replace(
@@ -2438,13 +2440,42 @@ writeFileSync(
     "    var padded: usize = 0\n    while padded < n {\n        padded = padded + 1_usize\n    }\n    while i <= n {",
   ),
 );
-const ambiguousRunRepoGraphSync = json(["import", "--format", "text", "--json", ambiguousRunRepoGraphSource], { allowFailure: true });
-assert.notEqual(ambiguousRunRepoGraphSync.code, 0);
-assert.equal(ambiguousRunRepoGraphSync.body.diagnostics[0].code, "RGP007");
-assert.equal(ambiguousRunRepoGraphSync.body.diagnostics[0].message, "repository graph source identity is ambiguous");
-assert.match(ambiguousRunRepoGraphSync.body.diagnostics[0].actual, /matches 2 edited candidates at main\.0:\d+-\d+/);
-assert.match(ambiguousRunRepoGraphSync.body.diagnostics[0].help, /split the text edit: import the change touching main\.0:\d+-\d+ on its own first/);
-assert.equal(readFileSync(ambiguousRunRepoGraphStore, "utf8"), ambiguousRunRepoGraphStoreBefore);
+// An inserted sibling plus an edit to the original statement used to fail RGP007;
+// import now disambiguates by structural similarity and keeps the original handle
+// on the statement that shares its body.
+const ambiguousRunRepoGraphSync = zeroWithStderr(["import", "--format", "text", "--json", ambiguousRunRepoGraphSource]);
+assert.equal(ambiguousRunRepoGraphSync.code, 0);
+assert.match(ambiguousRunRepoGraphSync.stderr, /note: import matched 1 edited node to existing graph identities by structure/);
+const ambiguousRunRepoGraphStoreAfter = readFileSync(ambiguousRunRepoGraphStore, "utf8");
+const ambiguousRunRepoGraphResolvedLine = ambiguousRunRepoGraphStoreAfter
+  .split("\n")
+  .find((line) => line.startsWith(`node ${ambiguousRunRepoGraphWhileId} While`));
+assert(ambiguousRunRepoGraphResolvedLine, "original while handle survives the auto-resolved import");
+assert.match(ambiguousRunRepoGraphResolvedLine, /line:8/, "original while handle follows the statement that kept its body");
+// Identical edited candidates at shifted orders stay genuinely ambiguous and keep RGP007.
+const tieRunRepoGraphRoot = join("/tmp", `zero-repo-graph-tie-run-${process.pid}`);
+const tieRunRepoGraphSource = join(tieRunRepoGraphRoot, "main.0");
+const tieRunRepoGraphStore = join(tieRunRepoGraphRoot, "zero.graph");
+rmSync(tieRunRepoGraphRoot, { force: true, recursive: true });
+mkdirSync(tieRunRepoGraphRoot, { recursive: true });
+writeFileSync(tieRunRepoGraphSource, insertRunRepoGraphOriginal);
+json(["import", "--format", "text", "--json", tieRunRepoGraphSource]);
+const tieRunRepoGraphStoreBefore = readFileSync(tieRunRepoGraphStore, "utf8");
+writeFileSync(
+  tieRunRepoGraphSource,
+  insertRunRepoGraphOriginal.replace(
+    "    while i < n {\n        p = p + 1_usize\n        i = i + 1_usize\n    }\n",
+    "    var shift: usize = 0\n    while i <= n {\n        p = p + 2_usize\n        i = i + 1_usize\n    }\n    while i <= n {\n        p = p + 2_usize\n        i = i + 1_usize\n    }\n",
+  ),
+);
+const tieRunRepoGraphSync = json(["import", "--format", "text", "--json", tieRunRepoGraphSource], { allowFailure: true });
+assert.notEqual(tieRunRepoGraphSync.code, 0);
+assert.equal(tieRunRepoGraphSync.body.diagnostics[0].code, "RGP007");
+assert.equal(tieRunRepoGraphSync.body.diagnostics[0].message, "repository graph source identity is ambiguous");
+assert.match(tieRunRepoGraphSync.body.diagnostics[0].actual, /matches 2 edited candidates at main\.0:\d+-\d+/);
+assert.match(tieRunRepoGraphSync.body.diagnostics[0].help, /split the text edit: import the change touching main\.0:\d+-\d+ on its own first/);
+assert.equal(readFileSync(tieRunRepoGraphStore, "utf8"), tieRunRepoGraphStoreBefore);
+rmSync(tieRunRepoGraphRoot, { force: true, recursive: true });
 const mergeRepoGraphRoot = join("/tmp", `zero-repo-graph-merge-${process.pid}`);
 const mergeRepoGraphSource = join(mergeRepoGraphRoot, "main.0");
 const mergeRepoGraphStore = join(mergeRepoGraphRoot, "zero.graph");

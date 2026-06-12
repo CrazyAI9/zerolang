@@ -859,7 +859,15 @@ static bool store_preserve_existing_source_identities(const char *path, ZProgram
   ZProgramGraphIdentityReconcile identity = {0};
   bool ok = z_program_graph_preserve_source_node_ids(&existing.graph, normalized, &identity);
   z_program_graph_store_free(&existing);
-  if (ok) return true;
+  if (ok) {
+    if (identity.auto_resolved > 0) {
+      fprintf(stderr,
+              "note: import matched %zu edited node%s to existing graph identities by structure; re-run zero query before patching them\n",
+              identity.auto_resolved,
+              identity.auto_resolved == 1 ? "" : "s");
+    }
+    return true;
+  }
   return store_identity_reconcile_diag(path, &identity, diag);
 }
 
