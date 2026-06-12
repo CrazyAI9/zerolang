@@ -96,7 +96,10 @@ typedef struct {
   const char *query_calls;
   const char *query_depth;
   const char *query_bare_argument;
+  const char *view_outline;
+  const char *view_around;
   bool query_full;
+  bool query_handles;
   const char **patch_ops;
   size_t patch_op_len;
   size_t patch_op_cap;
@@ -431,8 +434,67 @@ static int embedded_skills_list_command(bool json) {
   return 0;
 }
 
+static size_t embedded_skill_heading_level(const char *line) {
+  if (strncmp(line, "## ", 3) == 0) return 2;
+  if (strncmp(line, "### ", 4) == 0) return 3;
+  return 0;
+}
+
+static bool embedded_skill_extract_topic(const char *content, const char *topic, ZBuf *out) {
+  size_t topic_len = strlen(topic);
+  bool found = false;
+  size_t in_section_level = 0;
+  const char *line = content;
+  while (line && *line) {
+    const char *line_end = strchr(line, '\n');
+    size_t line_len = line_end ? (size_t)(line_end - line) + 1 : strlen(line);
+    size_t level = embedded_skill_heading_level(line);
+    if (level > 0) {
+      const char *title = line + level + 1;
+      size_t title_len = line_len;
+      while (title_len > 0 && (line[title_len - 1] == '\n' || line[title_len - 1] == '\r')) title_len--;
+      title_len -= (size_t)(title - line);
+      bool matches = title_len >= topic_len && strncmp(title, topic, topic_len) == 0;
+      if (in_section_level > 0 && level <= in_section_level && !matches) {
+        in_section_level = 0;
+      }
+      if (matches && in_section_level == 0) {
+        if (found) zbuf_append_char(out, '\n');
+        found = true;
+        in_section_level = level;
+      }
+    }
+    if (in_section_level > 0) {
+      for (size_t i = 0; i < line_len; i++) zbuf_append_char(out, line[i]);
+    }
+    if (!line_end) break;
+    line = line_end + 1;
+  }
+  return found;
+}
+
+static void embedded_skill_append_topic_headings(const char *content, ZBuf *out) {
+  const char *line = content;
+  bool first = true;
+  while (line && *line) {
+    const char *line_end = strchr(line, '\n');
+    size_t level = embedded_skill_heading_level(line);
+    if (level > 0) {
+      const char *title = line + level + 1;
+      size_t title_len = line_end ? (size_t)(line_end - title) : strlen(title);
+      while (title_len > 0 && (title[title_len - 1] == '\n' || title[title_len - 1] == '\r')) title_len--;
+      if (!first) zbuf_append(out, ", ");
+      first = false;
+      for (size_t i = 0; i < title_len; i++) zbuf_append_char(out, title[i]);
+    }
+    if (!line_end) break;
+    line = line_end + 1;
+  }
+}
+
 static int embedded_skills_get_command(int argc, char **argv, int subcommand_index, bool json) {
   bool get_all = false;
+  const char *topic = NULL;
   const ZeroEmbeddedSkill *targets[64];
   size_t target_count = 0;
 
@@ -440,6 +502,13 @@ static int embedded_skills_get_command(int argc, char **argv, int subcommand_ind
     const char *arg = argv[i];
     if (strcmp(arg, "--all") == 0) {
       get_all = true;
+      continue;
+    }
+    if (strcmp(arg, "--topic") == 0) {
+      if (i + 1 >= argc) {
+        return embedded_skills_error(json, "Missing --topic value. Usage: zero skills get <name> --topic <section-prefix>");
+      }
+      topic = argv[++i];
       continue;
     }
     if (strcmp(arg, "--full") == 0 || strcmp(arg, "--json") == 0) continue;
@@ -468,6 +537,31 @@ static int embedded_skills_get_command(int argc, char **argv, int subcommand_ind
     return embedded_skills_error(json, "No skill name provided. Usage: zero skills get <name>");
   }
 
+  if (topic && (get_all || target_count != 1)) {
+    return embedded_skills_error(json, "--topic scopes one skill. Usage: zero skills get <name> --topic <section-prefix>");
+  }
+
+  ZBuf topic_content;
+  zbuf_init(&topic_content);
+  if (topic) {
+    ZBuf full;
+    zbuf_init(&full);
+    append_embedded_skill_content(&full, targets[0]);
+    bool found = embedded_skill_extract_topic(full.data ? full.data : "", topic, &topic_content);
+    if (!found) {
+      ZBuf message;
+      zbuf_init(&message);
+      zbuf_appendf(&message, "No section in skill '%s' matches --topic %s. Sections: ", targets[0]->name, topic);
+      embedded_skill_append_topic_headings(full.data ? full.data : "", &message);
+      int rc = embedded_skills_error(json, message.data ? message.data : "");
+      zbuf_free(&message);
+      zbuf_free(&full);
+      zbuf_free(&topic_content);
+      return rc;
+    }
+    zbuf_free(&full);
+  }
+
   if (json) {
     ZBuf buf;
     zbuf_init(&buf);
@@ -476,20 +570,34 @@ static int embedded_skills_get_command(int argc, char **argv, int subcommand_ind
       if (i > 0) zbuf_append(&buf, ",");
       zbuf_append(&buf, "{\"name\":");
       append_json_string(&buf, targets[i]->name);
-      zbuf_append(&buf, ",\"content\":");
-      ZBuf content;
-      zbuf_init(&content);
-      append_embedded_skill_content(&content, targets[i]);
-      append_json_string(&buf, content.data ? content.data : "");
-      zbuf_free(&content);
+      if (topic) {
+        zbuf_append(&buf, ",\"topic\":");
+        append_json_string(&buf, topic);
+        zbuf_append(&buf, ",\"content\":");
+        append_json_string(&buf, topic_content.data ? topic_content.data : "");
+      } else {
+        zbuf_append(&buf, ",\"content\":");
+        ZBuf content;
+        zbuf_init(&content);
+        append_embedded_skill_content(&content, targets[i]);
+        append_json_string(&buf, content.data ? content.data : "");
+        zbuf_free(&content);
+      }
       zbuf_append(&buf, "}");
     }
     zbuf_append(&buf, "]}\n");
     fputs(buf.data, stdout);
     zbuf_free(&buf);
+    zbuf_free(&topic_content);
     return 0;
   }
 
+  if (topic) {
+    fputs(topic_content.data ? topic_content.data : "", stdout);
+    zbuf_free(&topic_content);
+    return 0;
+  }
+  zbuf_free(&topic_content);
   for (size_t i = 0; i < target_count; i++) {
     if (i > 0) printf("\n---\n\n");
     print_embedded_skill_content(targets[i]);
@@ -503,6 +611,10 @@ static int embedded_skills_command(int argc, char **argv, bool json) {
   for (int i = 2; i < argc; i++) {
     const char *arg = argv[i];
     if (strcmp(arg, "--json") == 0 || strcmp(arg, "--all") == 0 || strcmp(arg, "--full") == 0) continue;
+    if (strcmp(arg, "--topic") == 0) {
+      i++;
+      continue;
+    }
     if (arg[0] == '-') {
       char message[160];
       snprintf(message, sizeof(message), "Unknown skills flag: %s", arg);
@@ -2188,6 +2300,9 @@ static void touch_program_graph_compiler_caches(SourceInput *input, const ZTarge
   input->interface_cache_hit = compiler_cache_touch("interface", graph_interface_cache_key(input, graph_hash));
   input->check_cache_hit = compiler_cache_touch("checked-body", graph_compile_cache_key(input, target, NULL, "checked-body", graph_hash));
   input->specialization_cache_hit = compiler_cache_touch("specialization", graph_compile_cache_key(input, target, profile ? profile : "release", "specialization", graph_hash));
+  /* Compile commands write caches, so any projection match verdicts that
+   * read-only verification left pending can persist alongside them. */
+  z_program_graph_projection_match_verdicts_flush();
 }
 
 static void append_compiler_phases_json(ZBuf *buf, const SourceInput *input) {
@@ -3802,7 +3917,7 @@ static const ExplainInfo explain_infos[] = {
   {"GPH001", "graph-patch", "Malformed patch operation", "A patch operation or body row is missing required attributes or does not parse.", "Patch operations have fixed shapes so they validate fully before touching the store.", "Run `zero patch --op help` and copy the exact shape of the operation, including required attributes and `end` markers.", "zero patch --op 'addFunction'", "zero patch --op 'addFunction name=double param=value:i32 returns=i32'"},
   {"GPH002", "graph-patch", "Patch precondition failed", "An expect operation's graph hash or fact does not match the current store.", "Preconditions let agents assert the graph state they reasoned about before mutating it.", "Re-read the current facts with `zero query` or `zero status`, then update the expect operation to the current graph hash.", "expect graphHash=stale-hash", "zero status . # read the current graph hash, then patch"},
   {"GPH003", "graph-patch", "Invalid patch operand", "A patch operation operand is not a valid identifier, operator, or value for its slot.", "Operands are validated against the projection grammar before any graph mutation.", "Use canonical projection syntax for operands, the same text `zero view` prints.", "addLetBinary name=x op=plus left=1 right=2", "addLetBinary name=x op=+ left=a right=b"},
-  {"GPH004", "graph-patch", "Patch target not found", "A patch operation names a node, edge, function, or parent that does not exist in the graph.", "Patches address graph handles directly, so missing targets fail instead of creating implicit nodes.", "Locate the handle first with `zero query <name>` and use the exact node id or name it prints.", "zero patch --op 'replaceFunctionBody missing_fn ...'", "zero query main # then patch the printed handle"},
+  {"GPH004", "graph-patch", "Patch target not found", "A patch operation names a node, edge, function, or parent that does not exist in the graph.", "Patches address graph handles directly, so missing targets fail instead of creating implicit nodes.", "Locate the handle first with `zero query --fn <name> --handles` (stmt and param handles) or `zero query --find <text>` and use the exact node id or name it prints.", "zero patch --op 'replaceFunctionBody missing_fn ...'", "zero query --fn main --handles # then patch the printed handle"},
   {"GPH005", "graph-patch", "Patch conflicts with existing graph facts", "A patch would create a node id, function, or edge slot that already exists, or delete a node that is still referenced outside its subtree.", "The store stays internally consistent, so conflicting inserts and dangling references are rejected.", "Query the existing fact first, then rename, replace, or delete the conflicting fact explicitly in the same patch.", "addFunction name=main # main already exists", "replaceFunctionBody main ... # edit the existing function"},
   {"GPH006", "graph-patch", "Patch produced an invalid graph", "The patched graph failed validation or could not lower, so the patch was rolled back and the store was not saved.", "Every patch validates the whole resulting graph before saving, keeping the store loadable by every command.", "Fix the patch body so the resulting function and graph are complete and well-formed; the message names the failing validation fact.", "replaceFunctionBody main with an unterminated block", "replaceFunctionBody main\n  return\nend"},
   {"GRC000", "graph-reconcile", "Graph reconcile failed", "Reconciling edited source with the previous graph failed without a more specific code; the message carries the failing fact.", "Reconcile preserves node identities across text edits so graph history and patches stay stable.", "Read the failure message; if identity cannot be preserved, split the edit into smaller passes or use zero patch.", "zero reconcile zero.graph --source heavily-rewritten.0", "zero reconcile zero.graph --source small-edit.0"},
@@ -3845,7 +3960,7 @@ static const ExplainInfo explain_infos[] = {
   {"RGP003", "repository-graph", "Repository graph store invalid", "The zero.graph store exists but could not be parsed or failed validation.", "Commands refuse to guess around a broken store so package state stays deterministic.", "Run `zero import .` after reviewing the source projection to rebuild the store from source.", "zero check . # with a corrupted zero.graph", "zero import . # rebuild zero.graph from source"},
   {"RGP004", "repository-graph", "Source projection generation failed", "The store's .0 source projection could not be generated, written, or kept byte-stable.", "Projections are deterministic renderings of the graph; failures usually mean a broken projection table or unwritable target path.", "Fix the projection target path, or rebuild the store from source with `zero import .` and re-export.", "zero export . # with a non-local projection path in the store", "zero import . && zero export ."},
   {"RGP006", "repository-graph", "Source projection missing or differs", "A checked-in .0 source projection is missing or no longer matches the repository graph.", "Projection drift means source text and graph describe different programs.", "Review the diff, then run `zero import` if the .0 projection is authoritative or `zero export` if zero.graph is authoritative.", "zero verify-projection . # after editing main.0 by hand", "zero import . # accept the edited projection"},
-  {"RGP007", "repository-graph", "Source identity ambiguous or mismatched", "An import or status check could not map source declarations onto existing graph identities, or the package manifest identity does not match the store.", "Graph node identities survive text edits only when the mapping is unambiguous and the package identity matches.", "Split the text edit into smaller passes or use `zero patch`; for identity mismatches, align package.name with the store or re-import.", "zero import . # after renaming and reordering many functions at once", "zero import . # after one focused rename"},
+  {"RGP007", "repository-graph", "Source identity ambiguous or mismatched", "An import or status check could not map source declarations onto existing graph identities, or the package manifest identity does not match the store.", "Import resolves most overlaps by structural similarity; identities fail only when candidates tie exactly or the package identity mismatches.", "Split the text edit into smaller passes or use `zero patch`; for identity mismatches, align package.name with the store or re-import.", "zero import . # after replacing one statement with identical copies", "zero import . # after one focused rename"},
   {"RGP008", "repository-graph", "Stale package projection", "Package source was edited after the store was written and ZERO_STALE=fail turns that staleness into an error.", "Strict staleness mode lets automation require an explicit refresh instead of an implicit one.", "Run `zero import .` to refresh the store, or unset ZERO_STALE to let commands refresh automatically.", "ZERO_STALE=fail zero check . # after editing main.0", "zero import . && ZERO_STALE=fail zero check ."},
   {"RGP009", "repository-graph", "Binary store unreadable by this compiler", "The binary zero.graph store has the right magic but this compiler build cannot decode it, or its content failed integrity checks.", "Binary store layout can change between zero builds, so a store written by a different build fails to load instead of being misread.", "The store was likely written by a different zero build: rebuild it with this binary via `zero import .`, or install the matching compiler. Check builds with `zero --version`.", "zero query zero.graph # store written by another zero build", "zero import . # rewrite zero.graph with this binary"},
   {NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL},
@@ -4270,7 +4385,10 @@ static bool parse_graph_query_option(int argc, char **argv, int *index, Command 
   const bool calls_selector = cli_arg_is(arg, "--calls");
   const bool depth_selector = cli_arg_is(arg, "--depth");
   const bool full_selector = cli_arg_is(arg, "--full");
-  if (!function_selector && !find_selector && !node_selector && !refs_selector && !calls_selector && !depth_selector && !full_selector) return false;
+  const bool handles_selector = cli_arg_is(arg, "--handles");
+  const bool outline_selector = cli_arg_is(arg, "--outline");
+  const bool around_selector = cli_arg_is(arg, "--around");
+  if (!function_selector && !find_selector && !node_selector && !refs_selector && !calls_selector && !depth_selector && !full_selector && !handles_selector && !outline_selector && !around_selector) return false;
   const bool query_command = command_is_program_graph_command(command) && cli_arg_is(command->kind, "query");
   const bool view_command = command_is_program_graph_command(command) && (cli_arg_is(command->kind, "view") || cli_arg_is(command->kind, "diff"));
   if (function_selector && view_command) {
@@ -4281,12 +4399,29 @@ static bool parse_graph_query_option(int argc, char **argv, int *index, Command 
     command->query_function = argv[++(*index)];
     return true;
   }
+  if ((outline_selector || around_selector) && command_is_program_graph_command(command) && cli_arg_is(command->kind, "view")) {
+    if (*index + 1 >= argc) {
+      command->unknown_flag = arg;
+      return true;
+    }
+    if (outline_selector) command->view_outline = argv[++(*index)];
+    else command->view_around = argv[++(*index)];
+    return true;
+  }
   if (!query_command) {
     command->unknown_flag = arg;
     return true;
   }
   if (full_selector) {
     command->query_full = true;
+    return true;
+  }
+  if (handles_selector) {
+    command->query_handles = true;
+    return true;
+  }
+  if (outline_selector || around_selector) {
+    command->unknown_flag = arg;
     return true;
   }
   if (*index + 1 >= argc) {
@@ -13190,6 +13325,32 @@ static int run_graph_dump_input_command(const Command *command, const ZTargetInf
 }
 
 static int run_graph_view_command(const Command *command, ZDiag *diag) {
+  if (command->view_around && !command->query_function) {
+    diag->code = 2002;
+    diag->path = command->input;
+    diag->line = 1;
+    diag->column = 1;
+    diag->length = 1;
+    snprintf(diag->message, sizeof(diag->message), "--around requires --fn <name>");
+    snprintf(diag->expected, sizeof(diag->expected), "zero view --fn <name> --around <text> [graph-input]");
+    snprintf(diag->actual, sizeof(diag->actual), "--around %s", command->view_around);
+    snprintf(diag->help, sizeof(diag->help), "--around scopes one function's source to the enclosing block that contains the text; name the function with --fn");
+    print_command_diag(command, command->input, diag);
+    return 1;
+  }
+  if (command->view_outline && (command->query_function || command->out)) {
+    diag->code = 2002;
+    diag->path = command->input;
+    diag->line = 1;
+    diag->column = 1;
+    diag->length = 1;
+    snprintf(diag->message, sizeof(diag->message), "--outline does not combine with %s", command->query_function ? "--fn" : "--out");
+    snprintf(diag->expected, sizeof(diag->expected), "zero view --outline <module-or-file> [graph-input]");
+    snprintf(diag->actual, sizeof(diag->actual), "--outline %s", command->view_outline);
+    snprintf(diag->help, sizeof(diag->help), "outline prints signatures on stdout; use zero view --fn <name> for one function's source");
+    print_command_diag(command, command->input, diag);
+    return 1;
+  }
   SourceInput input = {0};
   Program program = {0};
   ZProgramGraph graph = {0};
@@ -13217,9 +13378,16 @@ static int run_graph_view_command(const Command *command, ZDiag *diag) {
   }
   ZBuf view;
   zbuf_init(&view);
-  bool view_ok = command->query_function
-    ? z_program_graph_append_view_function(&view, &graph, command->input, command->query_function, diag)
-    : z_program_graph_append_view(&view, &graph, command->input, diag);
+  bool view_ok;
+  if (command->view_outline) {
+    view_ok = z_program_graph_append_view_outline(&view, &graph, command->input, command->view_outline, diag);
+  } else if (command->query_function && command->view_around) {
+    view_ok = z_program_graph_append_view_function_around(&view, &graph, command->input, command->query_function, command->view_around, diag);
+  } else if (command->query_function) {
+    view_ok = z_program_graph_append_view_function(&view, &graph, command->input, command->query_function, diag);
+  } else {
+    view_ok = z_program_graph_append_view(&view, &graph, command->input, diag);
+  }
   if (!view_ok) {
     print_command_diag(command, diag->path ? diag->path : command->input, diag);
     zbuf_free(&view);
@@ -13292,6 +13460,7 @@ static int run_graph_query_command(const Command *command, const ZTargetInfo *ta
   request.calls = command->query_calls;
   request.node = command->query_node;
   request.full_module = command->query_full;
+  request.handles = command->query_handles;
   request.bare_argument = command->query_bare_argument;
   if (!parse_graph_query_depth(command, &request, diag)) {
     print_command_diag(command, command->input, diag);
@@ -13729,6 +13898,9 @@ static int run_graph_patch_command(const Command *command, const ZTargetInfo *ta
     }
     if (result.expected && result.expected[0]) fprintf(stderr, "  expected: %s\n", result.expected);
     if (result.line <= 0 && result.actual && result.actual[0]) fprintf(stderr, "  actual: %s\n", result.actual);
+    if (strcmp(result.code, "GPH003") == 0 || strcmp(result.code, "GPH004") == 0) {
+      fprintf(stderr, "  help: run zero query --fn <name> --handles to list stmt and param patch handles, or zero query --find <text> for node ids\n");
+    }
     if (result.format_error) {
       fprintf(stderr, "  help: a minimal complete patch file looks exactly like this:\n");
       fputs(z_program_graph_patch_minimal_file_example(), stderr);

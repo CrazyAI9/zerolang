@@ -41,6 +41,9 @@ typedef bool (*IdentityCandidateFn)(IdentityContext *context, size_t base_index,
 
 static size_t identity_missing(void) { return SIZE_MAX; }
 
+static size_t identity_resolve_best_candidate(IdentityContext *context, size_t base_index, const size_t *candidates, size_t count);
+static bool identity_resolve_reverse_unique(IdentityContext *context, IdentityCandidateFn candidate, size_t base_index, size_t edited_index);
+
 static bool identity_text_eq(const char *left, const char *right) {
   return strcmp(left ? left : "", right ? right : "") == 0;
 }
@@ -647,10 +650,101 @@ static void identity_reject_ambiguous_missing_base_ids(IdentityContext *context)
       }
     }
     if (at == 0 && first != identity_missing()) candidates[at++] = first;
+    size_t chosen = identity_resolve_best_candidate(context, i, candidates, at);
+    if (chosen != identity_missing() && identity_resolve_reverse_unique(context, identity_base_id_candidate, i, chosen)) {
+      free(candidates);
+      if (!identity_match_nodes(context, i, chosen)) return;
+      context->result.auto_resolved++;
+      continue;
+    }
     identity_fail_nodes(context, "GRC001", "source edit has ambiguous graph identity", i, candidates, at);
     free(candidates);
     return;
   }
+}
+
+static size_t identity_similarity_score(IdentityContext *context, size_t base_index, size_t edited_index) {
+  if (!context || base_index >= context->base->node_len || edited_index >= context->edited->node_len) return 0;
+  const ZProgramGraphNode *base = &context->base->nodes[base_index];
+  const ZProgramGraphNode *edited = &context->edited->nodes[edited_index];
+  if (base->kind != edited->kind) return 0;
+  if (identity_subtree_fingerprint(context, context->base, base_index, 0) ==
+      identity_subtree_fingerprint(context, context->edited, edited_index, 0)) {
+    return (size_t)1 << 20;
+  }
+  size_t score = 0;
+  size_t base_edge_index = identity_owner_edge_index(context, context->base, base_index);
+  size_t edited_edge_index = identity_owner_edge_index(context, context->edited, edited_index);
+  if (base_edge_index != identity_missing() && edited_edge_index != identity_missing()) {
+    const ZProgramGraphEdge *base_edge = &context->base->edges[base_edge_index];
+    const ZProgramGraphEdge *edited_edge = &context->edited->edges[edited_edge_index];
+    if (identity_text_eq(base_edge->kind, edited_edge->kind)) {
+      size_t base_owner = identity_edge_source_index(context, context->base, base_edge_index);
+      size_t edited_owner = identity_edge_source_index(context, context->edited, edited_edge_index);
+      if (base_owner != identity_missing() && context->base_to_edited[base_owner] == edited_owner) {
+        score += 64;
+        if (base_edge->order == edited_edge->order) score += 4;
+      }
+    }
+  }
+  if (identity_text_present(base->name) && identity_text_eq(base->name, edited->name)) score += 32;
+  if (identity_text_present(base->value) && identity_text_eq(base->value, edited->value)) score += 16;
+  if (identity_text_present(base->type) && identity_text_eq(base->type, edited->type)) score += 8;
+  size_t base_start = context->base_child_start[base_index];
+  size_t base_end = context->base_child_start[base_index + 1];
+  size_t edited_start = context->edited_child_start[edited_index];
+  size_t edited_end = context->edited_child_start[edited_index + 1];
+  size_t edited_count = edited_end - edited_start;
+  bool *used = z_checked_calloc(edited_count ? edited_count : 1, sizeof(bool));
+  for (size_t i = base_start; i < base_end; i++) {
+    uint64_t base_fp = identity_subtree_fingerprint(context, context->base, context->base_child_nodes[i], 0);
+    const char *base_kind = context->base->edges[context->base_child_edges[i]].kind;
+    for (size_t j = 0; j < edited_count; j++) {
+      if (used[j]) continue;
+      if (!identity_text_eq(base_kind, context->edited->edges[context->edited_child_edges[edited_start + j]].kind)) continue;
+      if (identity_subtree_fingerprint(context, context->edited, context->edited_child_nodes[edited_start + j], 0) != base_fp) continue;
+      used[j] = true;
+      score += 24;
+      break;
+    }
+  }
+  free(used);
+  return score;
+}
+
+static size_t identity_resolve_best_candidate(IdentityContext *context, size_t base_index, const size_t *candidates, size_t count) {
+  size_t best = identity_missing();
+  size_t best_score = 0;
+  bool tie = false;
+  for (size_t i = 0; i < count; i++) {
+    size_t score = identity_similarity_score(context, base_index, candidates[i]);
+    if (score > best_score) {
+      best = candidates[i];
+      best_score = score;
+      tie = false;
+    } else if (score == best_score && best != identity_missing()) {
+      tie = true;
+    }
+  }
+  return tie || best_score == 0 ? identity_missing() : best;
+}
+
+static bool identity_resolve_reverse_unique(IdentityContext *context, IdentityCandidateFn candidate, size_t base_index, size_t edited_index) {
+  size_t best = identity_missing();
+  size_t best_score = 0;
+  bool tie = false;
+  for (size_t i = 0; context && i < context->base->node_len; i++) {
+    if (context->base_to_edited[i] != identity_missing() || !candidate(context, i, edited_index)) continue;
+    size_t score = identity_similarity_score(context, i, edited_index);
+    if (score > best_score) {
+      best = i;
+      best_score = score;
+      tie = false;
+    } else if (score == best_score && best != identity_missing()) {
+      tie = true;
+    }
+  }
+  return !tie && best_score > 0 && best == base_index;
 }
 
 static size_t identity_count_base_candidates(IdentityContext *context, IdentityCandidateFn candidate, size_t edited_index, size_t *first) {
@@ -683,6 +777,19 @@ static void identity_apply_unique_pass_opt(IdentityContext *context, IdentityCan
         if (context->edited_matched[j] || !candidate(context, i, j)) continue;
         candidates[at++] = j;
       }
+      size_t chosen = identity_resolve_best_candidate(context, i, candidates, at);
+      free(candidates);
+      if (chosen != identity_missing() && identity_resolve_reverse_unique(context, candidate, i, chosen)) {
+        if (!identity_match_nodes(context, i, chosen)) return;
+        context->result.auto_resolved++;
+        continue;
+      }
+      candidates = z_checked_calloc(count, sizeof(size_t));
+      at = 0;
+      for (size_t j = 0; j < context->edited->node_len && at < count; j++) {
+        if (context->edited_matched[j] || !candidate(context, i, j)) continue;
+        candidates[at++] = j;
+      }
       identity_fail_nodes(context, "GRC001", "source edit has ambiguous graph identity", i, candidates, at);
       free(candidates);
       return;
@@ -691,6 +798,11 @@ static void identity_apply_unique_pass_opt(IdentityContext *context, IdentityCan
     size_t reverse_count = identity_count_base_candidates(context, candidate, first, &reverse_first);
     if (reverse_count != 1 || reverse_first != i) {
       if (!fail_on_ambiguous) continue;
+      if (identity_resolve_reverse_unique(context, candidate, i, first)) {
+        if (!identity_match_nodes(context, i, first)) return;
+        context->result.auto_resolved++;
+        continue;
+      }
       identity_fail_nodes(context, "GRC001", "source edit has ambiguous graph identity", i, &first, 1);
       return;
     }

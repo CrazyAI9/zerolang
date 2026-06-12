@@ -10,7 +10,7 @@ Use this when creating, inspecting, patching, importing, or exporting Zero progr
 ## Source Boundary
 
 - Normal `zero check`, `zero run`, `zero test`, `zero build`, `zero size`, and `zero mem` compile packages from `zero.graph` (`zero.toml` takes precedence over `zero.json`). When the `.0` projection was edited, those commands refresh the stale store from source first and note it on stderr; `ZERO_STALE=fail` turns that refresh into an RGP008 error instead.
-- `zero import` refreshes `zero.graph` from edited source explicitly. It accepts the package root, manifest, or any source path inside the package, updates an existing store in place, and preserves node handles where the edit is unambiguous. Ambiguous matches fail (RGP007) with a split-the-edit strategy instead of guessing. Never delete the store to force a reimport, and omit `--out` for package imports.
+- `zero import` refreshes `zero.graph` from edited source explicitly. It accepts the package root, manifest, or any source path inside the package, updates an existing store in place, and preserves node handles where the edit is unambiguous. When several edited nodes could claim one handle, import picks the structurally closest match and notes it on stderr; only genuinely tied matches fail (RGP007) with a split-the-edit strategy. Never delete the store to force a reimport, and omit `--out` for package imports.
 - `zero export [package]` materializes `.0` projections for human review; compiler commands report projection state but never rewrite `.0` files. `zero verify-projection [package]` fails on drift without writing anything.
 - `zero.graph` is binary by default. Reads auto-detect text and binary stores, writes preserve the existing encoding, and `zero status` reports `store format: text|binary`. Use `--format text` only for a deliberately readable debug store. Stdlib `std/*.graph` stores are binary; sibling `std/*.0` files are projections, not the stdlib compile source.
 
@@ -27,15 +27,18 @@ zero patch --op 'addMain'
 
 ```sh
 zero query userTotals      # bare name that is not a path = --find in the current package
-zero query --fn main       # one function's graph facts and patch handles
+zero query --fn main       # one function's signature and call summary
+zero query --fn main --handles   # adds stmt/param patch handles; use before patching
 zero query --calls std     # resolved call targets
 zero query --refs add      # semantic references
 zero query --node '#expr_2cad38f9' --depth 2   # node-scoped: span, parents, children
 zero view --fn main        # one function's canonical source
+zero view --fn main --around minLength   # only the enclosing block containing the text
+zero view --outline src/main.0           # signatures plus one-line docs, no bodies
 zero status                # store format and projection state
 ```
 
-`--node` defaults to depth 1; add `--full` for the whole-module report. Use handles from `--find` for checked edits (`set`, `insert`, `insertEdge`, `replace`, `rename`, `delete`); delete compacts ordered graph groups so valid sibling order is preserved. Reserve unfiltered `zero query` dumps for tools that need every node and edge.
+`--node` defaults to depth 1; add `--full` for the whole-module report. Use handles from `--find` or `--fn <name> --handles` for checked edits (`set`, `insert`, `insertEdge`, `replace`, `rename`, `delete`); delete compacts ordered graph groups so valid sibling order is preserved. Reserve unfiltered `zero query` dumps for tools that need every node and edge.
 
 ## Patches
 
