@@ -1717,7 +1717,8 @@ bool z_program_graph_patch_apply_add_param_to(ZProgramGraph *graph, ZProgramGrap
   size_t site_len = 0, site_cap = 0;
   for (size_t i = 0; i < graph->node_len; i++) {
     const ZProgramGraphNode *node = &graph->nodes[i];
-    if (node->kind != Z_PROGRAM_GRAPH_NODE_CALL || !body_call_targets_function(node->name, fn_name)) continue;
+    if ((node->kind != Z_PROGRAM_GRAPH_NODE_CALL && node->kind != Z_PROGRAM_GRAPH_NODE_METHOD_CALL) ||
+        !body_call_targets_function(node->name, fn_name)) continue;
     if (site_len == site_cap) {
       size_t next = site_cap ? site_cap * 2 : 8;
       site_ids = z_checked_reallocarray(site_ids, next, sizeof(char *));

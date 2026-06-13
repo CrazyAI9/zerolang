@@ -4169,6 +4169,57 @@ const genericIndentedHeaderCheckOnly = zero(["patch", "--check-only", genericPat
 assert.match(genericIndentedHeaderCheckOnly, /^program graph patch ok \(check-only\)\n/);
 assert.match(genericIndentedHeaderCheckOnly, /validated: check-equivalent\n$/);
 
+const headerlessOpsRoot = join(outDir, "repository-graph-headerless-ops");
+rmSync(headerlessOpsRoot, { recursive: true, force: true });
+mkdirSync(join(headerlessOpsRoot, "src"), { recursive: true });
+writeZeroTomlSync(headerlessOpsRoot, { package: { name: "headerless-ops", version: "0.1.0" }, targets: { cli: { kind: "exe", main: "src/main.0" } } });
+writeFileSync(join(headerlessOpsRoot, "src", "main.0"), [
+  "const LIMIT: usize = 4",
+  "",
+  "fn bump(value: usize) -> usize {",
+  "    return value + LIMIT",
+  "}",
+  "",
+  "fn answer() -> usize {",
+  "    return LIMIT",
+  "}",
+  "",
+  "pub fn main(world: World) -> Void raises {",
+  "    if bump(1) == answer() + 1 {",
+  "        check world.out.write(\"headerless ops ok\\n\")",
+  "    }",
+  "}",
+  "",
+  "test \"answer works\" {",
+  "    expect (answer() == 4)",
+  "}",
+  "",
+].join("\n"));
+assert.equal(json(["import", "--format", "text", "--json", headerlessOpsRoot]).code, 0);
+const headerlessAnswerHandles = zero(["view", "--fn", "answer", "--handles", headerlessOpsRoot]).stdout;
+const headerlessReturnHandle = headerlessAnswerHandles.match(/return LIMIT\s+\/\/ (#\S+)/);
+assert(headerlessReturnHandle, "expected answer return handle for headerless replaceExpr detection");
+function assertHeaderlessPatchFileDetected(name: string, rows: string[]) {
+  const patchPath = join(headerlessOpsRoot, `${name}.patch`);
+  writeFileSync(patchPath, [...rows, ""].join("\n"));
+  const result = zeroWithStderr(["patch", "--check-only", `${name}.patch`], { cwd: headerlessOpsRoot });
+  assert.notEqual(result.code, 0);
+  assert.match(result.stderr, /unknown program graph patch schema/);
+  assert.match(result.stderr, new RegExp(`${name}\\.patch:1: ${rows[0].replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
+  assert.match(result.stderr, /expected: zero-program-graph-patch v1/);
+}
+assertHeaderlessPatchFileDetected("set-const", ['setConst name="LIMIT" value="5"']);
+assertHeaderlessPatchFileDetected("set-return-type", [
+  'setReturnType fn="answer" type="i64"',
+  "replaceFunctionBody answer",
+  "  return 4 as i64",
+  "end",
+]);
+assertHeaderlessPatchFileDetected("replace-expr", [`replaceExpr node="${headerlessReturnHandle[1]}" with="LIMIT + 0"`]);
+assertHeaderlessPatchFileDetected("delete-test", ['deleteTest name="answer works"']);
+assertHeaderlessPatchFileDetected("rename-test", ['renameTest name="answer works" value="answer still works"']);
+assertHeaderlessPatchFileDetected("add-param-to", ['addParamTo fn="bump" name="bias" type="usize" default="0"']);
+
 // Declaration-level patch ops: setConst, addParamTo, setReturnType.
 const declOpsRoot = join(outDir, "repository-graph-decl-ops");
 rmSync(declOpsRoot, { recursive: true, force: true });

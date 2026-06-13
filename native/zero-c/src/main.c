@@ -4947,7 +4947,8 @@ static bool path_has_program_graph_patch_header(const char *path) {
 static bool path_starts_with_program_graph_patch_operation(const char *path) {
   static const char *const keywords[] = {
     "expect", "set", "insertEdge", "insert", "replaceFunctionBody", "replaceBlockBody", "replace",
-    "delete", "rename", "addFunction", "addMain", "addParam", "addReturnBinary", "addLetLiteral",
+    "replaceExpr", "deleteTest", "renameTest", "delete", "rename", "setConst", "setReturnType",
+    "addFunction", "addMain", "addParamTo", "addParam", "addReturnBinary", "addLetLiteral",
     "addLetBinary", "addReturnValue", "addReturnExpr", "appendStmt", "addCheckWriteValue",
     "addCheckWrite", "addTestBody", "addTest", "upsertFunction", NULL,
   };
@@ -5941,6 +5942,38 @@ static void free_loaded_command_state(SourceInput *input, Program *program, IrPr
   if (ir) z_free_ir_program(ir);
   z_free_program(program);
   z_free_source(input);
+}
+
+static bool source_input_contains_path_pointer(const SourceInput *input, const char *path) {
+  if (!input || !path) return false;
+  if (path == input->source_file || path == input->package_root || path == input->manifest_path ||
+      path == input->lockfile_path || path == input->program_graph_hash || path == input->program_graph_module_identity ||
+      path == input->mapped_mir_cache_path) {
+    return true;
+  }
+  for (size_t i = 0; i < input->source_file_count; i++) if (path == input->source_files[i]) return true;
+  for (size_t i = 0; i < input->source_line_count; i++) if (path == input->source_line_paths[i]) return true;
+  for (size_t i = 0; i < input->module_count; i++) if (path == input->module_paths[i]) return true;
+  for (size_t i = 0; i < input->import_edge_count; i++) {
+    if (path == input->import_paths[i] || path == input->import_source_paths[i]) return true;
+  }
+  for (size_t i = 0; i < input->dependency_count; i++) {
+    if (path == input->dependencies[i].path || path == input->dependencies[i].resolved_manifest) return true;
+  }
+  for (size_t i = 0; i < input->direct_c_import_header_count; i++) {
+    if (path == input->direct_c_import_headers[i] || path == input->direct_c_import_resolved_headers[i]) return true;
+  }
+  return false;
+}
+
+static void free_diag_path_if_owned(ZDiag *diag, const SourceInput *input, const char *command_input) {
+  if (!diag || !diag->path) return;
+  if (diag->path == command_input || source_input_contains_path_pointer(input, diag->path)) {
+    diag->path = NULL;
+    return;
+  }
+  free((char *)diag->path);
+  diag->path = NULL;
 }
 
 static bool direct_buildability_preflight(const Command *command, const SourceInput *input, const ZTargetInfo *target, const char *emit_kind, const IrProgram *ir, ZDiag *diag) {
@@ -15844,6 +15877,7 @@ int main(int argc, char **argv) {
     }
     if (command.json) print_command_diag_json(&command, diag.path ? diag.path : command.input, &diag);
     else print_diag(diag.path ? diag.path : command.input, &diag);
+    free_diag_path_if_owned(&diag, &input, command.input);
     free_loaded_command_state(&input, &program, NULL);
     return 1;
   }
