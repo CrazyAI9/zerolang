@@ -848,6 +848,140 @@ static bool store_identity_reconcile_diag(const char *path, const ZProgramGraphI
   return false;
 }
 
+static char *store_render_source_path_view(const ZProgramGraph *graph, const char *source_path) {
+  ZBuf view;
+  zbuf_init(&view);
+  ZDiag diag = {0};
+  if (!z_program_graph_append_source_view(&view, graph, source_path, &diag)) {
+    zbuf_free(&view);
+    return NULL;
+  }
+  return view.data ? view.data : z_strdup("");
+}
+
+/* A file-scope rewrite candidate is a single-file edit: the two graphs cover
+ * the same source paths and exactly one path renders a different canonical
+ * source view. */
+static bool store_single_changed_source_path(const ZProgramGraph *base, const ZProgramGraph *edited, char **out_path) {
+  if (out_path) *out_path = NULL;
+  ZProgramGraphStore base_paths;
+  ZProgramGraphStore edited_paths;
+  z_program_graph_store_init(&base_paths);
+  z_program_graph_store_init(&edited_paths);
+  store_collect_source_paths(&base_paths, base);
+  store_collect_source_paths(&edited_paths, edited);
+  bool same_paths = base_paths.source_path_len == edited_paths.source_path_len;
+  for (size_t i = 0; same_paths && i < base_paths.source_path_len; i++) {
+    same_paths = store_text_eq(base_paths.source_paths[i], edited_paths.source_paths[i]);
+  }
+  size_t changed = 0;
+  char *changed_path = NULL;
+  for (size_t i = 0; same_paths && changed < 2 && i < base_paths.source_path_len; i++) {
+    const char *source_path = base_paths.source_paths[i];
+    char *base_view = store_render_source_path_view(base, source_path);
+    char *edited_view = store_render_source_path_view(edited, source_path);
+    bool same_view = base_view && edited_view && store_text_eq(base_view, edited_view);
+    free(base_view);
+    free(edited_view);
+    if (same_view) continue;
+    changed++;
+    free(changed_path);
+    changed_path = z_strdup(source_path);
+  }
+  z_program_graph_store_free(&base_paths);
+  z_program_graph_store_free(&edited_paths);
+  if (same_paths && changed == 1) {
+    if (out_path) *out_path = changed_path;
+    else free(changed_path);
+    return true;
+  }
+  free(changed_path);
+  return false;
+}
+
+static void store_append_path_function_signature(ZBuf *out, const ZProgramGraph *graph, const ZProgramGraphNode *function) {
+  zbuf_append(out, function->name ? function->name : "");
+  zbuf_append_char(out, '(');
+  bool wrote = false;
+  for (size_t order = 0; order < graph->edge_len; order++) {
+    for (size_t i = 0; i < graph->edge_len; i++) {
+      const ZProgramGraphEdge *edge = &graph->edges[i];
+      if (edge->target != Z_PROGRAM_GRAPH_EDGE_TARGET_NODE || edge->order != order) continue;
+      if (!store_text_eq(edge->from, function->id) || !store_text_eq(edge->kind, "param")) continue;
+      for (size_t j = 0; j < graph->node_len; j++) {
+        const ZProgramGraphNode *param = &graph->nodes[j];
+        if (param->kind != Z_PROGRAM_GRAPH_NODE_PARAM || !store_text_eq(param->id, edge->to)) continue;
+        if (wrote) zbuf_append(out, ", ");
+        zbuf_append(out, param->type ? param->type : "Unknown");
+        wrote = true;
+        break;
+      }
+    }
+  }
+  zbuf_append(out, ") -> ");
+  zbuf_append(out, function->type && function->type[0] ? function->type : "Void");
+  if (function->fallible) zbuf_append(out, " raises");
+  zbuf_append_char(out, '\n');
+}
+
+static char *store_path_function_set(const ZProgramGraph *graph, const char *source_path) {
+  char **lines = NULL;
+  size_t len = 0, cap = 0;
+  for (size_t i = 0; graph && i < graph->node_len; i++) {
+    const ZProgramGraphNode *node = &graph->nodes[i];
+    if (node->kind != Z_PROGRAM_GRAPH_NODE_FUNCTION || !store_text_eq(node->path, source_path)) continue;
+    ZBuf line;
+    zbuf_init(&line);
+    store_append_path_function_signature(&line, graph, node);
+    if (len == cap) {
+      size_t next = cap ? cap * 2 : 8;
+      lines = z_checked_reallocarray(lines, next, sizeof(char *));
+      cap = next;
+    }
+    lines[len++] = line.data ? line.data : z_strdup("");
+  }
+  for (size_t i = 1; i < len; i++) {
+    char *line = lines[i];
+    size_t cursor = i;
+    while (cursor > 0 && store_text_cmp(line, lines[cursor - 1]) < 0) {
+      lines[cursor] = lines[cursor - 1];
+      cursor--;
+    }
+    lines[cursor] = line;
+  }
+  ZBuf out;
+  zbuf_init(&out);
+  for (size_t i = 0; i < len; i++) {
+    zbuf_append(&out, lines[i]);
+    free(lines[i]);
+  }
+  free(lines);
+  return out.data ? out.data : z_strdup("");
+}
+
+/* Whole-file rewrite escape for ambiguous imports: when the ambiguity comes
+ * from a single-file edit whose function set still matches by name and
+ * signature shape, accept the rewrite wholesale for that file. The file's
+ * nodes get fresh identities and every other file keeps its handles; RGP007
+ * remains for cross-file ambiguity and signature-set changes. */
+static bool store_accept_file_scope_rewrite(const ZProgramGraph *base, ZProgramGraph *normalized) {
+  char *rewrite_path = NULL;
+  if (!store_single_changed_source_path(base, normalized, &rewrite_path)) return false;
+  char *base_functions = store_path_function_set(base, rewrite_path);
+  char *edited_functions = store_path_function_set(normalized, rewrite_path);
+  bool functions_match = store_text_eq(base_functions, edited_functions);
+  free(base_functions);
+  free(edited_functions);
+  bool accepted = false;
+  if (functions_match) {
+    ZProgramGraphIdentityReconcile retry = {0};
+    accepted = z_program_graph_preserve_source_node_ids_excluding_path(base, normalized, rewrite_path, &retry);
+    if (accepted) fprintf(stderr, "note: file-scope rewrite accepted; node identities regenerated for %s\n", rewrite_path);
+  }
+  free(rewrite_path);
+  return accepted;
+}
+
 static bool store_preserve_existing_source_identities(const char *path, ZProgramGraph *normalized, ZDiag *diag) {
   if (!path || !z_program_graph_store_file_exists(path)) return true;
   ZProgramGraphStore existing;
@@ -859,6 +993,10 @@ static bool store_preserve_existing_source_identities(const char *path, ZProgram
   }
   ZProgramGraphIdentityReconcile identity = {0};
   bool ok = z_program_graph_preserve_source_node_ids(&existing.graph, normalized, &identity);
+  if (!ok && identity.ambiguous && store_accept_file_scope_rewrite(&existing.graph, normalized)) {
+    z_program_graph_store_free(&existing);
+    return true;
+  }
   z_program_graph_store_free(&existing);
   if (ok) {
     if (identity.auto_resolved > 0) {

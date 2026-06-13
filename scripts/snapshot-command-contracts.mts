@@ -2551,11 +2551,14 @@ pub fn main(world: World) -> Void raises {
 json(["import", "--format", "text", "--json", ambiguousRepoGraphSource]);
 const ambiguousRepoGraphStoreBefore = readFileSync(ambiguousRepoGraphStore, "utf8");
 writeFileSync(ambiguousRepoGraphSource, readFileSync(ambiguousRepoGraphSource, "utf8").replace("add(1, 2)", "add(2, 1)"));
-const ambiguousRepoGraphSync = json(["import", "--format", "text", "--json", ambiguousRepoGraphSource], { allowFailure: true });
-assert.notEqual(ambiguousRepoGraphSync.code, 0);
-assert.equal(ambiguousRepoGraphSync.body.diagnostics[0].code, "RGP007");
-assert.equal(ambiguousRepoGraphSync.body.diagnostics[0].message, "repository graph source identity is ambiguous");
-assert.equal(readFileSync(ambiguousRepoGraphStore, "utf8"), ambiguousRepoGraphStoreBefore);
+// The argument swap ties structurally, but it is a single-file edit whose
+// function set still matches by name and signature, so import accepts the
+// rewrite wholesale with regenerated node identities instead of RGP007.
+const ambiguousRepoGraphSync = zeroWithStderr(["import", "--format", "text", "--json", ambiguousRepoGraphSource]);
+assert.equal(ambiguousRepoGraphSync.code, 0);
+assert.match(ambiguousRepoGraphSync.stderr, /note: file-scope rewrite accepted; node identities regenerated for main\.0/);
+assert.equal(JSON.parse(ambiguousRepoGraphSync.stdout).repositoryGraph.projectionState, "clean");
+assert.notEqual(readFileSync(ambiguousRepoGraphStore, "utf8"), ambiguousRepoGraphStoreBefore);
 const rotatedRepoGraphRoot = join("/tmp", `zero-repo-graph-rotated-${process.pid}`);
 const rotatedRepoGraphSource = join(rotatedRepoGraphRoot, "main.0");
 const rotatedRepoGraphStore = join(rotatedRepoGraphRoot, "zero.graph");
@@ -2578,11 +2581,13 @@ pub fn main(world: World) -> Void raises {
 json(["import", "--format", "text", "--json", rotatedRepoGraphSource]);
 const rotatedRepoGraphStoreBefore = readFileSync(rotatedRepoGraphStore, "utf8");
 writeFileSync(rotatedRepoGraphSource, readFileSync(rotatedRepoGraphSource, "utf8").replace("sum3(1, 2, 3)", "sum3(2, 3, 1)"));
-const rotatedRepoGraphSync = json(["import", "--format", "text", "--json", rotatedRepoGraphSource], { allowFailure: true });
-assert.notEqual(rotatedRepoGraphSync.code, 0);
-assert.equal(rotatedRepoGraphSync.body.diagnostics[0].code, "RGP007");
-assert.equal(rotatedRepoGraphSync.body.diagnostics[0].message, "repository graph source identity is ambiguous");
-assert.equal(readFileSync(rotatedRepoGraphStore, "utf8"), rotatedRepoGraphStoreBefore);
+// Rotated identical arguments tie structurally; the single-file rewrite is
+// accepted wholesale with regenerated identities instead of RGP007.
+const rotatedRepoGraphSync = zeroWithStderr(["import", "--format", "text", "--json", rotatedRepoGraphSource]);
+assert.equal(rotatedRepoGraphSync.code, 0);
+assert.match(rotatedRepoGraphSync.stderr, /note: file-scope rewrite accepted; node identities regenerated for main\.0/);
+assert.equal(JSON.parse(rotatedRepoGraphSync.stdout).repositoryGraph.projectionState, "clean");
+assert.notEqual(readFileSync(rotatedRepoGraphStore, "utf8"), rotatedRepoGraphStoreBefore);
 const ambiguousSiblingRepoGraphRoot = join("/tmp", `zero-repo-graph-ambiguous-sibling-${process.pid}`);
 const ambiguousSiblingRepoGraphSource = join(ambiguousSiblingRepoGraphRoot, "main.0");
 const ambiguousSiblingRepoGraphStore = join(ambiguousSiblingRepoGraphRoot, "zero.graph");
@@ -2688,7 +2693,9 @@ const ambiguousRunRepoGraphResolvedLine = ambiguousRunRepoGraphStoreAfter
   .find((line) => line.startsWith(`node ${ambiguousRunRepoGraphWhileId} While`));
 assert(ambiguousRunRepoGraphResolvedLine, "original while handle survives the auto-resolved import");
 assert.match(ambiguousRunRepoGraphResolvedLine, /line:8/, "original while handle follows the statement that kept its body");
-// Identical edited candidates at shifted orders stay genuinely ambiguous and keep RGP007.
+// Identical edited candidates at shifted orders stay genuinely ambiguous; the
+// same edit also widens fill's signature, so the file-scope rewrite escape
+// stays closed (function set changed) and the import keeps RGP007.
 const tieRunRepoGraphRoot = join("/tmp", `zero-repo-graph-tie-run-${process.pid}`);
 const tieRunRepoGraphSource = join(tieRunRepoGraphRoot, "main.0");
 const tieRunRepoGraphStore = join(tieRunRepoGraphRoot, "zero.graph");
@@ -2702,6 +2709,9 @@ writeFileSync(
   insertRunRepoGraphOriginal.replace(
     "    while i < n {\n        p = p + 1_usize\n        i = i + 1_usize\n    }\n",
     "    var shift: usize = 0\n    while i <= n {\n        p = p + 2_usize\n        i = i + 1_usize\n    }\n    while i <= n {\n        p = p + 2_usize\n        i = i + 1_usize\n    }\n",
+  ).replace(
+    "fn fill(out: MutSpan<u8>, n: usize) -> usize {",
+    "fn fill(out: MutSpan<u8>, n: usize, pad: usize) -> usize {",
   ),
 );
 const tieRunRepoGraphSync = json(["import", "--format", "text", "--json", tieRunRepoGraphSource], { allowFailure: true });
@@ -2712,6 +2722,100 @@ assert.match(tieRunRepoGraphSync.body.diagnostics[0].actual, /matches 2 edited c
 assert.match(tieRunRepoGraphSync.body.diagnostics[0].help, /split the text edit: import the change touching main\.0:\d+-\d+ on its own first/);
 assert.equal(readFileSync(tieRunRepoGraphStore, "utf8"), tieRunRepoGraphStoreBefore);
 rmSync(tieRunRepoGraphRoot, { force: true, recursive: true });
+// Whole-file rewrite escape: a single-file rewrite of a multi-function module
+// whose function set still matches by name and signature imports in one pass;
+// the file's node identities are regenerated and other files keep theirs.
+const fileScopeRoot = join(outDir, "repository-graph-file-scope-rewrite");
+const fileScopeStore = join(fileScopeRoot, "zero.graph");
+rmSync(fileScopeRoot, { recursive: true, force: true });
+mkdirSync(join(fileScopeRoot, "src"), { recursive: true });
+writeZeroTomlSync(fileScopeRoot, { package: { name: "file-scope", version: "0.1.0" }, targets: { cli: { kind: "exe", main: "src/main.0" } } });
+const fileScopeUtilOriginal = [
+  "pub fn fill(n: usize) -> usize {",
+  "    var i: usize = 0",
+  "    var p: usize = 0",
+  "    while i < n {",
+  "        p = p + 1_usize",
+  "        i = i + 1_usize",
+  "    }",
+  "    return p",
+  "}",
+  "",
+  "pub fn cap(n: usize) -> usize {",
+  "    return n",
+  "}",
+  "",
+].join("\n");
+const fileScopeUtilRewrite = [
+  "pub fn fill(n: usize) -> usize {",
+  "    var i: usize = 0",
+  "    var p: usize = 0",
+  "    var shift: usize = 0",
+  "    while i <= n {",
+  "        p = p + 2_usize",
+  "        i = i + 1_usize",
+  "    }",
+  "    while i <= n {",
+  "        p = p + 2_usize",
+  "        i = i + 1_usize",
+  "    }",
+  "    return p + shift",
+  "}",
+  "",
+  "pub fn cap(n: usize) -> usize {",
+  "    return n + 0_usize",
+  "}",
+  "",
+].join("\n");
+const fileScopeMainOriginal = [
+  "use util",
+  "",
+  "pub fn main(world: World) -> Void raises {",
+  "    if fill(2) >= cap(1) {",
+  '        check world.out.write("file scope ok\\n")',
+  "    }",
+  "}",
+  "",
+].join("\n");
+writeFileSync(join(fileScopeRoot, "src", "util.0"), fileScopeUtilOriginal);
+writeFileSync(join(fileScopeRoot, "src", "main.0"), fileScopeMainOriginal);
+assert.equal(json(["import", "--format", "text", "--json", fileScopeRoot]).code, 0);
+assert.equal(zero(["check", fileScopeRoot]).stdout, "ok\n");
+const fileScopeStoreBefore = readFileSync(fileScopeStore, "utf8");
+const fileScopeMainId = fileScopeStoreBefore.match(/^node (#[^ ]+) Function name:"main"/m)?.[1];
+assert(fileScopeMainId, "expected a main Function node in the file-scope store");
+writeFileSync(join(fileScopeRoot, "src", "util.0"), fileScopeUtilRewrite);
+const fileScopeSync = zeroWithStderr(["import", "--format", "text", "--json", fileScopeRoot]);
+assert.equal(fileScopeSync.code, 0);
+assert.match(fileScopeSync.stderr, /note: file-scope rewrite accepted; node identities regenerated for src\/util\.0/);
+assert.equal(JSON.parse(fileScopeSync.stdout).repositoryGraph.projectionState, "clean");
+const fileScopeStoreAfter = readFileSync(fileScopeStore, "utf8");
+assert(fileScopeStoreAfter.includes(`node ${fileScopeMainId} Function name:"main"`), "untouched files keep their node identities");
+assert.equal(zero(["check", fileScopeRoot]).stdout, "ok\n");
+// Handles and queries resolve against the regenerated identities in one pass.
+const fileScopeHandlesView = zero(["view", "--fn", "fill", "--handles", fileScopeRoot]).stdout;
+const fileScopeReturnLine = fileScopeHandlesView.split("\n").find((line) => line.includes("return p + shift"));
+assert(fileScopeReturnLine, "expected the rewritten return row in the handles view");
+const fileScopeHandle = fileScopeReturnLine.match(/\/\/ (#[0-9a-z_.]+)/)?.[1];
+assert(fileScopeHandle, "expected a patch handle on the rewritten return row");
+const fileScopeQueryHandles = json(["query", "--json", "--fn", "fill", "--handles", fileScopeRoot]).body;
+assert.equal(fileScopeQueryHandles.ok, true);
+const fileScopePatch = json(["patch", "--json", fileScopeRoot, "--op", `replaceExpr node="${fileScopeHandle}" with="p + shift + 0_usize"`]).body;
+assert.equal(fileScopePatch.ok, true);
+assert.match(zero(["view", "--fn", "fill", fileScopeRoot]).stdout, /return p \+ shift \+ 0_usize/);
+// Cross-file ambiguity keeps RGP007: the same tie-producing rewrite plus an
+// edit in a second file is not a file-scope rewrite.
+writeFileSync(join(fileScopeRoot, "src", "util.0"), fileScopeUtilOriginal);
+writeFileSync(join(fileScopeRoot, "src", "main.0"), fileScopeMainOriginal);
+assert.equal(json(["import", "--format", "text", "--json", fileScopeRoot]).code, 0);
+const crossFileStoreBefore = readFileSync(fileScopeStore, "utf8");
+writeFileSync(join(fileScopeRoot, "src", "util.0"), fileScopeUtilRewrite);
+writeFileSync(join(fileScopeRoot, "src", "main.0"), fileScopeMainOriginal.replace("file scope ok", "cross file ok"));
+const crossFileSync = json(["import", "--format", "text", "--json", fileScopeRoot], { allowFailure: true });
+assert.notEqual(crossFileSync.code, 0);
+assert.equal(crossFileSync.body.diagnostics[0].code, "RGP007");
+assert.equal(crossFileSync.body.diagnostics[0].message, "repository graph source identity is ambiguous");
+assert.equal(readFileSync(fileScopeStore, "utf8"), crossFileStoreBefore);
 const mergeRepoGraphRoot = join("/tmp", `zero-repo-graph-merge-${process.pid}`);
 const mergeRepoGraphSource = join(mergeRepoGraphRoot, "main.0");
 const mergeRepoGraphStore = join(mergeRepoGraphRoot, "zero.graph");
