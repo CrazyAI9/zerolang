@@ -167,8 +167,12 @@ void z_program_graph_print_command_help(void) {
   printf("  addLetLiteral fn=\"main\" name=\"count\" type=\"u32\" value=\"0\"\n");
   printf("  addLetBinary fn=\"add\" name=\"sum\" type=\"i32\" operator=\"+\" left=\"left\" right=\"right\"\n");
   printf("  addReturnValue fn=\"identity\" value=\"input\" type=\"i32\"\n");
+  printf("  addReturnExpr fn=\"maybe\" expr=\"null\"\n");
+  printf("  appendStmt fn=\"main\" stmt=\"check std.http.listen(world, 3000_u16)\"\n");
   printf("  addCheckWriteValue fn=\"main\" value=\"message\" type=\"String\"\n");
   printf("  addTest name=\"addition works\" call=\"add\" arg0=\"40\" arg1=\"2\" expect=\"42\" type=\"i32\"\n");
+  printf("  addTestBody name=\"api add\" ... end\n");
+  printf("  upsertFunction handle ... end\n");
   printf("  replaceFunctionBody main ... end\n");
   printf("  replaceBlockBody #block_id ... end\n");
 }

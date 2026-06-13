@@ -58,6 +58,19 @@ zero patch \
 
 For declaration-level edits, stay in patch ops instead of rewriting files. `setConst name="limit" value="64"` replaces a top-level const's initializer by package-scoped name. `addParamTo fn="scan" name="bias" type="i32" default="0"` appends a parameter to an existing function and updates every call site in the package (nested calls included) to pass the default explicitly, reporting `updated N call sites`; without `default` it fails with the call-site count. `setReturnType fn="scan" type="i64"` changes a declared return type. All three revalidate and batch like any other op.
 
+For a new or replacement multi-statement helper, use complete source through `upsertFunction` instead of editing `.0` and importing:
+
+```text
+zero-program-graph-patch v1
+upsertFunction handle
+fn handle(request: Span<u8>, response: MutSpan<u8>) -> Maybe<Span<u8>> {
+    return null
+}
+end
+```
+
+`upsertFunction` parses exactly one complete function declaration, inserts it if missing, and replaces the prior declaration and body if it already exists. For smaller append-only work, `appendStmt fn="main" stmt="check std.http.listen(world, 3000_u16)"` appends one canonical statement, and `addReturnExpr fn="maybe" expr="null"` appends a return statement for any expression. `addReturnValue` is only for identifier returns.
+
 For sub-line edits, think in graph: take a handle from `zero view --fn <name> --handles` and change exactly one thing. `set` edits one field (a literal `value`, a declared `type`, a `name`/operator); `replaceExpr` swaps any expression subtree, and aimed at a statement handle it replaces that statement's expression (initializer, condition, return value). Repeat `--op` to batch several micro-ops into one patch with a single revalidation:
 
 ```sh
@@ -150,8 +163,18 @@ addReturnBinary fn="add" name="+" left="left" right="right" type="i32"
 addLetLiteral fn="main" name="count" type="u32" value="0"
 addLetBinary fn="add" name="sum" type="i32" operator="+" left="left" right="right"
 addReturnValue fn="identity" value="input" type="i32"
+addReturnExpr fn="maybe" expr="null"
+appendStmt fn="main" stmt="check std.http.listen(world, 3000_u16)"
 addCheckWriteValue fn="main" value="message" type="String"
 addTest name="addition works" call="add" arg0="40" arg1="2" expect="42" type="i32"
+addTestBody name="api add"
+  expect apiAddOk()
+end
+upsertFunction handle
+fn handle(request: Span<u8>, response: MutSpan<u8>) -> Maybe<Span<u8>> {
+    return null
+}
+end
 replaceFunctionBody main
   let name Maybe<String> = std.args.get 1
   if name.has
@@ -171,6 +194,7 @@ insertEdge from="#from" to="#to" edge="arg" target="node" order="0"
 replace node="#id" expect="nodehash:abc123" kind="Literal" type="String" value="text"
 replaceExpr node="#id" with="left + 1"
 delete node="#id" expect="nodehash:abc123"
+delete node="#id"
 rename node="#id" expect="old" value="new"
 ```
 

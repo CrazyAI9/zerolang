@@ -5,11 +5,11 @@ description: Graph-first agent workflow for making focused Zero changes with CLI
 
 # Zero Agent Workflow
 
-Use this when editing Zero code, examples, tests, docs, or a package. `zero.graph` is the package compiler input; `.0` files are the human-readable projection. Command text output is written for agents. Use JSON only when another tool must parse stable fields.
+Use this when editing Zero code, examples, tests, docs, or a package. `zero.graph` is the package compiler input; `.0` files are the human-readable projection. Use JSON only when another tool must parse stable fields.
 
 ## Edit Through Patch
 
-Anchored small edits win. Never retype a function to change one line, and never rewrite a whole `.0` file for one declaration.
+Anchored small edits win. Do not retype a function to change one line or rewrite a `.0` file for one declaration.
 
 1. `--replace-in-fn`: Edit semantics on one function's canonical body text.
 
@@ -35,7 +35,20 @@ zero patch . --op 'addParamTo fn="scan" name="bias" type="i32" default="0"'  # u
 zero patch . --op 'setReturnType fn="scan" type="i64"'
 ```
 
-A successful patch prints `validated: check-equivalent`: it already validated and saved the graph, so do not run `zero check` to confirm it; go straight to `zero run . -- <args>` / `zero test`. Repeat `--op` to batch edits into one patch with a single revalidation. For expression-level cross-cutting swaps and node-addressed micro-edits (handles from `zero view --fn <name> --handles` or `zero query --fn <name> --handles`), see `zero skills get graph`.
+4. New helpers stay graph-native:
+
+```text
+zero-program-graph-patch v1
+upsertFunction handle
+fn handle(request: Span<u8>, response: MutSpan<u8>) -> Maybe<Span<u8>> {
+    return null
+}
+end
+```
+
+Use `addReturnExpr fn="maybe" expr="null"` for non-identifier returns, `appendStmt fn="main" stmt="check std.http.listen(world, 3000_u16)"` for one statement, and `addTestBody name="api add" ... end` for a test block.
+
+A successful patch prints `validated: check-equivalent`: it already validated and saved the graph. Go straight to `zero run . -- <args>` / `zero test`. Repeat `--op` to batch edits into one revalidation. For expression rewrites and node-handle micro-edits, see `zero skills get graph`.
 
 Scoped reads; never read a whole `.0` file for one function:
 
@@ -53,6 +66,7 @@ zero query [--json] [--fn <name>] [--find <text>] [--refs <name>] [--calls <name
 ```
 
 - bare name that is not an existing path: runs `--find` against the current package
+- `zero query --fn <name> --handles`: patch handles for one function
 - `--find <text>`: search names, ids, types, values, and node kinds; prints matches with spans
 - `--calls <name>` / `--refs <name>`: resolved calls and semantic references
 - `--node <id>`: one node's span, parents, and children; short handles resolve here too
@@ -61,7 +75,7 @@ Import/export, identity recovery, structural rewrites, and merge live in the `gr
 
 ## Verify Before Done
 
-After a fix works on the path you changed, exercise the paths you did not. Zero inserts runtime checks (indexing is bounds-checked), so code that passes `zero check` and one probe run can still trap on another input; a trap exits with a signal status and no output.
+After a fix works on the changed path, exercise typical and boundary inputs. Zero inserts runtime checks, so a checked program can still trap on untested inputs.
 
 ```sh
 zero run . -- <typical input>

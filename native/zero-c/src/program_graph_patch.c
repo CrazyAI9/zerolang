@@ -365,6 +365,8 @@ static bool patch_parse_structural_attrs(const char *line, const char *verb, ZPr
       }
     } else if (strcmp(key, "value") == 0) ok = patch_assign_attr(&op->value, value);
     else if (strcmp(key, "with") == 0) ok = patch_assign_attr(&op->value, value);
+    else if (strcmp(key, "expr") == 0) ok = patch_assign_attr(&op->value, value);
+    else if (strcmp(key, "stmt") == 0) ok = patch_assign_attr(&op->value, value);
     else if (strcmp(key, "name") == 0) ok = patch_assign_attr(&op->name, value);
     else if (strcmp(key, "type") == 0) ok = patch_assign_attr(&op->type, value);
     else if (strcmp(key, "ret") == 0) ok = patch_assign_attr(&op->type, value);
@@ -675,6 +677,32 @@ static bool patch_parse_add_return_value(const char *line, int line_number, ZPro
   return true;
 }
 
+static bool patch_parse_add_return_expr(const char *line, int line_number, ZProgramGraphPatchResult *result) {
+  ZProgramGraphPatchOpResult *op = z_graph_patch_push_operation(result);
+  op->line = line_number;
+  op->op = z_strdup("addReturnExpr");
+  if (!patch_parse_structural_attrs(line, "addReturnExpr", result, op)) return false;
+  if (!patch_reject_attrs(op, result, line, false, false, false, false, false, false, false, false, true, true)) return false;
+  if (!op->function || !op->value) {
+    patch_op_fail(result, op, "GPH001", "addReturnExpr operation is missing required attributes", "fn and expr", line);
+    return false;
+  }
+  return true;
+}
+
+static bool patch_parse_append_stmt(const char *line, int line_number, ZProgramGraphPatchResult *result) {
+  ZProgramGraphPatchOpResult *op = z_graph_patch_push_operation(result);
+  op->line = line_number;
+  op->op = z_strdup("appendStmt");
+  if (!patch_parse_structural_attrs(line, "appendStmt", result, op)) return false;
+  if (!patch_reject_attrs(op, result, line, false, false, false, false, false, false, false, false, true, true)) return false;
+  if (!op->function || !op->value) {
+    patch_op_fail(result, op, "GPH001", "appendStmt operation is missing required attributes", "fn and stmt", line);
+    return false;
+  }
+  return true;
+}
+
 static bool patch_parse_add_check_write_value(const char *line, int line_number, ZProgramGraphPatchResult *result) {
   ZProgramGraphPatchOpResult *op = z_graph_patch_push_operation(result);
   op->line = line_number;
@@ -735,7 +763,57 @@ static bool patch_parse_replace_body_target(const char *line, int line_number, c
   return true;
 }
 
-static bool patch_parse_replace_body_rows(char *header, int *line_number, char **cursor, bool block, ZProgramGraphPatchResult *result) {
+static bool patch_parse_upsert_function_target(const char *line, int line_number, const char *body, ZProgramGraphPatchResult *result) {
+  const char *cursor = line + strlen("upsertFunction");
+  patch_skip_spaces(&cursor);
+  char *target = NULL;
+  if (*cursor) {
+    const char *start = cursor;
+    while (*cursor && !isspace((unsigned char)*cursor)) cursor++;
+    target = z_strndup(start, (size_t)(cursor - start));
+    patch_skip_spaces(&cursor);
+    if (*cursor) {
+      z_graph_patch_result_fail(result, "GPH001", "upsertFunction has trailing header text", "upsertFunction [name]", line);
+      free(target);
+      return false;
+    }
+  }
+  ZProgramGraphPatchOpResult *op = z_graph_patch_push_operation(result);
+  op->line = line_number;
+  op->op = z_strdup("upsertFunction");
+  op->function = target;
+  op->value = z_strdup(body ? body : "");
+  return true;
+}
+
+static bool patch_parse_add_test_body_target(const char *line, int line_number, const char *body, ZProgramGraphPatchResult *result) {
+  ZProgramGraphPatchOpResult *op = z_graph_patch_push_operation(result);
+  op->line = line_number;
+  op->op = z_strdup("addTestBody");
+  if (!patch_parse_structural_attrs(line, "addTestBody", result, op)) return false;
+  if (!patch_reject_attrs(op, result, line, false, false, false, false, false, false, false, false, true, false)) return false;
+  if (!op->name) {
+    patch_op_fail(result, op, "GPH001", "addTestBody operation is missing required attributes", "name", line);
+    return false;
+  }
+  if (op->value) {
+    patch_op_fail(result, op, "GPH001", "addTestBody body belongs between the header and end marker", "addTestBody name=\"...\" followed by body rows", line);
+    return false;
+  }
+  op->value = z_strdup(body ? body : "");
+  return true;
+}
+
+static bool patch_parse_body_target(char *header, int header_line, const char *body, const char *operation, ZProgramGraphPatchResult *result) {
+  if (strcmp(operation, "replaceFunctionBody") == 0) return patch_parse_replace_body_target(header, header_line, body, false, result);
+  if (strcmp(operation, "replaceBlockBody") == 0) return patch_parse_replace_body_target(header, header_line, body, true, result);
+  if (strcmp(operation, "upsertFunction") == 0) return patch_parse_upsert_function_target(header, header_line, body, result);
+  if (strcmp(operation, "addTestBody") == 0) return patch_parse_add_test_body_target(header, header_line, body, result);
+  patch_format_fail(result, "GPH001", "unknown body patch operation", "replaceFunctionBody, replaceBlockBody, upsertFunction, or addTestBody", operation, header_line);
+  return false;
+}
+
+static bool patch_parse_body_rows(char *header, int *line_number, char **cursor, const char *operation, ZProgramGraphPatchResult *result) {
   ZBuf body;
   zbuf_init(&body);
   bool ended = false;
@@ -763,10 +841,10 @@ static bool patch_parse_replace_body_rows(char *header, int *line_number, char *
   }
   if (!ended) {
     zbuf_free(&body);
-    patch_format_fail(result, "GPH001", "body replacement is missing end marker; every body replacement closes with a line containing only `end`", block ? "replaceBlockBody ... end" : "replaceFunctionBody ... end", header, header_line);
+    patch_format_fail(result, "GPH001", "body patch is missing end marker; every body patch closes with a line containing only `end`", "operation ... end", header, header_line);
     return false;
   }
-  bool parsed_body = patch_parse_replace_body_target(header, header_line, body.data ? body.data : "", block, result);
+  bool parsed_body = patch_parse_body_target(header, header_line, body.data ? body.data : "", operation, result);
   zbuf_free(&body);
   return parsed_body;
 }
@@ -837,18 +915,26 @@ static bool patch_parse_text(char *text, ZProgramGraphPatchResult *result) {
       if (!patch_parse_add_let_binary(trimmed, line_number, result)) return false;
     } else if (strncmp(trimmed, "addReturnValue", strlen("addReturnValue")) == 0 && isspace((unsigned char)trimmed[strlen("addReturnValue")])) {
       if (!patch_parse_add_return_value(trimmed, line_number, result)) return false;
+    } else if (strncmp(trimmed, "addReturnExpr", strlen("addReturnExpr")) == 0 && isspace((unsigned char)trimmed[strlen("addReturnExpr")])) {
+      if (!patch_parse_add_return_expr(trimmed, line_number, result)) return false;
+    } else if (strncmp(trimmed, "appendStmt", strlen("appendStmt")) == 0 && isspace((unsigned char)trimmed[strlen("appendStmt")])) {
+      if (!patch_parse_append_stmt(trimmed, line_number, result)) return false;
     } else if (strncmp(trimmed, "addCheckWriteValue", strlen("addCheckWriteValue")) == 0 && isspace((unsigned char)trimmed[strlen("addCheckWriteValue")])) {
       if (!patch_parse_add_check_write_value(trimmed, line_number, result)) return false;
     } else if (strncmp(trimmed, "addCheckWrite", strlen("addCheckWrite")) == 0 && isspace((unsigned char)trimmed[strlen("addCheckWrite")])) {
       if (!patch_parse_add_check_write(trimmed, line_number, result)) return false;
     } else if (strncmp(trimmed, "addTest", strlen("addTest")) == 0 && isspace((unsigned char)trimmed[strlen("addTest")])) {
       if (!patch_parse_add_test(trimmed, line_number, result)) return false;
+    } else if (strncmp(trimmed, "upsertFunction", strlen("upsertFunction")) == 0 && (!trimmed[strlen("upsertFunction")] || isspace((unsigned char)trimmed[strlen("upsertFunction")]))) {
+      if (!patch_parse_body_rows(trimmed, &line_number, &cursor, "upsertFunction", result)) return false;
+    } else if (strncmp(trimmed, "addTestBody", strlen("addTestBody")) == 0 && isspace((unsigned char)trimmed[strlen("addTestBody")])) {
+      if (!patch_parse_body_rows(trimmed, &line_number, &cursor, "addTestBody", result)) return false;
     } else if (strncmp(trimmed, "replaceFunctionBody", strlen("replaceFunctionBody")) == 0 && isspace((unsigned char)trimmed[strlen("replaceFunctionBody")])) {
-      if (!patch_parse_replace_body_rows(trimmed, &line_number, &cursor, false, result)) return false;
+      if (!patch_parse_body_rows(trimmed, &line_number, &cursor, "replaceFunctionBody", result)) return false;
     } else if (strncmp(trimmed, "replaceBlockBody", strlen("replaceBlockBody")) == 0 && isspace((unsigned char)trimmed[strlen("replaceBlockBody")])) {
-      if (!patch_parse_replace_body_rows(trimmed, &line_number, &cursor, true, result)) return false;
+      if (!patch_parse_body_rows(trimmed, &line_number, &cursor, "replaceBlockBody", result)) return false;
     } else {
-      patch_format_fail(result, "GPH001", "unknown program graph patch operation; run `zero patch --op help` for working examples of every operation", "expect, set, insert, insertEdge, replace, replaceExpr, delete, rename, setConst, setReturnType, addFunction, addMain, addParam, addParamTo, addReturnBinary, addLetLiteral, addLetBinary, addReturnValue, addCheckWriteValue, addCheckWrite, addTest, replaceFunctionBody, or replaceBlockBody", trimmed, line_number);
+      patch_format_fail(result, "GPH001", "unknown program graph patch operation; run `zero patch --op help` for working examples of every operation", "expect, set, insert, insertEdge, replace, replaceExpr, delete, rename, setConst, setReturnType, addFunction, addMain, addParam, addParamTo, addReturnBinary, addLetLiteral, addLetBinary, addReturnValue, addReturnExpr, appendStmt, addCheckWriteValue, addCheckWrite, addTest, addTestBody, upsertFunction, replaceFunctionBody, or replaceBlockBody", trimmed, line_number);
       return false;
     }
   }

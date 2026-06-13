@@ -1262,9 +1262,13 @@ bool z_program_graph_patch_apply_operation(ZProgramGraph *graph, ZProgramGraphPa
   if (patch_text_eq(op->op, "addLetLiteral")) return z_program_graph_patch_apply_add_let_literal(graph, result, op);
   if (patch_text_eq(op->op, "addLetBinary")) return z_program_graph_patch_apply_add_let_binary(graph, result, op);
   if (patch_text_eq(op->op, "addReturnValue")) return z_program_graph_patch_apply_add_return_value(graph, result, op);
+  if (patch_text_eq(op->op, "addReturnExpr")) return z_program_graph_patch_apply_add_return_expr(graph, result, op);
+  if (patch_text_eq(op->op, "appendStmt")) return z_program_graph_patch_apply_append_stmt(graph, result, op);
   if (patch_text_eq(op->op, "addCheckWriteValue")) return z_program_graph_patch_apply_add_check_write_value(graph, result, op);
   if (patch_text_eq(op->op, "addCheckWrite")) return patch_apply_add_check_write(graph, result, op);
   if (patch_text_eq(op->op, "addTest")) return patch_apply_add_test(graph, result, op);
+  if (patch_text_eq(op->op, "addTestBody")) return z_program_graph_patch_apply_add_test_body(graph, result, op);
+  if (patch_text_eq(op->op, "upsertFunction")) return z_program_graph_patch_apply_upsert_function(graph, result, op);
   if (patch_text_eq(op->op, "replaceFunctionBody")) return z_program_graph_patch_apply_replace_function_body(graph, result, op);
   if (patch_text_eq(op->op, "replaceBlockBody")) return z_program_graph_patch_apply_replace_block_body(graph, result, op);
 

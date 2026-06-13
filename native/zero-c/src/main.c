@@ -4942,7 +4942,8 @@ static bool path_starts_with_program_graph_patch_operation(const char *path) {
   static const char *const keywords[] = {
     "expect", "set", "insertEdge", "insert", "replaceFunctionBody", "replaceBlockBody", "replace",
     "delete", "rename", "addFunction", "addMain", "addParam", "addReturnBinary", "addLetLiteral",
-    "addLetBinary", "addReturnValue", "addCheckWriteValue", "addCheckWrite", "addTest", NULL,
+    "addLetBinary", "addReturnValue", "addReturnExpr", "appendStmt", "addCheckWriteValue",
+    "addCheckWrite", "addTestBody", "addTest", "upsertFunction", NULL,
   };
   char bytes[512];
   size_t read = 0;
@@ -12758,6 +12759,20 @@ static void print_command_diag_list(const Command *command, const char *fallback
   }
 }
 
+static void print_graph_patch_revalidation_hints(const Command *command, const GraphOracleDiags *list) {
+  if ((command && command->json) || !list) return;
+  bool saw_non_void_return = false;
+  for (size_t i = 0; i < list->len; i++) {
+    const ZDiag *diag = &list->items[i];
+    if (strcmp(diag->code_text, "TYP003") == 0 && strstr(diag->message, "non-void function must return")) {
+      saw_non_void_return = true;
+    }
+  }
+  if (saw_non_void_return) {
+    fprintf(stderr, "  help: new non-void helpers need a body in the same graph patch; use upsertFunction, or batch addFunction/addParam with replaceFunctionBody before revalidation\n");
+  }
+}
+
 #define NOTE_DEDUP_SEED 1469598103934665603ull
 
 static uint64_t note_dedup_fold(uint64_t hash, const char *text) {
@@ -14258,6 +14273,7 @@ static int run_graph_patch_command(const Command *command, const ZTargetInfo *ta
       if (!command->json) {
         fprintf(stderr, "program graph patch failed revalidation: %zu diagnostic%s introduced by this patch\n", introduced.len, introduced.len == 1 ? "" : "s");
       }
+      print_graph_patch_revalidation_hints(command, &introduced);
       print_preexisting_diag_notes("patch", command->input, &preexisting);
       graph_oracle_diags_free(&introduced);
       graph_oracle_diags_free(&preexisting);

@@ -122,7 +122,7 @@ const fileBudgets: Record<string, FileBudget> = {
   "native/zero-c/src/program_graph_c_import.h": { maxLines: 10, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_c_import_metadata.c": { maxLines: 120, maxStrcmpCalls: 1 },
   "native/zero-c/src/program_graph_c_import_metadata.h": { maxLines: 12, maxStrcmpCalls: 0 },
-  "native/zero-c/src/program_graph_command.c": { maxLines: 175, maxStrcmpCalls: 2 },
+  "native/zero-c/src/program_graph_command.c": { maxLines: 180, maxStrcmpCalls: 2 },
   "native/zero-c/src/program_graph_patch_internal.h": { maxLines: 16, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_patch_replace.c": { maxLines: 175, maxStrcmpCalls: 2 },
   "native/zero-c/src/program_graph_command.h": { maxLines: 30, maxStrcmpCalls: 0 },
@@ -166,13 +166,13 @@ const fileBudgets: Record<string, FileBudget> = {
   "native/zero-c/src/program_graph_validate.c": { maxLines: 680, maxStrcmpCalls: 5 },
   "native/zero-c/src/program_graph_patch_builders.c": { maxLines: 375, maxStrcmpCalls: 1 },
   "native/zero-c/src/program_graph_patch_builders.h": { maxLines: 15, maxStrcmpCalls: 0 },
-  // Body rows accept zero view output verbatim before falling back to the legacy row grammar.
-  "native/zero-c/src/program_graph_patch_body.c": { maxLines: 1480, maxStrcmpCalls: 22 },
-  "native/zero-c/src/program_graph_patch_body.h": { maxLines: 12, maxStrcmpCalls: 0 },
-  "native/zero-c/src/program_graph_patch_examples.c": { maxLines: 60, maxStrcmpCalls: 0 },
+  // Body rows and complete-function/test-body patch ops share parse/splice helpers here.
+  "native/zero-c/src/program_graph_patch_body.c": { maxLines: 1780, maxStrcmpCalls: 22 },
+  "native/zero-c/src/program_graph_patch_body.h": { maxLines: 16, maxStrcmpCalls: 0 },
+  "native/zero-c/src/program_graph_patch_examples.c": { maxLines: 65, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_patch_ops.c": { maxLines: 1330, maxStrcmpCalls: 13 },
   // The --body-file - stdin reader lives beside the file reader it falls back to.
-  "native/zero-c/src/program_graph_patch.c": { maxLines: 1035, maxStrcmpCalls: 52 },
+  "native/zero-c/src/program_graph_patch.c": { maxLines: 1050, maxStrcmpCalls: 54 },
   "native/zero-c/src/program_graph_patch.h": { maxLines: 80, maxStrcmpCalls: 0 },
   // Projection safety memoizes realpath resolutions so warm status/check stay fast.
   "native/zero-c/src/program_graph_projection.c": { maxLines: 680, maxStrcmpCalls: 1 },

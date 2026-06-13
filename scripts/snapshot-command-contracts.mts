@@ -1022,6 +1022,10 @@ assert.doesNotMatch(graphHelp, /setMain[A-Za-z]+Cli/);
 assert.match(graphHelp, /replaceFunctionBody main \.\.\. end/);
 assert.match(graphHelp, /replaceBlockBody #block_id \.\.\. end/);
 assert.match(graphHelp, /addLetBinary fn="add" name="sum" type="i32" operator="\+"/);
+assert.match(graphHelp, /addReturnExpr fn="maybe" expr="null"/);
+assert.match(graphHelp, /appendStmt fn="main" stmt="check std\.http\.listen\(world, 3000_u16\)"/);
+assert.match(graphHelp, /addTestBody name="api add"/);
+assert.match(graphHelp, /upsertFunction handle/);
 assert.match(graphHelp, /zero build \[--json\] \[--emit exe\|obj\|llvm-ir\].*\[graph-input\]/);
 assert.match(graphHelp, /zero run \[--target <host-target>\].*\[graph-input\] \[-- args\.\.\.\]/);
 assert.match(graphHelp, /zero test \[--json\] \[--filter <name>\] \[--target <target>\] \[graph-input\]/);
@@ -1080,6 +1084,10 @@ assert(graphPatchHelp.indexOf('set node="#id"') > patchHelpAdvancedIdx, "node-ha
 assert(graphPatchHelp.indexOf("addMain") < patchHelpAdvancedIdx, "authoring ops print before node-level ops");
 assert.match(graphPatchHelp, /addLetLiteral fn="main" name="count" type="u32" value="0"/);
 assert.match(graphPatchHelp, /addReturnValue fn="identity" value="input" type="i32"/);
+assert.match(graphPatchHelp, /addReturnExpr fn="maybe" expr="null"/);
+assert.match(graphPatchHelp, /appendStmt fn="main" stmt="check std\.http\.listen\(world, 3000_u16\)"/);
+assert.match(graphPatchHelp, /addTestBody name="api add"/);
+assert.match(graphPatchHelp, /upsertFunction handle/);
 const graphPatchHelpJson = json(["patch", "--op", "help", "--json"]).body;
 assert.equal(graphPatchHelpJson.ok, true);
 assert.equal(graphPatchHelpJson.command, "zero patch");
@@ -1091,6 +1099,10 @@ assert.equal(graphPatchHelpJson.operations.some((op) => op.startsWith("replaceFu
 assert.equal(graphPatchHelpJson.operations.some((op) => op.startsWith("replaceBlockBody #block_id\n")), true);
 assert.equal(graphPatchHelpJson.operations.includes("addLetBinary fn=\"add\" name=\"sum\" type=\"i32\" operator=\"+\" left=\"left\" right=\"right\""), true);
 assert.equal(graphPatchHelpJson.operations.includes("addCheckWriteValue fn=\"main\" value=\"message\" type=\"String\""), true);
+assert.equal(graphPatchHelpJson.operations.includes("addReturnExpr fn=\"maybe\" expr=\"null\""), true);
+assert.equal(graphPatchHelpJson.operations.includes("appendStmt fn=\"main\" stmt=\"check std.http.listen(world, 3000_u16)\""), true);
+assert.equal(graphPatchHelpJson.operations.some((op) => op.startsWith("addTestBody name=\"api add\"\n")), true);
+assert.equal(graphPatchHelpJson.operations.some((op) => op.startsWith("upsertFunction handle\n")), true);
 const retiredGraphCheckJson = json(["graph", "check", "--json", "examples/hello.0"], { allowFailure: true });
 assert.equal(retiredGraphCheckJson.code, 1);
 assert.equal(retiredGraphCheckJson.body.diagnostics[0].message, "zero graph check is not supported");
@@ -3338,7 +3350,9 @@ const graphDeleteThenInsertedPath = join(outDir, "hello.delete-then-insert.progr
 const graphPatchDeleteNodeFactPath = join(outDir, "hello.delete-node-fact.program-graph.patch");
 const graphDeletedNodeFactPath = join(outDir, "hello.delete-node-fact.program-graph");
 const graphRepositoryPatchPackageDir = join(outDir, "repository-graph-patch-package");
+const graphRepositoryNewOpsPackageDir = join(outDir, "repository-graph-new-patch-ops");
 const graphRepositoryBodyPatchPath = join(outDir, "repository-graph.replace-body.patch");
+const graphRepositoryNewOpsPatchPath = join(outDir, "repository-graph.new-ops.patch");
 const graphRepositoryBlockPatchPath = join(outDir, "repository-graph.replace-block.patch");
 const graphRepositoryInvalidBlockRowsPatchPath = join(outDir, "repository-graph.invalid-block-rows.patch");
 const graphRepositoryCheckExprPatchPath = join(outDir, "repository-graph.check-expr.patch");
@@ -3624,6 +3638,48 @@ assert.equal(checkedInGraphQueryJson.patchOperations.some((op) => op.startsWith(
 assert.equal(checkedInGraphQueryJson.patchOperations.some((op) => op.startsWith("replaceBlockBody #block_id\n")), true);
 assert.equal(checkedInGraphQueryJson.patchOperations.includes("addLetLiteral fn=\"main\" name=\"count\" type=\"u32\" value=\"0\""), true);
 assert.equal(checkedInGraphQueryJson.patchOperations.includes("addReturnValue fn=\"identity\" value=\"input\" type=\"i32\""), true);
+assert.equal(checkedInGraphQueryJson.patchOperations.includes("addReturnExpr fn=\"maybe\" expr=\"null\""), true);
+assert.equal(checkedInGraphQueryJson.patchOperations.includes("appendStmt fn=\"main\" stmt=\"check std.http.listen(world, 3000_u16)\""), true);
+assert.equal(checkedInGraphQueryJson.patchOperations.some((op) => op.startsWith("addTestBody name=\"api add\"\n")), true);
+assert.equal(checkedInGraphQueryJson.patchOperations.some((op) => op.startsWith("upsertFunction handle\n")), true);
+rmSync(graphRepositoryNewOpsPackageDir, { recursive: true, force: true });
+mkdirSync(graphRepositoryNewOpsPackageDir, { recursive: true });
+writeFileSync(join(graphRepositoryNewOpsPackageDir, "zero.toml"), readFileSync(join(checkedInGraphPackageDir, "zero.toml"), "utf8"));
+writeFileSync(join(graphRepositoryNewOpsPackageDir, "zero.graph"), readFileSync(checkedInRepositoryGraphStorePath));
+writeFileSync(join(graphRepositoryNewOpsPackageDir, "hello.0"), checkedInGraphSource);
+const repositoryNewOpsHash = json(["query", "--json", graphRepositoryNewOpsPackageDir]).body.graphHash;
+writeFileSync(graphRepositoryNewOpsPatchPath, [
+  "zero-program-graph-patch v1",
+  `expect graphHash "${repositoryNewOpsHash}"`,
+  "upsertFunction main",
+  "pub fn main(world: World) -> Void raises {",
+  "}",
+  "end",
+  'appendStmt fn="main" stmt="check world.out.write(\\"new ops ok\\")"',
+  'addFunction name="answer" ret="i32"',
+  'addReturnExpr fn="answer" expr="42"',
+  'addTestBody name="answer works"',
+  "  expect (answer() == 42)",
+  "end",
+  "",
+].join("\n"));
+const repositoryNewOpsDryRunJson = json(["patch", "--json", "--check-only", graphRepositoryNewOpsPackageDir, graphRepositoryNewOpsPatchPath]).body;
+assert.equal(repositoryNewOpsDryRunJson.ok, true);
+assert.equal(repositoryNewOpsDryRunJson.checkOnly, true);
+assert.equal(repositoryNewOpsDryRunJson.saved, null);
+assert.deepEqual(repositoryNewOpsDryRunJson.operations.map((operation) => operation.op), ["upsertFunction", "appendStmt", "addFunction", "addReturnExpr", "addTestBody"]);
+assert.equal(zero(["view", graphRepositoryNewOpsPackageDir]).stdout, checkedInGraphSource);
+const repositoryNewOpsPatchJson = json(["patch", "--json", graphRepositoryNewOpsPackageDir, graphRepositoryNewOpsPatchPath]).body;
+assert.equal(repositoryNewOpsPatchJson.ok, true);
+assert.deepEqual(repositoryNewOpsPatchJson.operations.map((operation) => operation.op), ["upsertFunction", "appendStmt", "addFunction", "addReturnExpr", "addTestBody"]);
+assert.equal(repositoryNewOpsPatchJson.saved.path, join(graphRepositoryNewOpsPackageDir, "zero.graph"));
+assert.match(zero(["view", "--fn", "main", graphRepositoryNewOpsPackageDir]).stdout, /check world\.out\.write\("new ops ok"\)/);
+assert.match(zero(["view", "--fn", "answer", graphRepositoryNewOpsPackageDir]).stdout, /return 42/);
+assert.equal(zero(["check", graphRepositoryNewOpsPackageDir]).stdout, "ok\n");
+assert.equal(zero(["run", graphRepositoryNewOpsPackageDir]).stdout, "new ops ok");
+assert.equal(zero(["test", graphRepositoryNewOpsPackageDir]).stdout, "1 test(s) ok\n");
+assert.match(zero(["export", graphRepositoryNewOpsPackageDir]).stdout, /repository graph export ok/);
+assert.equal(zero(["verify-projection", graphRepositoryNewOpsPackageDir]).stdout, "repository graph verify-projection ok\n");
 rmSync(graphRepositoryPatchPackageDir, { recursive: true, force: true });
 mkdirSync(graphRepositoryPatchPackageDir, { recursive: true });
 writeFileSync(join(graphRepositoryPatchPackageDir, "zero.toml"), readFileSync(join(checkedInGraphPackageDir, "zero.toml"), "utf8"));
@@ -4056,7 +4112,7 @@ writeFileSync(genericMissingEndPatchPath, [
 ].join("\n"));
 const genericMissingEnd = zero(["patch", "--check-only", genericPatchRoot, genericMissingEndPatchPath], { allowFailure: true });
 assert.notEqual(genericMissingEnd.code, 0);
-assert.match(genericMissingEnd.stderr, /body replacement is missing end marker/);
+assert.match(genericMissingEnd.stderr, /body patch is missing end marker/);
 assert.match(genericMissingEnd.stderr, new RegExp(`${genericMissingEndPatchPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}:2: replaceFunctionBody main`));
 assert.match(genericMissingEnd.stderr, /help: a minimal complete patch file looks exactly like this:/);
 const genericIndentedHeaderPatchPath = join(outDir, "repository-graph-generic-indented-header.patch");
@@ -5904,6 +5960,10 @@ assert.match(agentSkill.data[0].content, /zero query --fn <name> --handles/);
 assert.match(agentSkill.data[0].content, /--replace-in-fn handleLine/);
 assert.match(agentSkill.data[0].content, /addParamTo fn="scan" name="bias" type="i32" default="0"/);
 assert.match(agentSkill.data[0].content, /setConst name="limit" value="64"/);
+assert.match(agentSkill.data[0].content, /upsertFunction handle/);
+assert.match(agentSkill.data[0].content, /addReturnExpr fn="maybe" expr="null"/);
+assert.match(agentSkill.data[0].content, /appendStmt fn="main" stmt="check std\.http\.listen\(world, 3000_u16\)"/);
+assert.match(agentSkill.data[0].content, /addTestBody name="api add"/);
 assert.match(agentSkill.data[0].content, /validated: check-equivalent/);
 assert.match(agentSkill.data[0].content, /zero skills get graph/);
 assert.doesNotMatch(agentSkill.data[0].content, /--rewrite/);
