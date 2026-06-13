@@ -14601,7 +14601,7 @@ static bool resolve_graph_command_manifest_input(Command *command, bool *artifac
   return true;
 }
 
-static ZProgramGraphProjectionSourceSync manifest_graph_store_source_sync(const char *input, char **out_store_hash) {
+static ZProgramGraphProjectionSourceSync manifest_graph_store_source_sync(const char *input, char **out_store_hash, ZProgramGraph *out_store_graph) {
   char *root = z_program_graph_store_root_for_input(input);
   char *store_path = root ? z_program_graph_store_path_for_root(root) : NULL;
   ZProgramGraphProjectionSourceSync sync = Z_PROGRAM_GRAPH_PROJECTION_SYNC_CLEAN;
@@ -14616,6 +14616,11 @@ static ZProgramGraphProjectionSourceSync manifest_graph_store_source_sync(const 
         if (z_program_graph_projection_source_sync_state(&store, &store_sync, &sync_diag)) sync = store_sync;
       }
       if (out_store_hash && store.graph.graph_hash) *out_store_hash = z_strdup(store.graph.graph_hash);
+      if (out_store_graph) {
+        z_program_graph_free(out_store_graph);
+        *out_store_graph = store.graph;
+        z_program_graph_init(&store.graph);
+      }
       z_program_graph_store_free(&store);
     }
   }
@@ -14624,12 +14629,32 @@ static ZProgramGraphProjectionSourceSync manifest_graph_store_source_sync(const 
   return sync;
 }
 
+/*
+ * Refresh tips are context-aware: the reconcile classifies the source edit
+ * against the pre-refresh store graph so a signature edit teaches addParamTo
+ * and setReturnType, a const edit teaches setConst, and everything else keeps
+ * the replace-fn tip. The note stays once-per-state without a dedup marker
+ * because the refresh itself only runs while the source is stale.
+ */
+static const char *manifest_graph_refresh_tip(ZProgramGraphReconcileEditKind edit_kind) {
+  if (edit_kind == Z_PROGRAM_GRAPH_RECONCILE_EDIT_SIGNATURE) {
+    return "zero patch --op 'addParamTo fn=... name=... type=... default=...' threads a new parameter through every call site in one step; setReturnType changes return types";
+  }
+  if (edit_kind == Z_PROGRAM_GRAPH_RECONCILE_EDIT_CONST) {
+    return "zero patch --op 'setConst name=... value=...' replaces a top-level const initializer directly and skips this reconcile";
+  }
+  return "zero patch --replace-fn <fn> --body-file - edits the graph directly and skips this reconcile";
+}
+
 static int resolve_manifest_graph_input_sync(const Command *command, const ZTargetInfo *target, const char *source_input_path) {
   const char *input = source_input_path ? source_input_path : command->input;
   char *store_hash = NULL;
-  ZProgramGraphProjectionSourceSync sync = manifest_graph_store_source_sync(input, &store_hash);
+  ZProgramGraph store_graph;
+  z_program_graph_init(&store_graph);
+  ZProgramGraphProjectionSourceSync sync = manifest_graph_store_source_sync(input, &store_hash, &store_graph);
   if (sync == Z_PROGRAM_GRAPH_PROJECTION_SYNC_CLEAN) {
     free(store_hash);
+    z_program_graph_free(&store_graph);
     return 0;
   }
   if (sync == Z_PROGRAM_GRAPH_PROJECTION_SYNC_STORE_NEWER) {
@@ -14638,14 +14663,17 @@ static int resolve_manifest_graph_input_sync(const Command *command, const ZTarg
       fprintf(stderr, "note: zero %s is using zero.graph, which is newer than the .0 source projection; run zero export to sync sources or zero import to make the edited source authoritative\n", command->command ? command->command : "build");
     }
     free(store_hash);
+    z_program_graph_free(&store_graph);
     return 0;
   }
   free(store_hash);
   if (sync == Z_PROGRAM_GRAPH_PROJECTION_SYNC_DIVERGED) {
+    z_program_graph_free(&store_graph);
     return z_repository_graph_diverged_compiler_input_error(input, target, command->json);
   }
   const char *stale_mode = getenv("ZERO_STALE");
   if (stale_mode && strcmp(stale_mode, "fail") == 0) {
+    z_program_graph_free(&store_graph);
     return z_repository_graph_stale_compiler_input_error(input, target, command->json);
   }
   Command load_command = *command;
@@ -14656,16 +14684,19 @@ static int resolve_manifest_graph_input_sync(const Command *command, const ZTarg
   ZProgramGraph source_graph = {0};
   int validate_rc = load_and_validate_repository_graph_source(command, &load_command, target, command->command ? command->command : "build", &source_input, &source_program, &source_graph);
   if (validate_rc != 0) {
+    z_program_graph_free(&store_graph);
     z_program_graph_free(&source_graph);
     z_free_program(&source_program);
     z_free_source(&source_input);
     return validate_rc;
   }
+  ZProgramGraphReconcileEditKind edit_kind = z_program_graph_reconcile_edit_kind(&store_graph, &source_graph);
+  z_program_graph_free(&store_graph);
   int rc = z_repository_graph_refresh_compiler_store(input, target, command->json, &source_graph);
   z_program_graph_free(&source_graph);
   z_free_program(&source_program);
   z_free_source(&source_input);
-  if (rc == 0) fprintf(stderr, "note: zero %s refreshed zero.graph from the edited package source projection; tip: zero patch --replace-fn <fn> --body-file - edits the graph directly and skips this reconcile\n", command->command ? command->command : "build");
+  if (rc == 0) fprintf(stderr, "note: zero %s refreshed zero.graph from the edited package source projection; tip: %s\n", command->command ? command->command : "build", manifest_graph_refresh_tip(edit_kind));
   return rc;
 }
 

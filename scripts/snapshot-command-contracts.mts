@@ -1868,6 +1868,32 @@ assert.match(staleMultiCheck.stderr, /note: zero check refreshed zero\.graph fro
 assert.equal((staleMultiCheck.stderr.match(/\n/g) ?? []).length, 1, "graph refresh note plus tip should stay on one stderr line");
 assert.equal(json(["status", "--json", staleMultiRoot]).body.repositoryGraph.projectionState, "clean");
 assert.equal(zero(["run", staleMultiRoot]).stdout, "stale multi two\n");
+// Context-aware refresh tips: a signature-changing source edit teaches the
+// declaration-level patch ops at the moment of fallback, a const initializer
+// edit teaches setConst, and the refreshed (clean) state stays quiet.
+const refreshTipRoot = join("/tmp", `zero-repo-graph-refresh-tip-${process.pid}`);
+const refreshTipMain = join(refreshTipRoot, "src", "main.0");
+const refreshTipMath = join(refreshTipRoot, "src", "math.0");
+rmSync(refreshTipRoot, { force: true, recursive: true });
+assert.equal(json(["init", "--json", refreshTipRoot]).body.ok, true);
+mkdirSync(join(refreshTipRoot, "src"), { recursive: true });
+writeFileSync(refreshTipMain, 'use math\n\nconst limit: i32 = 42\n\npub fn main(world: World) -> Void raises {\n    if add_one(41) == limit {\n        check world.out.write("tip one\\n")\n    }\n}\n');
+writeFileSync(refreshTipMath, "pub fn add_one(value: i32) -> i32 {\n    return value + 1\n}\n");
+assert.equal(json(["import", "--json", refreshTipRoot]).body.ok, true);
+writeFileSync(refreshTipMath, "pub fn add_one(value: i32, bias: i32) -> i32 {\n    return value + bias\n}\n");
+writeFileSync(refreshTipMain, 'use math\n\nconst limit: i32 = 42\n\npub fn main(world: World) -> Void raises {\n    if add_one(41, 1) == limit {\n        check world.out.write("tip one\\n")\n    }\n}\n');
+const refreshTipSignature = zeroWithStderr(["check", refreshTipRoot]);
+assert.equal(refreshTipSignature.code, 0);
+assert.match(refreshTipSignature.stderr, /note: zero check refreshed zero\.graph from the edited package source projection; tip: zero patch --op 'addParamTo fn=\.\.\. name=\.\.\. type=\.\.\. default=\.\.\.' threads a new parameter through every call site in one step; setReturnType changes return types/);
+assert.equal((refreshTipSignature.stderr.match(/\n/g) ?? []).length, 1, "signature refresh note plus tip should stay on one stderr line");
+const refreshTipQuiet = zeroWithStderr(["check", refreshTipRoot]);
+assert.equal(refreshTipQuiet.code, 0);
+assert.doesNotMatch(refreshTipQuiet.stderr, /refreshed zero\.graph/, "the refresh note prints once per stale state");
+writeFileSync(refreshTipMain, 'use math\n\nconst limit: i32 = 43\n\npub fn main(world: World) -> Void raises {\n    if add_one(41, 1) == limit {\n        check world.out.write("tip one\\n")\n    }\n}\n');
+const refreshTipConst = zeroWithStderr(["check", refreshTipRoot]);
+assert.equal(refreshTipConst.code, 0);
+assert.match(refreshTipConst.stderr, /note: zero check refreshed zero\.graph from the edited package source projection; tip: zero patch --op 'setConst name=\.\.\. value=\.\.\.' replaces a top-level const initializer directly and skips this reconcile/);
+assert.equal(json(["status", "--json", refreshTipRoot]).body.repositoryGraph.projectionState, "clean");
 writeFileSync(staleMultiHelper, "pub fn add_one(value: i32) -> i32 {\n    return value + 1\n}\n");
 const staleMultiStoreCheck = zeroWithStderr(["check", staleMultiStore]);
 assert.equal(staleMultiStoreCheck.code, 0);
