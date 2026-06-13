@@ -311,9 +311,8 @@ static void identity_fail_nodes(IdentityContext *context, const char *code, cons
   if (context->result.node_range[0] && context->result.candidate_range[0]) {
     snprintf(context->result.hint,
              sizeof(context->result.hint),
-             "split the text edit: import the change touching %s on its own first, leave %s untouched in that pass, or make the whole edit through zero patch",
-             context->result.candidate_range,
-             context->result.node_range);
+             "split the text edit: import the change touching %.95s on its own first, or use zero patch",
+             context->result.candidate_range);
   }
 }
 

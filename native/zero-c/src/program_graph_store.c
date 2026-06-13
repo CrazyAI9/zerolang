@@ -834,9 +834,7 @@ static bool store_identity_reconcile_diag(const char *path, const ZProgramGraphI
     if (!module_identity_changed && identity && identity->node_range[0] && identity->candidate_range[0]) {
       snprintf(diag->actual,
                sizeof(diag->actual),
-               "%s at %s matches %zu edited candidate%s at %s",
-               identity->node_id[0] ? identity->node_id : "ambiguous source identity",
-               identity->node_range,
+               "matches %zu edited candidate%s at %.72s",
                identity->candidate_count,
                identity->candidate_count == 1 ? "" : "s",
                identity->candidate_range);

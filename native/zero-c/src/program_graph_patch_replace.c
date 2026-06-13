@@ -156,4 +156,3 @@ bool z_program_graph_apply_replace_in_fn(const char *function_name, const char *
   op->value = rows.data ? rows.data : z_strdup("");
   return z_graph_patch_apply_operations(graph, result);
 }
-

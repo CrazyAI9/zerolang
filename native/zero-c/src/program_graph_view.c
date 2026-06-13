@@ -363,9 +363,9 @@ bool z_program_graph_append_view_function(ZBuf *buf, const ZProgramGraph *graph,
     snprintf(diag->expected, sizeof(diag->expected), "an existing function name");
     snprintf(diag->actual, sizeof(diag->actual), "--fn %s", function_name);
     if (suggestions[0]) {
-      snprintf(diag->help, sizeof(diag->help), "close matches: %s; run zero view --fn <name> with one of them, or zero query --find %s to search the graph", suggestions, function_name);
+      snprintf(diag->help, sizeof(diag->help), "close matches: %.120s; use zero view --fn <name> or zero query --find %.64s", suggestions, function_name);
     } else {
-      snprintf(diag->help, sizeof(diag->help), "run zero query to list functions, or zero query --find %s to search the graph", function_name);
+      snprintf(diag->help, sizeof(diag->help), "run zero query --find %.128s to search the graph", function_name);
     }
   }
   return false;
@@ -572,9 +572,9 @@ bool z_program_graph_append_view_function_handles(ZBuf *buf, const ZProgramGraph
       snprintf(diag->expected, sizeof(diag->expected), "an existing function name");
       snprintf(diag->actual, sizeof(diag->actual), "--fn %s", function_name);
       if (suggestions[0]) {
-        snprintf(diag->help, sizeof(diag->help), "close matches: %s; run zero view --fn <name> with one of them, or zero query --find %s to search the graph", suggestions, function_name);
+        snprintf(diag->help, sizeof(diag->help), "close matches: %.120s; use zero view --fn <name> or zero query --find %.64s", suggestions, function_name);
       } else {
-        snprintf(diag->help, sizeof(diag->help), "run zero query to list functions, or zero query --find %s to search the graph", function_name);
+        snprintf(diag->help, sizeof(diag->help), "run zero query --find %.128s to search the graph", function_name);
       }
     }
     z_free_program(&program);
