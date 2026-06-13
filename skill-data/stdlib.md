@@ -1004,7 +1004,9 @@ of hand-writing `Location` headers; they reject empty or control-character
 location values before writing. Use
 `std.http.responseBodyBytes` to read the body from a response envelope produced
 locally by `writeResponse`, a JSON writer, a redirect writer, or a text/html
-writer.
+writer. When smoke-testing a JSON API, hit success plus missing/invalid input,
+unknown-route, and wrong-method paths. Check HTTP status codes and JSON bodies,
+not just happy-path response text.
 
 For a runnable local API server, define a same-module handler and call
 `std.http.listen(world)` from `main`. The handler signature is

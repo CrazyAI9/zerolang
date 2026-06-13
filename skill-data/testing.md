@@ -54,6 +54,11 @@ zero test
 zero test --filter addition
 ```
 
+Prefer `addTest` for one pure function call with literal arguments. Use
+`addTestBody name="..." ... end` only when the test needs custom body rows.
+Test labels are display names, not callable function names; do not rename them
+to `__zero_test_*`.
+
 If another tool hands you a derived ProgramGraph artifact, `zero test` can
 validate it. Do not create a standalone graph artifact for the ordinary package
 test loop; test the package path so the compiler reads `zero.graph` directly.

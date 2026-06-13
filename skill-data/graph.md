@@ -56,6 +56,8 @@ zero patch \
   --op 'addTest name="addition works" call="add" arg0="40" arg1="2" expect="42" type="i32"'
 ```
 
+Use `addTest` for one pure helper call; reserve `addTestBody` for custom body rows. Test labels are display names, not `__zero_test_*` function names.
+
 For declaration-level edits, stay in patch ops instead of rewriting files. `setConst name="limit" value="64"` replaces a top-level const's initializer by package-scoped name. `addParamTo fn="scan" name="bias" type="i32" default="0"` appends a parameter to an existing function and updates every call site in the package (nested calls included) to pass the default explicitly, reporting `updated N call sites`; without `default` it fails with the call-site count. `setReturnType fn="scan" type="i64"` changes a declared return type. All three revalidate and batch like any other op.
 
 For a new or replacement multi-statement helper, use complete source through `upsertFunction` instead of editing `.0` and importing:

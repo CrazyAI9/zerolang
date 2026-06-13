@@ -48,7 +48,7 @@ end
 
 Pass a patch file, or stream full `zero-program-graph-patch v1` text with `zero patch . --patch-text -`.
 
-Use `addReturnExpr fn="maybe" expr="null"` for non-identifier returns, `appendStmt fn="main" stmt="check std.http.listen(world, 3000_u16)"` for one statement, and `addTestBody name="api add" ... end` for tests. If a test shape is unsupported, use `deleteTest name="api add"` or `renameTest name="api add" value="api add route"`.
+Use `addReturnExpr fn="maybe" expr="null"` for non-id returns and `appendStmt fn="main" stmt="check std.http.listen(world, 3000_u16)"` for one stmt. For pure helper tests, use `addTest name="addition works" call="add" arg0="2" arg1="3" expect="5" type="i32"`; reserve `addTestBody name="api add" ... end` for custom bodies and remove bad ones with `deleteTest name="api add"`. Labels are display names, not `__zero_test_*`.
 
 For runnable CLIs, keep `World` on `pub fn main`; helpers should be value-based. HTTP servers use `handle(request, response)` helpers instead of `World`.
 
@@ -60,7 +60,7 @@ Scoped reads; never read a whole `.0` file for one function:
 - `zero view --fn <name> --around <text>`: enclosing block only.
 - `zero view --outline <module-or-file>`: signatures plus one-line docs.
 
-For a new agent-authored package: `zero init`, then `zero patch --op 'addMain'`.
+For a new package: `zero init`, then `zero patch --op 'addMain'`.
 
 ## zero query
 
