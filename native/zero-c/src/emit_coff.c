@@ -300,8 +300,24 @@ static bool coff_emit_byte_view_len(ZBuf *text, const IrFunction *fun, const IrV
     coff_emit_load_local_slot_eax(text, fun, view->local_index, 8);
     return true;
   }
+  if (view && view->kind == IR_VALUE_VEC_BYTES && view->local_index < fun->local_len && fun->locals[view->local_index].type == IR_TYPE_VEC) {
+    coff_emit_load_local_slot_eax(text, fun, view->local_index, 8);
+    return true;
+  }
   if (view && view->kind == IR_VALUE_MAYBE_VALUE && view->local_index < fun->local_len && fun->locals[view->local_index].type == IR_TYPE_MAYBE_BYTE_VIEW) {
     coff_emit_load_local_slot_eax(text, fun, view->local_index, 16);
+    return true;
+  }
+  if (view && view->kind == IR_VALUE_FIELD_LOAD && view->type == IR_TYPE_BYTE_VIEW && view->local_index < fun->local_len) {
+    const IrLocal *local = &fun->locals[view->local_index];
+    if (local->is_record_ref) {
+      coff_emit_load_local_slot_rax(text, fun, view->local_index, 0);
+      z_x64_emit_add_rax_u32(text, view->field_offset + 8u, true);
+      coff_emit_load_ptr_element(text, 0, 0, IR_TYPE_U64);
+      return true;
+    }
+    if (!local->is_record) return coff_diag_at(diag, "direct COFF byte-view field load requires record local", view->line, view->column, "non-record local");
+    coff_emit_load_field_eax(text, fun, view->local_index, view->field_offset + 8u, IR_TYPE_U64);
     return true;
   }
   if (view && view->kind == IR_VALUE_CALL && view->type == IR_TYPE_BYTE_VIEW) {
@@ -327,8 +343,24 @@ static bool coff_emit_byte_view_ptr(ZBuf *text, const IrFunction *fun, const IrV
     coff_emit_load_local_slot_rax(text, fun, view->local_index, 0);
     return true;
   }
+  if (view->kind == IR_VALUE_VEC_BYTES && view->local_index < fun->local_len && fun->locals[view->local_index].type == IR_TYPE_VEC) {
+    coff_emit_load_local_slot_rax(text, fun, view->local_index, 0);
+    return true;
+  }
   if (view->kind == IR_VALUE_MAYBE_VALUE && view->local_index < fun->local_len && fun->locals[view->local_index].type == IR_TYPE_MAYBE_BYTE_VIEW) {
     coff_emit_load_local_slot_rax(text, fun, view->local_index, 8);
+    return true;
+  }
+  if (view->kind == IR_VALUE_FIELD_LOAD && view->type == IR_TYPE_BYTE_VIEW && view->local_index < fun->local_len) {
+    const IrLocal *local = &fun->locals[view->local_index];
+    if (local->is_record_ref) {
+      coff_emit_load_local_slot_rax(text, fun, view->local_index, 0);
+      if (view->field_offset > 0) z_x64_emit_add_rax_u32(text, view->field_offset, true);
+      coff_emit_load_ptr_element(text, 0, 0, IR_TYPE_U64);
+      return true;
+    }
+    if (!local->is_record) return coff_diag_at(diag, "direct COFF byte-view field load requires record local", view->line, view->column, "non-record local");
+    coff_emit_load_field_eax(text, fun, view->local_index, view->field_offset, IR_TYPE_U64);
     return true;
   }
   if (view->kind == IR_VALUE_CALL && view->type == IR_TYPE_BYTE_VIEW) return coff_emit_value(text, fun, view, ctx, diag);
@@ -566,6 +598,108 @@ static bool coff_emit_vec_push_value(ZBuf *text, const IrFunction *fun, const Ir
   z_x64_emit_mov_eax_from_ecx(text);
   z_x64_emit_add_reg_i8(text, 0, 1, false);
   coff_emit_store_local_slot_from_reg(text, fun, value->local_index, 0, 8, false);
+  z_x64_emit_mov_eax_u32(text, 1);
+  z_x64_patch_rel32(text, end_patch, text->len);
+  return true;
+}
+
+static bool coff_emit_vec_clear_value(ZBuf *text, const IrFunction *fun, const IrValue *value, ZDiag *diag) {
+  if (value->local_index >= fun->local_len || fun->locals[value->local_index].type != IR_TYPE_VEC) return coff_diag_at(diag, "direct COFF Vec clear requires a Vec local", value->line, value->column, "invalid Vec local");
+  z_x64_emit_mov_eax_u32(text, 0);
+  coff_emit_store_local_slot_from_reg(text, fun, value->local_index, 0, 8, false);
+  return true;
+}
+
+static bool coff_emit_vec_get_value(ZBuf *text, const IrFunction *fun, const IrValue *value, CoffEmitContext *ctx, ZDiag *diag) {
+  if (value->local_index >= fun->local_len || fun->locals[value->local_index].type != IR_TYPE_VEC) return coff_diag_at(diag, "direct COFF Vec get requires a Vec local", value->line, value->column, "invalid Vec local");
+  if (!value->left) return coff_diag_at(diag, "direct COFF Vec get requires an index", value->line, value->column, "missing Vec index");
+  if (!coff_emit_value(text, fun, value->left, ctx, diag)) return false;
+  z_x64_emit_push_rax(text);
+  coff_emit_load_local_slot_reg(text, fun, value->local_index, 8, 1, false);
+  z_x64_emit_pop_reg64(text, 0);
+  z_x64_emit_cmp_rax_rcx(text, false);
+  size_t ok_patch = z_x64_emit_jcc32_placeholder(text, 0x82);
+  z_x64_emit_mov_eax_u32(text, 0);
+  z_x64_emit_mov_reg_from_rax(text, 2, true);
+  size_t end_patch = z_x64_emit_jmp32_placeholder(text, 0xe9);
+  z_x64_patch_rel32(text, ok_patch, text->len);
+  coff_emit_load_local_slot_reg(text, fun, value->local_index, 0, 1, true);
+  z_x64_emit_movzx_reg32_base_index_u8(text, 2, 1, 0);
+  z_x64_emit_mov_eax_u32(text, 1);
+  z_x64_patch_rel32(text, end_patch, text->len);
+  return true;
+}
+
+static bool coff_emit_vec_set_value(ZBuf *text, const IrFunction *fun, const IrValue *value, CoffEmitContext *ctx, ZDiag *diag) {
+  if (value->local_index >= fun->local_len || fun->locals[value->local_index].type != IR_TYPE_VEC) return coff_diag_at(diag, "direct COFF Vec set requires a Vec local", value->line, value->column, "invalid Vec local");
+  if (!value->left) return coff_diag_at(diag, "direct COFF Vec set requires an index", value->line, value->column, "missing Vec index");
+  if (!value->right) return coff_diag_at(diag, "direct COFF Vec set requires a value", value->line, value->column, "missing Vec value");
+  if (!coff_emit_value(text, fun, value->left, ctx, diag)) return false;
+  z_x64_emit_push_rax(text);
+  coff_emit_load_local_slot_reg(text, fun, value->local_index, 8, 1, false);
+  z_x64_emit_pop_reg64(text, 0);
+  z_x64_emit_cmp_rax_rcx(text, false);
+  size_t ok_patch = z_x64_emit_jcc32_placeholder(text, 0x82);
+  z_x64_emit_mov_eax_u32(text, 0);
+  size_t end_patch = z_x64_emit_jmp32_placeholder(text, 0xe9);
+  z_x64_patch_rel32(text, ok_patch, text->len);
+  z_x64_emit_push_rax(text);
+  if (!coff_emit_value(text, fun, value->right, ctx, diag)) return false;
+  z_x64_emit_pop_reg64(text, 1);
+  coff_emit_load_local_slot_reg(text, fun, value->local_index, 0, 2, true);
+  z_x64_emit_store_base_index_reg8(text, 2, 1, 0);
+  z_x64_emit_mov_eax_u32(text, 1);
+  z_x64_patch_rel32(text, end_patch, text->len);
+  return true;
+}
+
+static bool coff_emit_vec_pop_value(ZBuf *text, const IrFunction *fun, const IrValue *value, ZDiag *diag) {
+  if (value->local_index >= fun->local_len || fun->locals[value->local_index].type != IR_TYPE_VEC) return coff_diag_at(diag, "direct COFF Vec pop requires a Vec local", value->line, value->column, "invalid Vec local");
+  coff_emit_load_local_slot_eax(text, fun, value->local_index, 8);
+  z_x64_emit_test_rax_rax(text, false);
+  size_t empty_patch = z_x64_emit_jcc32_placeholder(text, 0x84);
+  z_x64_emit_add_reg_i8(text, 0, -1, false);
+  coff_emit_store_local_slot_from_reg(text, fun, value->local_index, 0, 8, false);
+  z_x64_emit_mov_eax_u32(text, 1);
+  size_t end_patch = z_x64_emit_jmp32_placeholder(text, 0xe9);
+  z_x64_patch_rel32(text, empty_patch, text->len);
+  z_x64_emit_mov_eax_u32(text, 0);
+  z_x64_patch_rel32(text, end_patch, text->len);
+  return true;
+}
+
+static bool coff_emit_vec_truncate_value(ZBuf *text, const IrFunction *fun, const IrValue *value, CoffEmitContext *ctx, ZDiag *diag) {
+  if (value->local_index >= fun->local_len || fun->locals[value->local_index].type != IR_TYPE_VEC) return coff_diag_at(diag, "direct COFF Vec truncate requires a Vec local", value->line, value->column, "invalid Vec local");
+  if (!value->left) return coff_diag_at(diag, "direct COFF Vec truncate requires a length", value->line, value->column, "missing Vec length");
+  if (!coff_emit_value(text, fun, value->left, ctx, diag)) return false;
+  z_x64_emit_push_rax(text);
+  coff_emit_load_local_slot_reg(text, fun, value->local_index, 8, 1, false);
+  z_x64_emit_pop_reg64(text, 0);
+  z_x64_emit_cmp_rax_rcx(text, false);
+  size_t requested_patch = z_x64_emit_jcc32_placeholder(text, 0x82);
+  z_x64_emit_mov_eax_from_ecx(text);
+  z_x64_patch_rel32(text, requested_patch, text->len);
+  coff_emit_store_local_slot_from_reg(text, fun, value->local_index, 0, 8, false);
+  return true;
+}
+
+static bool coff_emit_vec_remove_swap_value(ZBuf *text, const IrFunction *fun, const IrValue *value, CoffEmitContext *ctx, ZDiag *diag) {
+  if (value->local_index >= fun->local_len || fun->locals[value->local_index].type != IR_TYPE_VEC) return coff_diag_at(diag, "direct COFF Vec swap-remove requires a Vec local", value->line, value->column, "invalid Vec local");
+  if (!value->left) return coff_diag_at(diag, "direct COFF Vec swap-remove requires an index", value->line, value->column, "missing Vec index");
+  if (!coff_emit_value(text, fun, value->left, ctx, diag)) return false;
+  z_x64_emit_push_rax(text);
+  coff_emit_load_local_slot_reg(text, fun, value->local_index, 8, 1, false);
+  z_x64_emit_pop_reg64(text, 0);
+  z_x64_emit_cmp_rax_rcx(text, false);
+  size_t ok_patch = z_x64_emit_jcc32_placeholder(text, 0x82);
+  z_x64_emit_mov_eax_u32(text, 0);
+  size_t end_patch = z_x64_emit_jmp32_placeholder(text, 0xe9);
+  z_x64_patch_rel32(text, ok_patch, text->len);
+  z_x64_emit_add_reg_i8(text, 1, -1, false);
+  coff_emit_load_local_slot_reg(text, fun, value->local_index, 0, 2, true);
+  z_x64_emit_movzx_reg32_base_index_u8(text, 8, 2, 1);
+  z_x64_emit_store_base_index_reg8(text, 2, 0, 8);
+  coff_emit_store_local_slot_from_reg(text, fun, value->local_index, 1, 8, false);
   z_x64_emit_mov_eax_u32(text, 1);
   z_x64_patch_rel32(text, end_patch, text->len);
   return true;
@@ -1329,6 +1463,12 @@ static bool coff_emit_value(ZBuf *text, const IrFunction *fun, const IrValue *va
       coff_emit_load_local_slot_eax(text, fun, value->local_index, value->kind == IR_VALUE_VEC_LEN ? 8 : 12);
       return true;
     case IR_VALUE_VEC_PUSH: return coff_emit_vec_push_value(text, fun, value, ctx, diag);
+    case IR_VALUE_VEC_GET: return coff_emit_vec_get_value(text, fun, value, ctx, diag);
+    case IR_VALUE_VEC_SET: return coff_emit_vec_set_value(text, fun, value, ctx, diag);
+    case IR_VALUE_VEC_CLEAR: return coff_emit_vec_clear_value(text, fun, value, diag);
+    case IR_VALUE_VEC_POP: return coff_emit_vec_pop_value(text, fun, value, diag);
+    case IR_VALUE_VEC_TRUNCATE: return coff_emit_vec_truncate_value(text, fun, value, ctx, diag);
+    case IR_VALUE_VEC_REMOVE_SWAP: return coff_emit_vec_remove_swap_value(text, fun, value, ctx, diag);
     case IR_VALUE_MAYBE_HAS:
       if (value->local_index >= fun->local_len ||
           (fun->locals[value->local_index].type != IR_TYPE_MAYBE_BYTE_VIEW && fun->locals[value->local_index].type != IR_TYPE_MAYBE_SCALAR)) {
@@ -1497,6 +1637,7 @@ static bool coff_emit_local_set_maybe_scalar(ZBuf *text, const IrFunction *fun, 
     return true;
   }
   if ((instr->value->kind == IR_VALUE_CALL ||
+       instr->value->kind == IR_VALUE_VEC_GET ||
        instr->value->kind == IR_VALUE_ASCII_RUNTIME ||
        instr->value->kind == IR_VALUE_TEXT_RUNTIME ||
        instr->value->kind == IR_VALUE_PARSE_RUNTIME ||
@@ -1538,7 +1679,30 @@ static bool coff_emit_local_set_instr(ZBuf *text, const IrFunction *fun, const I
 }
 static bool coff_emit_field_store_instr(ZBuf *text, const IrFunction *fun, const IrInstr *instr, CoffEmitContext *ctx, ZDiag *diag) {
   if (instr->local_index >= fun->local_len) return coff_diag_at(diag, "direct COFF field store record is out of range", instr->line, instr->column, "invalid record local");
-  if (fun->locals[instr->local_index].is_record_ref) {
+  const IrLocal *local = &fun->locals[instr->local_index];
+  if (instr->value && instr->value->type == IR_TYPE_BYTE_VIEW) {
+    if (local->is_record_ref) {
+      if (!coff_emit_byte_view_pair(text, fun, instr->value, 0, 2, ctx, diag)) return false;
+      z_x64_emit_push_rax(text);
+      z_x64_emit_push_reg64(text, 2);
+      coff_emit_load_local_slot_rax(text, fun, instr->local_index, 0);
+      if (instr->field_offset > 0) z_x64_emit_add_rax_u32(text, instr->field_offset, true);
+      z_x64_emit_mov_reg_from_reg(text, 1, 0, true);
+      z_x64_emit_pop_reg64(text, 2);
+      z_x64_emit_pop_rax(text);
+      coff_emit_store_ptr_element(text, 1, 0, IR_TYPE_U64);
+      z_x64_emit_add_reg_i8(text, 1, 8, true);
+      coff_emit_store_ptr_element(text, 1, 2, IR_TYPE_U64);
+      return true;
+    }
+    if (!local->is_record) return coff_diag_at(diag, "direct COFF byte-view field store requires record local", instr->line, instr->column, "non-record local");
+    if (!coff_emit_byte_view_pair(text, fun, instr->value, 0, 2, ctx, diag)) return false;
+    coff_emit_store_field_from_eax(text, fun, instr->local_index, instr->field_offset, IR_TYPE_U64);
+    z_x64_emit_mov_reg_from_reg(text, 0, 2, true);
+    coff_emit_store_field_from_eax(text, fun, instr->local_index, instr->field_offset + 8u, IR_TYPE_U64);
+    return true;
+  }
+  if (local->is_record_ref) {
     coff_emit_load_local_slot_rax(text, fun, instr->local_index, 0);
     if (instr->field_offset > 0) z_x64_emit_add_rax_u32(text, instr->field_offset, true);
     z_x64_emit_push_rax(text);
@@ -1547,7 +1711,7 @@ static bool coff_emit_field_store_instr(ZBuf *text, const IrFunction *fun, const
     coff_emit_store_ptr_element(text, 1, 0, instr->value ? instr->value->type : IR_TYPE_I32);
     return true;
   }
-  if (!fun->locals[instr->local_index].is_record) return coff_diag_at(diag, "direct COFF field store requires record local", instr->line, instr->column, "non-record local");
+  if (!local->is_record) return coff_diag_at(diag, "direct COFF field store requires record local", instr->line, instr->column, "non-record local");
   if (!coff_emit_value(text, fun, instr->value, ctx, diag)) return false;
   coff_emit_store_field_from_eax(text, fun, instr->local_index, instr->field_offset, instr->value ? instr->value->type : IR_TYPE_I32); return true;
 }
@@ -1691,6 +1855,7 @@ static bool coff_emit_instr(ZBuf *text, const IrFunction *fun, const IrInstr *in
       }
       if (fun->return_type == IR_TYPE_MAYBE_SCALAR && instr->value) {
         if ((instr->value->kind == IR_VALUE_CALL ||
+             instr->value->kind == IR_VALUE_VEC_GET ||
              instr->value->kind == IR_VALUE_ASCII_RUNTIME ||
              instr->value->kind == IR_VALUE_TEXT_RUNTIME ||
              instr->value->kind == IR_VALUE_PARSE_RUNTIME ||

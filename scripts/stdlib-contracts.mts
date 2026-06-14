@@ -123,7 +123,9 @@ const skillPath = "skill-data/stdlib.md";
 const stdSigPath = "native/zero-c/src/std_sig.c";
 const stdSourcePath = "native/zero-c/src/std_source.c";
 const embeddedStdlibGraphPath = "native/zero-c/src/embedded_stdlib_graph.inc";
+const embeddedStdlibGraphDir = "native/zero-c/src/embedded_stdlib_graph";
 const fixtureRoots = ["examples", "conformance", "benchmarks/rosetta"];
+const generatedFixtureFiles = ["conformance/run.mjs"];
 
 function cBlock(text: string, marker: string): string {
   const start = text.indexOf(marker);
@@ -143,11 +145,12 @@ function cBlock(text: string, marker: string): string {
 }
 
 function parseCStringArray(raw: string): Array<string | null> {
-  return raw
-    .split(",")
-    .map((value) => value.trim())
-    .filter((value) => value.length > 0)
-    .map((value) => value === "NULL" ? null : value.replace(/^"|"$/g, ""));
+  const values: Array<string | null> = [];
+  const tokenPattern = /"((?:\\.|[^"\\])*)"|NULL/g;
+  for (const match of raw.matchAll(tokenPattern)) {
+    values.push(match[0] === "NULL" ? null : match[1].replace(/\\"/g, "\"").replace(/\\\\/g, "\\"));
+  }
+  return values;
 }
 
 function duplicateValues(values: string[]): string[] {
@@ -170,6 +173,25 @@ function parseEmbeddedStdlibGraphBytes(text: string, graphPath: string): Buffer 
   if (block.length === 0) return null;
   const bytes = [...block.matchAll(/0x([0-9a-fA-F]{2})/g)].map((match) => Number.parseInt(match[1], 16));
   return Buffer.from(bytes);
+}
+
+function parseEmbeddedStdlibGraphPart(text: string, graphPath: string): string | null {
+  const partName = `${cIdent(graphPath)}.inc`;
+  const pattern = new RegExp(`#include\\s+"embedded_stdlib_graph/${partName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`);
+  return pattern.test(text) ? join(embeddedStdlibGraphDir, partName) : null;
+}
+
+async function readEmbeddedStdlibGraphBytes(text: string | null, graphPath: string): Promise<Buffer | null> {
+  if (text !== null) {
+    const embeddedGraph = parseEmbeddedStdlibGraphBytes(text, graphPath);
+    if (embeddedGraph !== null) return embeddedGraph;
+    const partPath = parseEmbeddedStdlibGraphPart(text, graphPath);
+    if (partPath !== null && existsSync(partPath)) {
+      const partText = await readFile(partPath, "utf8");
+      return parseEmbeddedStdlibGraphBytes(partText, graphPath);
+    }
+  }
+  return existsSync(graphPath) ? readFile(graphPath) : null;
 }
 
 function parseStdHelpers(text: string): StdHelper[] {
@@ -213,7 +235,7 @@ function parseSkillSignatures(text: string): Map<string, StdSkillSignature> {
       const argText = signatureMatch[2].trim();
       const argTypes = argText.length === 0
         ? []
-        : argText.split(/\s*,\s*/).map((arg) => {
+        : splitTopLevelCommaList(argText).map((arg) => {
             const colon = arg.indexOf(":");
             return (colon >= 0 ? arg.slice(colon + 1) : arg).trim();
           });
@@ -227,6 +249,27 @@ function parseSkillSignatures(text: string): Map<string, StdSkillSignature> {
     }
   }
   return signatures;
+}
+
+function splitTopLevelCommaList(text: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let index = 0; index < text.length; index++) {
+    const ch = text[index];
+    if (ch === "<" || ch === "(" || ch === "[") {
+      depth++;
+    } else if (ch === ">" || ch === ")" || ch === "]") {
+      if (depth > 0) depth--;
+    } else if (ch === "," && depth === 0) {
+      const part = text.slice(start, index).trim();
+      if (part.length > 0) parts.push(part);
+      start = index + 1;
+    }
+  }
+  const tail = text.slice(start).trim();
+  if (tail.length > 0) parts.push(tail);
+  return parts;
 }
 
 function parseStdSourceModules(text: string): StdSourceModule[] {
@@ -406,7 +449,7 @@ function helperTypes(helper: StdHelper): string[] {
 const [stdSig, stdSource, embeddedStdlibGraph, skill] = await Promise.all([
   readFile(stdSigPath, "utf8"),
   readFile(stdSourcePath, "utf8"),
-  readFile(embeddedStdlibGraphPath, "utf8"),
+  readOptional(embeddedStdlibGraphPath),
   readFile(skillPath, "utf8"),
 ]);
 
@@ -424,8 +467,10 @@ const skillSignatures = parseSkillSignatures(skill);
 const modules = [...new Set(helpers.map((helper) => helper.module))].sort((a, b) => a.localeCompare(b));
 const sourceModules = parseStdSourceModules(stdSource);
 const sourceCalls = parseStdSourceCalls(stdSource);
-const fixtureFiles = (await Promise.all(fixtureRoots.map((root) => sourceFilesUnder(root))))
-  .flat()
+const fixtureFiles = [
+  ...(await Promise.all(fixtureRoots.map((root) => sourceFilesUnder(root)))).flat(),
+  ...generatedFixtureFiles.filter((path) => existsSync(path)),
+]
   .sort((a, b) => a.localeCompare(b));
 const fixtureTexts = await Promise.all(fixtureFiles.map(async (path) => ({
   path,
@@ -474,8 +519,8 @@ for (const helper of helpers) {
   pushIf(!helperNamePattern.test(helper.name), failures, `${helper.name}: helper name must be std.<module>.<name>`);
   pushIf(!moduleNamePattern.test(helper.module), failures, `${helper.name}: helper module must be std.<module>`);
   pushIf(helper.returnType.length === 0, failures, `${helper.name}: return type is empty`);
-  pushIf(helper.argCount < 0 || helper.argCount > 4, failures, `${helper.name}: arg count ${helper.argCount} exceeds contract bounds`);
-  pushIf(helper.argTypes.length > 4, failures, `${helper.name}: arg type list exceeds contract bounds`);
+  pushIf(helper.argCount < 0 || helper.argCount > 5, failures, `${helper.name}: arg count ${helper.argCount} exceeds contract bounds`);
+  pushIf(helper.argTypes.length > 5, failures, `${helper.name}: arg type list exceeds contract bounds`);
   for (let index = 0; index < helper.argCount; index++) {
     pushIf(helper.argTypes[index] === null || helper.argTypes[index] === undefined, failures, `${helper.name}: arg ${index + 1} is missing from std_sig.c`);
   }
@@ -574,7 +619,7 @@ for (const sourceModule of sourceModules) {
   pushIf(!moduleNamePattern.test(sourceModule.module), failures, `${sourceModule.module}: invalid graph-backed std module name`);
   pushIf(!existsSync(sourceModule.path), failures, `${sourceModule.module}: missing std projection ${sourceModule.path}`);
   pushIf(!modules.includes(sourceModule.module), failures, `${sourceModule.module}: graph-backed module has no public helpers`);
-  const embeddedGraph = parseEmbeddedStdlibGraphBytes(embeddedStdlibGraph, sourceModule.graphPath);
+  const embeddedGraph = await readEmbeddedStdlibGraphBytes(embeddedStdlibGraph, sourceModule.graphPath);
   const graph = existsSync(sourceModule.graphPath) ? await readFile(sourceModule.graphPath) : null;
   pushIf(!existsSync(sourceModule.graphPath), failures, `${sourceModule.module}: missing graph-backed std module ${sourceModule.graphPath}`);
   pushIf(embeddedGraph === null, failures, `${sourceModule.module}: embedded stdlib graph is missing for ${sourceModule.graphPath}`);
